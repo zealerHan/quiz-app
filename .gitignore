@@ -1,0 +1,5 @@
+node_modules/
+quiz-v3/.env
+quiz-v3/data/
+*.log
+.DS_Store

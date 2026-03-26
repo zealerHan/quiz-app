@@ -1,8 +1,8 @@
+require('dotenv').config();
 const multer = require("multer");
 const upload = multer({storage: multer.memoryStorage()});
 const fs = require("fs");
 const { spawn } = require("child_process");
-require('dotenv').config();
 const express = require('express');
 const WebSocket = require('ws');
 const https = require('https');
@@ -880,9 +880,9 @@ app.get('/api/iat-token', (req, res) => {
 });
 
 // ─── 阿里云实时语音识别 WebSocket代理 ────────────────────────────────────────
-const ALI_APPKEY = 'foWRSSdach3SYAcH';
-const ALI_AK_ID  = 'LTAI5tMA4z9CjTGmBszep5vP';
-const ALI_AK_SEC = 'm06XnWr2YnDJG0CeChkObfRyEk4gea';
+const ALI_APPKEY = process.env.ALI_APPKEY;
+const ALI_AK_ID  = process.env.ALI_AK_ID;
+const ALI_AK_SEC = process.env.ALI_AK_SEC;
 
 async function getAliToken() {
   return new Promise((resolve, reject) => {
