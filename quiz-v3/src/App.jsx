@@ -11,6 +11,27 @@ const apiJson = async (path, opts={}) => { const r = await api(path, opts); retu
 const adminHeaders = pwd => ({ "x-admin-password": pwd });
 
 // ─── Shared Micro UI ───────────────────────────────────────────────────────
+function AppModal({ icon, title, body, buttons }) {
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:"0 32px"}}>
+      <div style={{background:"rgba(28,32,48,0.96)",borderRadius:18,width:"100%",maxWidth:320,overflow:"hidden",boxShadow:"0 24px 60px rgba(0,0,0,0.6)",border:"1px solid rgba(255,255,255,0.08)"}}>
+        <div style={{padding:"24px 20px 16px",textAlign:"center"}}>
+          {icon&&<div style={{fontSize:32,marginBottom:10}}>{icon}</div>}
+          <div style={{fontSize:17,fontWeight:700,color:"white",marginBottom:8,letterSpacing:0.3}}>{title}</div>
+          {body&&<div style={{fontSize:13,color:"rgba(255,255,255,0.5)",lineHeight:1.7,whiteSpace:"pre-line"}}>{body}</div>}
+        </div>
+        <div style={{borderTop:"1px solid rgba(255,255,255,0.08)",display:"flex"}}>
+          {buttons.map((btn,i)=>(
+            <button key={i} onClick={btn.onClick} style={{flex:1,padding:"15px 0",background:"none",border:"none",borderRight:i<buttons.length-1?"1px solid rgba(255,255,255,0.08)":"none",color:btn.danger?"#ef4444":btn.primary?"#3b82f6":"rgba(255,255,255,0.45)",fontSize:16,cursor:"pointer",fontFamily:"inherit",fontWeight:btn.primary||btn.danger?600:400,letterSpacing:0.2}}>
+              {btn.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ScoreRing({ score, size=80 }) {
   const r=size*.38, c=2*Math.PI*r, dash=(score/100)*c;
   const col=score>=85?"#22c55e":score>=60?"#f59e0b":"#ef4444";
@@ -139,14 +160,54 @@ function LoginScreen({ onLogin, onAdmin }) {
   );
 }
 
+// ─── Helpers ───────────────────────────────────────────────────────────────
+function splitToItems(text) {
+  if (!text?.trim()) return [];
+  // ① 分号分隔的编号步骤："1.xxx；2.xxx"
+  if (/[；;]/.test(text)) {
+    const segs = text.split(/[；;]/).map(s=>s.replace(/^\d{1,2}[.、。]\s*/,'').trim()).filter(Boolean);
+    if (segs.length > 1) return segs.slice(0,10);
+  }
+  // ② 内联编号分割："1.xxx2.xxx" 或 "①xxx②xxx"
+  const numParts = text.split(/(?=\d{1,2}[.、]|[①②③④⑤⑥⑦⑧⑨⑩])/u)
+    .map(s=>s.replace(/^\d{1,2}[.、]|^[①②③④⑤⑥⑦⑧⑨⑩]/,'').trim()).filter(Boolean);
+  if (numParts.length > 1) return numParts.slice(0,10);
+  // ③ 按句末标点拆，再按逗号拆超长段
+  const sentenceParts = text.split(/[。！？\n]+/).map(s=>s.trim()).filter(Boolean);
+  const result = [];
+  for (const part of sentenceParts) {
+    if (part.length <= 50) { result.push(part); continue; }
+    const subs = part.split(/[，,]+/).map(s=>s.trim()).filter(Boolean);
+    let buf = '';
+    for (const sub of subs) {
+      if (!buf) { buf = sub; }
+      else if (buf.length + sub.length + 1 <= 50) { buf += '，' + sub; }
+      else { result.push(buf); buf = sub; }
+    }
+    if (buf) result.push(buf);
+  }
+  return result.filter(s=>s.length>0);
+}
+const CIRCLE_NUMS = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩'];
+// 判断 item 是否包含 points 中任意关键词（取前4字匹配）
+function hasOverlap(item, points) {
+  if (!points?.length || !item) return false;
+  return points.some(p => {
+    const key = p.replace(/[，。！？、\s]/g,'').slice(0,4);
+    return key.length >= 2 && item.includes(key);
+  });
+}
+
 // ─── NEW: Quiz Screen ──────────────────────────────────────────────────────
-function QuizScreen({ user, onDone }) {
+function QuizScreen({ user, onDone, onBack, mode='normal' }) {
   const [questions,setQuestions]=useState([]);
   const [sessionId,setSessionId]=useState(null);
   const [qi,setQi]=useState(0);
   const [phase,setPhase]=useState("loading");
   const [editMode,setEditMode]=useState(false);
   const [transcript,setTranscript]=useState("");
+  const [transcriptItems,setTranscriptItems]=useState([]);
+  const [editingIdx,setEditingIdx]=useState(-1);
   const [isRec,setIsRec]=useState(false);
   const [aiRes,setAiRes]=useState(null);
   const [isRecognizing,setIsRecognizing]=useState(false);
@@ -156,22 +217,49 @@ function QuizScreen({ user, onDone }) {
   const [displayText,setDisplayText]=useState("");
   const [isSpeaking,setIsSpeaking]=useState(false);
   const [muted,setMuted]=useState(true); // 默认静音
+  const [showSubmitConfirm,setShowSubmitConfirm]=useState(false);
+  const [showBackConfirm,setShowBackConfirm]=useState(false);
+  const [tabSwitchCount,setTabSwitchCount]=useState(0);
+  const [showTabWarn,setShowTabWarn]=useState(false);
   const [camOn,setCamOn]=useState(false);
-  const videoRef=useRef(),streamRef=useRef(),recRef=useRef(),typeRef=useRef();
+  const tabSwitchRef=useRef(0);
+  const videoRef=useRef(),streamRef=useRef(),recRef=useRef(),typeRef=useRef(),pendingSubmitRef=useRef(false),submitRef=useRef(null),scoreCacheRef=useRef(null);
+
+  const isPractice = mode !== 'normal';
 
   useEffect(()=>{
+    const qUrl = mode==='practice_random' ? '/api/practice/questions?mode=random&count=3'
+               : mode==='practice_sequential' ? '/api/practice/questions?mode=sequential'
+               : '/api/questions';
     Promise.all([
-      apiJson("/api/questions"),
-      apiJson("/api/session/start",{method:"POST",body:JSON.stringify({staffId:user.staffId,staffName:user.name})})
+      apiJson(qUrl),
+      apiJson("/api/session/start",{method:"POST",body:JSON.stringify({staffId:user.staffId,staffName:user.name,isPractice})})
     ]).then(([qData,sData])=>{
       setQuestions(qData.questions||[]);
       setSessionId(sData.sessionId);
       setPhase("intro");
+      if (mode==='normal') {
+        const today=new Date().toISOString().slice(0,10);
+        localStorage.setItem('quiz_inprogress',JSON.stringify({staffId:user.staffId,date:today,answered:0,total:(qData.questions||[]).length}));
+      }
     }).catch(()=>setPhase("error"));
     navigator.mediaDevices?.getUserMedia({video:true,audio:false})
       .then(s=>{streamRef.current=s;if(videoRef.current)videoRef.current.srcObject=s;setCamOn(true);})
       .catch(()=>{});
     return()=>streamRef.current?.getTracks().forEach(t=>t.stop());
+  },[]);
+
+  useEffect(()=>{
+    const handler=()=>{
+      if(document.hidden){
+        tabSwitchRef.current+=1;
+        setTabSwitchCount(tabSwitchRef.current);
+      } else if(tabSwitchRef.current>0){
+        setShowTabWarn(true);
+      }
+    };
+    document.addEventListener('visibilitychange',handler);
+    return()=>document.removeEventListener('visibilitychange',handler);
   },[]);
 
   const typeText = useCallback((text, onDone) => {
@@ -223,7 +311,7 @@ function QuizScreen({ user, onDone }) {
               countdownRef.current=null;
               setCountdown(null);
               // 超时自动跳题
-              setQi(i=>i+1); setTranscript(""); setAiRes(null); setPhase("intro"); setDisplayText(""); setEditMode(false);
+              setQi(i=>i+1); setTranscript(""); setTranscriptItems([]); setEditingIdx(-1); setAiRes(null); setPhase("intro"); setDisplayText(""); setEditMode(false); scoreCacheRef.current=null;
               return null;
             }
             return prev-1;
@@ -235,6 +323,7 @@ function QuizScreen({ user, onDone }) {
   }, [phase, qi, q]);
 
   const startRec = async () => {
+    navigator.vibrate?.(50);
     if(countdownRef.current){clearInterval(countdownRef.current);countdownRef.current=null;setCountdown(null);}
     try {
       const stream = await navigator.mediaDevices.getUserMedia({audio:{sampleRate:16000,channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
@@ -243,6 +332,9 @@ function QuizScreen({ user, onDone }) {
         stream.getTracks().forEach(t=>t.stop());
         return;
       }
+
+      // 拿到麦克风权限后立即变红，不等 WebSocket 握手
+      setIsRec(true);
 
       // 建立WebSocket连接到后端代理
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -255,7 +347,6 @@ function QuizScreen({ user, onDone }) {
       const processor = audioCtx.createScriptProcessor(4096,1,1);
 
       ws.onopen = () => {
-        setIsRec(true);
         processor.onaudioprocess = (e) => {
           if(ws.readyState !== WebSocket.OPEN) return;
           const f32 = e.inputBuffer.getChannelData(0);
@@ -275,12 +366,26 @@ function QuizScreen({ user, onDone }) {
             window._streamingTranscript = msg.text;
           } else if(msg.type === 'final') {
             setTranscript(msg.text);
+            setTranscriptItems(splitToItems(msg.text));
             window._streamingTranscript = msg.text;
             setIsRecognizing(false);
+            // 预热评分：识别完成后立即后台请求，结果缓存供提交时直接使用
+            const preText = msg.text;
+            const preQid = questions[qi]?.id;
+            if (preText && preQid) {
+              const promise = apiJson("/api/score",{method:"POST",body:JSON.stringify({questionId:preQid,answer:preText})}).catch(()=>null);
+              scoreCacheRef.current = { promise, transcript: preText, result: null };
+              promise.then(r=>{ if(scoreCacheRef.current?.transcript===preText) scoreCacheRef.current.result=r; });
+            }
+            if(pendingSubmitRef.current){
+              pendingSubmitRef.current = false;
+              setTimeout(()=>submitRef.current?.(), 50);
+            }
           } else if(msg.type === 'error') {
             setTranscript(msg.text);
             window._streamingTranscript = '';
             setIsRecognizing(false);
+            pendingSubmitRef.current = false;
           }
         } catch(err){}
       };
@@ -318,6 +423,7 @@ function QuizScreen({ user, onDone }) {
   };
 
   const stopRec = () => {
+    navigator.vibrate?.([30, 50, 30]);
     if(recRef.current && recRef.current !== 'aborted') {
       recRef.current.stop();
       recRef.current = null;
@@ -327,19 +433,31 @@ function QuizScreen({ user, onDone }) {
   };
 
   const submitWithConfirm = () => {
-    if (!window.confirm("确认提交该作答内容？")) return;
-    setEditMode(false);
-    submit();
+    setShowSubmitConfirm(true);
   };
   const submit = async () => {
-    // iOS: 先识别，再评分
+    // 识别还在进行中：挂起提交，等 final 结果回来后自动触发
+    if (isRecognizing) {
+      pendingSubmitRef.current = true;
+      setShowSubmitConfirm(false);
+      return;
+    }
     const finalTranscript = transcript || window._streamingTranscript;
     window._streamingTranscript = null;
     if (!finalTranscript.trim() || finalTranscript.includes('录音完成')) return;
     setPhase("processing");
     let result;
-    try { result = await apiJson("/api/score",{method:"POST",body:JSON.stringify({questionId:q.id,answer:finalTranscript})}); }
-    catch { result={score:0,level:"需加强",summary:"评分服务异常",correct_points:[],missing_points:[],suggestion:"请重试",encouragement:"继续加油！",score_method:"error"}; }
+    const cache = scoreCacheRef.current;
+    scoreCacheRef.current = null;
+    if (cache && cache.transcript === finalTranscript) {
+      // 取预热缓存，若还未返回则等待 promise
+      try { result = cache.result ?? await cache.promise; } catch {}
+    }
+    if (!result) {
+      try { result = await apiJson("/api/score",{method:"POST",body:JSON.stringify({questionId:q.id,answer:finalTranscript})}); }
+      catch {}
+    }
+    if (!result) result={score:0,level:"需加强",summary:"评分服务异常",correct_points:[],missing_points:[],suggestion:"请重试",encouragement:"继续加油！",score_method:"error"};
     result.transcript = finalTranscript || result.transcript || transcript;
     setAiRes(result);
     try { await api(`/api/session/${sessionId}/answer`,{method:"POST",body:JSON.stringify({staffId:user.staffId,staffName:user.name,questionId:q.id,questionText:q.text,category:q.category,answerText:finalTranscript||transcript,score:result.score,level:result.level,summary:result.summary,correctPoints:result.correct_points,missingPoints:result.missing_points,suggestion:result.suggestion,scoreMethod:result.score_method})}); } catch {}
@@ -348,13 +466,30 @@ function QuizScreen({ user, onDone }) {
     speak(`${result.summary}本题${result.score}分。${result.encouragement}`,()=>{});
     setPhase("feedback");
   };
+  submitRef.current = submit;
 
   const next = async () => {
     if (qi+1 >= questions.length) {
+      localStorage.removeItem('quiz_inprogress');
       const avg = Math.round(results.reduce((s,r)=>s+r.score,0)/results.length);
-      try { const pts = await apiJson(`/api/session/${sessionId}/finish`,{method:"POST",body:JSON.stringify({totalScore:avg})}); onDone(results,pts?.points); }
-      catch { onDone(results,null); }
-    } else { if(countdownRef.current){clearInterval(countdownRef.current);countdownRef.current=null;} setCountdown(null); setQi(i=>i+1); setTranscript(""); setAiRes(null); setPhase("intro"); setDisplayText(""); setEditMode(false); }
+      try { const pts = await apiJson(`/api/session/${sessionId}/finish`,{method:"POST",body:JSON.stringify({totalScore:avg})}); onDone(results,pts?.points,mode); }
+      catch { onDone(results,null,mode); }
+    } else { if(countdownRef.current){clearInterval(countdownRef.current);countdownRef.current=null;} setCountdown(null); setQi(i=>i+1); setTranscript(""); setTranscriptItems([]); setEditingIdx(-1); setAiRes(null); setPhase("intro"); setDisplayText(""); setEditMode(false); scoreCacheRef.current=null; }
+  };
+
+  const goBack = async () => {
+    if (q && sessionId) {
+      try {
+        await api(`/api/session/${sessionId}/answer`,{method:"POST",body:JSON.stringify({staffId:user.staffId,staffName:user.name,questionId:q.id,questionText:q.text,category:q.category,answerText:'',score:0,level:'需加强',summary:'未作答',correctPoints:[],missingPoints:[],suggestion:'请认真参与',scoreMethod:'skip'})});
+        await api(`/api/session/${sessionId}/finish`,{method:"POST",body:JSON.stringify({totalScore:0})});
+      } catch {}
+    }
+    // 保留进度标记（带已答题数），主页据此显示「继续作答」而非「已完成」
+    if (mode === 'normal') {
+      const today = new Date().toISOString().slice(0, 10);
+      localStorage.setItem('quiz_inprogress', JSON.stringify({staffId:user.staffId, date:today, answered:qi, total:questions.length}));
+    }
+    onBack?.();
   };
 
   if (phase==="loading"||phase==="error") return (
@@ -381,10 +516,13 @@ function QuizScreen({ user, onDone }) {
         {/* 顶部状态栏 */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 20px 6px"}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <button onClick={()=>setShowBackConfirm(true)} title="返回主页" style={{background:"none",border:"none",color:"rgba(255,255,255,0.45)",fontSize:22,cursor:"pointer",padding:"0 4px 0 0",lineHeight:1,fontWeight:300}}>‹</button>
             <div style={{width:7,height:7,borderRadius:"50%",background:"#c8394b",boxShadow:"0 0 8px rgba(200,57,75,0.7)",animation:"liveDot 2s ease-in-out infinite"}}/>
             <span style={{fontSize:12,fontWeight:500,letterSpacing:1.5,color:"rgba(255,255,255,0.8)"}}>第 {qi+1} 题 / 共 {questions.length} 题</span>
+            {isPractice&&<span style={{fontSize:10,fontWeight:700,color:"#f59e0b",background:"rgba(245,158,11,0.15)",border:"1px solid rgba(245,158,11,0.35)",borderRadius:8,padding:"1px 7px",letterSpacing:1}}>练习</span>}
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
+            {tabSwitchCount>0&&<span style={{fontSize:10,fontWeight:700,color:"#ef4444",background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:8,padding:"1px 6px",letterSpacing:0.5}}>切屏×{tabSwitchCount}</span>}
             {countdown!==null && <span style={{fontSize:13,fontWeight:700,color:countdown<=10?"#ef4444":"#f59e0b",letterSpacing:1}}>{countdown}s</span>}
             <button onClick={()=>setMuted(m=>!m)} title={muted?"点击开启朗读":"点击静音"}
               style={{background:muted?"rgba(255,255,255,0.08)":"rgba(200,57,75,0.2)",border:`1px solid ${muted?"rgba(255,255,255,0.15)":"rgba(200,57,75,0.5)"}`,borderRadius:20,padding:"4px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:5,color:muted?"rgba(255,255,255,0.45)":"#c8394b",fontSize:11,fontWeight:600,transition:"all 0.2s"}}>
@@ -433,56 +571,81 @@ function QuizScreen({ user, onDone }) {
         {/* ── 底部操作区 ── */}
         {phase !== "feedback" ? (
           <div style={{padding:"10px 16px 16px",display:"flex",flexDirection:"column",gap:10}}>
-            {/* 识别文字区 */}
-            <div style={{background:"rgba(255,255,255,0.04)",border:`1px solid ${editMode?"rgba(59,130,246,0.4)":"rgba(255,255,255,0.08)"}`,borderRadius:10,padding:"10px 14px",transition:"border 0.2s"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                <span style={{fontSize:9,color:"rgba(255,255,255,0.4)",letterSpacing:2}}>您的作答</span>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  {isRecognizing&&(
-                    <div style={{display:"flex",alignItems:"center",gap:5}}>
-                      <div style={{display:"flex",gap:2,alignItems:"center",height:14}}>
-                        {[...Array(4)].map((_,i)=><div key={i} style={{width:2.5,background:"#f59e0b",borderRadius:2,animation:`wave 0.5s ease-in-out ${i*0.1}s infinite alternate`,height:4}}/>)}
-                      </div>
-                      <span style={{fontSize:9,color:"#f59e0b",letterSpacing:1}}>上传识别中，请稍候…</span>
-                    </div>
-                  )}
-                  {isRec&&<div style={{display:"flex",gap:2,alignItems:"center",height:16}}>
-                    {[...Array(6)].map((_,i)=><div key={i} style={{width:2.5,background:"#22c55e",borderRadius:2,animation:`wave 0.5s ease-in-out ${i*0.07}s infinite alternate`,height:4}}/>)}
-                  </div>}
-                  {editMode&&<span style={{fontSize:9,color:"#3b82f6",letterSpacing:1}}>纠正模式</span>}
+            {/* 录音/识别/结果区 */}
+            <div style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,padding:"10px 14px",minHeight:90,display:"flex",flexDirection:"column",justifyContent:"center"}}>
+              {isRec ? (
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,padding:"10px 0"}}>
+                  <div style={{display:"flex",gap:3,alignItems:"flex-end",height:40}}>
+                    {[10,22,34,28,40,32,18,36,26,14].map((h,i)=>(
+                      <div key={i} style={{width:4,borderRadius:3,background:"#22c55e",animation:`wave 0.5s ease-in-out ${i*0.07}s infinite alternate`,height:h}}/>
+                    ))}
+                  </div>
+                  <span style={{fontSize:11,color:"#22c55e",letterSpacing:1.5,fontWeight:600}}>录音中，请自然说话…</span>
                 </div>
-              </div>
-              <textarea
-                value={transcript}
-                onChange={e=>{ if(editMode) setTranscript(e.target.value); }}
-                onSelect={e=>{
-                  if(!editMode) return;
-                  const el=e.target;
-                  const sel=el.selectionEnd-el.selectionStart;
-                  if(transcript && sel>transcript.length*0.6) el.setSelectionRange(el.selectionStart,el.selectionStart);
-                }}
-                onKeyDown={e=>{
-                  if(!editMode) return;
-                  if((e.ctrlKey||e.metaKey)&&e.key==='a') e.preventDefault();
-                  if((e.key==='Backspace'||e.key==='Delete')&&transcript.length<=2) e.preventDefault();
-                }}
-                readOnly={isRec||isRecognizing||!editMode}
-                placeholder={phase==="intro"?"题目朗读中，稍候…":isRecognizing?"🎙 正在识别语音…":"点击录音开始作答，再次点击停止"}
-                style={{width:"100%",minHeight:68,background:"transparent",border:"none",outline:"none",color:transcript?"rgba(255,255,255,0.85)":"rgba(255,255,255,0.25)",fontSize:16,lineHeight:1.75,fontFamily:"inherit",resize:"none",WebkitAppearance:"none",cursor:editMode?"text":"default"}}
-              />
+              ) : isRecognizing ? (
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,padding:"10px 0"}}>
+                  <div className="spinner" style={{width:22,height:22}}/>
+                  <span style={{fontSize:11,color:"#f59e0b",letterSpacing:1.5,fontWeight:600}}>正在识别…</span>
+                </div>
+              ) : transcriptItems.length > 0 ? (
+                <div>
+                  <div style={{fontSize:9,color:"rgba(255,255,255,0.35)",letterSpacing:2,marginBottom:7}}>您语音识别摘要内容：</div>
+                  {transcriptItems.map((item,idx)=>(
+                    <div key={idx} style={{display:"flex",alignItems:"flex-start",gap:7,padding:"5px 0",borderBottom:idx<transcriptItems.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
+                      <span style={{fontSize:15,color:"#e8c97a",flexShrink:0,lineHeight:1.55,userSelect:"none"}}>{CIRCLE_NUMS[idx]||`${idx+1}.`}</span>
+                      {editingIdx===idx ? (
+                        <textarea
+                          autoFocus
+                          defaultValue={item}
+                          onBlur={e=>{
+                            const val=e.target.value.trim();
+                            const ni=[...transcriptItems]; ni[idx]=val||item;
+                            const newT=ni.join('');
+                            setTranscriptItems(ni); setTranscript(newT); setEditingIdx(-1);
+                            // 文本变了则重新预热
+                            if(newT!==scoreCacheRef.current?.transcript && q?.id) {
+                              const p2=apiJson("/api/score",{method:"POST",body:JSON.stringify({questionId:q.id,answer:newT})}).catch(()=>null);
+                              scoreCacheRef.current={promise:p2,transcript:newT,result:null};
+                              p2.then(r=>{if(scoreCacheRef.current?.transcript===newT)scoreCacheRef.current.result=r;});
+                            }
+                          }}
+                          onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();e.target.blur();}}}
+                          onCopy={e=>e.preventDefault()}
+                          onPaste={e=>e.preventDefault()}
+                          onCut={e=>e.preventDefault()}
+                          style={{flex:1,background:"rgba(59,130,246,0.1)",border:"1px solid rgba(59,130,246,0.4)",borderRadius:4,color:"rgba(255,255,255,0.9)",fontSize:14,lineHeight:1.6,padding:"2px 6px",fontFamily:"inherit",resize:"none",outline:"none",minHeight:36,WebkitAppearance:"none"}}
+                        />
+                      ) : (
+                        <span
+                          onClick={()=>setEditingIdx(idx)}
+                          style={{flex:1,fontSize:14,color:"rgba(255,255,255,0.82)",lineHeight:1.6,cursor:"pointer",borderRadius:4,padding:"1px 4px"}}
+                        >{item}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{color:"rgba(255,255,255,0.2)",fontSize:14,textAlign:"center",padding:"10px 0"}}>
+                  {phase==="intro"?"题目朗读中，稍候…":"点击下方录音按钮开始作答"}
+                </div>
+              )}
             </div>
 
             {/* ★ 三角按钮区：纠正 / PTT / 提交 */}
             <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",padding:"0 8px",gap:12}}>
-              {/* 左：纠正 */}
+              {/* 左：重录 */}
               <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,flex:1}}>
                 <button
-                  onClick={()=>{ if(transcript&&!isRec&&!isRecognizing) setEditMode(m=>!m); }}
-                  disabled={!transcript||isRec||isRecognizing}
-                  style={{width:64,height:64,borderRadius:"50%",background:editMode?"rgba(59,130,246,0.25)":"rgba(255,255,255,0.06)",border:`2px solid ${editMode?"rgba(59,130,246,0.7)":"rgba(255,255,255,0.15)"}`,cursor:transcript&&!isRec&&!isRecognizing?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",opacity:!transcript?0.3:1,transition:"all 0.2s"}}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={editMode?"#3b82f6":"rgba(255,255,255,0.6)"} strokeWidth="2" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  onClick={()=>{
+                    if(isRec) stopRec();
+                    setTranscript(""); setTranscriptItems([]); setEditingIdx(-1);
+                    window._streamingTranscript=null; scoreCacheRef.current=null;
+                  }}
+                  disabled={(!transcript&&transcriptItems.length===0)||isRecognizing||phase==="intro"||phase==="processing"}
+                  style={{width:64,height:64,borderRadius:"50%",background:"rgba(255,255,255,0.06)",border:"2px solid rgba(255,255,255,0.15)",cursor:(transcript||transcriptItems.length>0)&&!isRecognizing&&phase!=="intro"&&phase!=="processing"?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",opacity:(transcript||transcriptItems.length>0)&&!isRecognizing?1:0.3,transition:"all 0.2s"}}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.96"/></svg>
                 </button>
-                <span style={{fontSize:12,fontWeight:600,color:editMode?"#3b82f6":"rgba(255,255,255,0.35)",letterSpacing:1}}>{editMode?"退出纠正":"纠正"}</span>
+                <span style={{fontSize:12,fontWeight:600,color:"rgba(255,255,255,0.35)",letterSpacing:1}}>重录</span>
               </div>
 
               {/* 中：PTT 主按钮 */}
@@ -491,11 +654,11 @@ function QuizScreen({ user, onDone }) {
                   onClick={e=>{
                     e.preventDefault();
                     e.stopPropagation();
-                    if(phase==="intro"||phase==="processing"||isRecognizing||editMode) return;
+                    if(phase==="intro"||phase==="processing"||isRecognizing) return;
                     if(isRec){ stopRec(); } else { startRec(); }
                   }}
-                  disabled={phase==="intro"||phase==="processing"||editMode}
-                  style={{width:96,height:96,borderRadius:"50%",background:isRec?"linear-gradient(135deg,#c8394b,#9e2a39)":isRecognizing?"#374151":editMode?"#1a1a2a":"linear-gradient(135deg,#166534,#22c55e)",border:isRec?"3px solid rgba(200,57,75,0.5)":isRecognizing?"3px solid rgba(255,255,255,0.1)":"3px solid rgba(34,197,94,0.4)",cursor:(phase==="intro"||phase==="processing"||editMode)?"not-allowed":"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,boxShadow:isRec?"0 0 0 10px rgba(200,57,75,0.15),0 0 0 20px rgba(200,57,75,0.07),0 8px 24px rgba(200,57,75,0.4)":editMode?"none":"0 0 0 8px rgba(34,197,94,0.08),0 6px 20px rgba(34,197,94,0.25)",transition:"all 0.15s",userSelect:"none",WebkitUserSelect:"none",animation:isRec?"micPulse 1.5s ease-out infinite":"none",touchAction:"none",opacity:editMode?0.3:1,WebkitTouchCallout:"none"}}>
+                  disabled={phase==="intro"||phase==="processing"}
+                  style={{width:96,height:96,borderRadius:"50%",background:isRec?"linear-gradient(135deg,#c8394b,#9e2a39)":isRecognizing?"#374151":"linear-gradient(135deg,#166534,#22c55e)",border:isRec?"3px solid rgba(200,57,75,0.5)":isRecognizing?"3px solid rgba(255,255,255,0.1)":"3px solid rgba(34,197,94,0.4)",cursor:(phase==="intro"||phase==="processing")?"not-allowed":"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,boxShadow:isRec?"0 0 0 10px rgba(200,57,75,0.15),0 0 0 20px rgba(200,57,75,0.07),0 8px 24px rgba(200,57,75,0.4)":"0 0 0 8px rgba(34,197,94,0.08),0 6px 20px rgba(34,197,94,0.25)",transition:"all 0.15s",userSelect:"none",WebkitUserSelect:"none",animation:isRec?"micPulse 1.5s ease-out infinite":"none",touchAction:"none",WebkitTouchCallout:"none"}}>
                   {isRecognizing
                     ? <div style={{width:8,height:8,borderRadius:"50%",background:"#f59e0b",animation:"blink 0.8s step-end infinite"}}/>
                     : isRec
@@ -511,14 +674,14 @@ function QuizScreen({ user, onDone }) {
               <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,flex:1}}>
                 <button
                   onClick={submitWithConfirm}
-                  disabled={!transcript||isRec||isRecognizing||phase==="processing"||phase==="intro"}
-                  style={{width:64,height:64,borderRadius:"50%",background:(transcript&&!isRec&&!isRecognizing&&phase!=="processing"&&phase!=="intro")?"linear-gradient(135deg,#1e3a5f,#3b82f6)":"rgba(255,255,255,0.06)",border:`2px solid ${(transcript&&!isRec&&!isRecognizing&&phase!=="processing"&&phase!=="intro")?"rgba(59,130,246,0.6)":"rgba(255,255,255,0.1)"}`,cursor:(transcript&&!isRec&&!isRecognizing&&phase!=="processing"&&phase!=="intro")?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",opacity:(transcript&&!isRec&&!isRecognizing&&phase!=="processing"&&phase!=="intro")?1:0.3,transition:"all 0.2s",boxShadow:(transcript&&!isRec&&!isRecognizing&&phase!=="processing"&&phase!=="intro")?"0 4px 16px rgba(59,130,246,0.3)":"none"}}>
+                  disabled={transcriptItems.length===0||isRec||isRecognizing||phase==="processing"||phase==="intro"}
+                  style={{width:64,height:64,borderRadius:"50%",background:(transcriptItems.length>0&&!isRec&&!isRecognizing&&phase!=="processing"&&phase!=="intro")?"linear-gradient(135deg,#1e3a5f,#3b82f6)":"rgba(255,255,255,0.06)",border:`2px solid ${(transcriptItems.length>0&&!isRec&&!isRecognizing&&phase!=="processing"&&phase!=="intro")?"rgba(59,130,246,0.6)":"rgba(255,255,255,0.1)"}`,cursor:(transcriptItems.length>0&&!isRec&&!isRecognizing&&phase!=="processing"&&phase!=="intro")?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",opacity:(transcriptItems.length>0&&!isRec&&!isRecognizing&&phase!=="processing"&&phase!=="intro")?1:0.3,transition:"all 0.2s",boxShadow:(transcriptItems.length>0&&!isRec&&!isRecognizing&&phase!=="processing"&&phase!=="intro")?"0 4px 16px rgba(59,130,246,0.3)":"none"}}>
                   {phase==="processing"
                     ? <div style={{width:8,height:8,borderRadius:"50%",background:"white",animation:"blink 0.8s step-end infinite"}}/>
                     : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                   }
                 </button>
-                <span style={{fontSize:12,fontWeight:600,color:(transcript&&!isRec&&!isRecognizing&&phase!=="processing"&&phase!=="intro")?"rgba(255,255,255,0.5)":"rgba(255,255,255,0.2)",letterSpacing:1}}>{phase==="processing"?"分析中":"提交"}</span>
+                <span style={{fontSize:12,fontWeight:600,color:(transcriptItems.length>0&&!isRec&&!isRecognizing&&phase!=="processing"&&phase!=="intro")?"rgba(255,255,255,0.5)":"rgba(255,255,255,0.2)",letterSpacing:1}}>{phase==="processing"?"分析中":"提交"}</span>
               </div>
             </div>
 
@@ -542,20 +705,49 @@ function QuizScreen({ user, onDone }) {
                   <Badge label={aiRes.level} color={aiRes.level==="优秀"?"#22c55e":aiRes.level==="合格"?"#f59e0b":"#ef4444"}/>
                 </div>
                 <p style={{fontSize:13,color:"rgba(255,255,255,0.75)",marginBottom:10,lineHeight:1.7}}>{aiRes.summary}</p>
-                {/* 标准答案 */}
+                {/* 标准答案 — 列表化 */}
+                {(()=>{const refItems=splitToItems(q.reference||'');return(
                 <div style={{marginBottom:10,padding:"10px 12px",background:"rgba(34,197,94,0.08)",border:"1px solid rgba(34,197,94,0.25)",borderRadius:6}}>
-                  <div style={{fontSize:10,color:"#22c55e",letterSpacing:1,marginBottom:5,fontWeight:600}}>📋 标准答案</div>
-                  <div style={{fontSize:12,color:"rgba(255,255,255,0.85)",lineHeight:1.8}}>{q.reference}</div>
+                  <div style={{fontSize:11,color:"#22c55e",letterSpacing:1,marginBottom:7,fontWeight:600}}>📋 标准答案</div>
+                  {refItems.length>0?refItems.map((item,i)=>(
+                    <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"4px 0",borderBottom:i<refItems.length-1?"1px solid rgba(34,197,94,0.1)":"none"}}>
+                      <span style={{fontSize:14,fontWeight:700,color:"#22c55e",flexShrink:0,minWidth:22,lineHeight:1.6}}>{i+1}.</span>
+                      <span style={{fontSize:14,color:"rgba(255,255,255,0.88)",lineHeight:1.6}}>{item}</span>
+                    </div>
+                  )):<div style={{fontSize:14,color:"rgba(255,255,255,0.7)"}}>{q.reference}</div>}
                 </div>
-                {/* 识别文本 */}
-                <div style={{marginBottom:10,padding:"10px 12px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",borderRadius:6}}>
-                  <div style={{fontSize:10,color:"#3b82f6",letterSpacing:1,marginBottom:5,fontWeight:600}}>🎙 您的作答（语音识别）</div>
-                  <div style={{fontSize:12,color:"rgba(255,255,255,0.7)",lineHeight:1.8}}>{aiRes.transcript||transcript||"（未识别到内容）"}</div>
-                </div>
-                {/* 差异评估 */}
-                {aiRes.correct_points?.length>0&&<div style={{marginBottom:6}}><div style={{fontSize:10,color:"rgba(255,255,255,0.4)",letterSpacing:1,marginBottom:4}}>✅ 答对要点</div><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{aiRes.correct_points.map((p,i)=><Badge key={i} label={p} color="#22c55e"/>)}</div></div>}
-                {aiRes.missing_points?.length>0&&<div style={{marginBottom:6}}><div style={{fontSize:10,color:"rgba(255,255,255,0.4)",letterSpacing:1,marginBottom:4}}>⚠ 遗漏/顺序错误</div><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{aiRes.missing_points.map((p,i)=><Badge key={i} label={p} color="#ef4444"/>)}</div></div>}
-                {aiRes.order_errors?.length>0&&<div style={{marginBottom:6}}><div style={{fontSize:10,color:"rgba(255,255,255,0.4)",letterSpacing:1,marginBottom:4}}>🔀 顺序问题</div><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{aiRes.order_errors.map((p,i)=><Badge key={i} label={p} color="#f59e0b"/>)}</div></div>}
+                );})()}
+                {/* 用户作答 — 列表化 + 染色 */}
+                {(()=>{
+                  const uItems=splitToItems(aiRes.transcript||transcript||'');
+                  const cp=aiRes.correct_points||[], op=aiRes.order_errors||[], mp=aiRes.missing_points||[];
+                  return(
+                  <div style={{marginBottom:10,padding:"10px 12px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",borderRadius:6}}>
+                    <div style={{fontSize:11,color:"#3b82f6",letterSpacing:1,marginBottom:7,fontWeight:600}}>🎙 您的作答</div>
+                    {uItems.length===0&&<div style={{fontSize:14,color:"rgba(255,255,255,0.35)"}}>（未识别到内容）</div>}
+                    {uItems.map((item,i)=>{
+                      const isCorrect=hasOverlap(item,cp);
+                      const isOrder=!isCorrect&&hasOverlap(item,op);
+                      const clr=isCorrect?"#22c55e":isOrder?"#f59e0b":"rgba(255,255,255,0.78)";
+                      return(
+                        <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"4px 0",borderBottom:i<uItems.length-1?"1px solid rgba(59,130,246,0.1)":"none"}}>
+                          <span style={{fontSize:14,fontWeight:700,color:clr,flexShrink:0,minWidth:22,lineHeight:1.6}}>{CIRCLE_NUMS[i]||`${i+1}.`}</span>
+                          <span style={{flex:1,fontSize:14,color:clr,lineHeight:1.6}}>
+                            {item}
+                            {isOrder&&<span style={{fontSize:11,color:"#f59e0b",marginLeft:6,opacity:0.85}}>→ 顺序有误</span>}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {mp.map((p,i)=>(
+                      <div key={`m${i}`} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"5px 4px",marginTop:3,background:"rgba(239,68,68,0.08)",borderRadius:4}}>
+                        <span style={{fontSize:14,color:"#ef4444",flexShrink:0,lineHeight:1.6}}>✗</span>
+                        <span style={{fontSize:14,color:"rgba(239,68,68,0.85)",lineHeight:1.6}}>未提及：{p}</span>
+                      </div>
+                    ))}
+                  </div>
+                  );
+                })()}
                 <div style={{fontSize:12,color:"rgba(255,255,255,0.5)",lineHeight:1.6,marginBottom:6}}>{aiRes.suggestion}</div>
                 <div style={{fontSize:12,color:"#e8c97a",fontStyle:"italic",marginBottom:14}}>「{aiRes.encouragement}」</div>
                 <div style={{height:16}}></div>
@@ -569,6 +761,10 @@ function QuizScreen({ user, onDone }) {
       </div>
 
       {phase==="processing"&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:100}}><div className="spinner"/><div style={{color:"rgba(255,255,255,0.5)",marginTop:12,fontSize:14}}>AI 分析中…</div></div>}
+
+      {showSubmitConfirm&&<AppModal icon="📝" title="准备提交" body={"注意答题顺序和准确，\n确认后将提交当前作答内容。"} buttons={[{label:"再想想",onClick:()=>setShowSubmitConfirm(false)},{label:"提交",onClick:()=>{setShowSubmitConfirm(false);submit();},primary:true}]}/>}
+      {showBackConfirm&&<AppModal icon="⚠️" title="确认返回？" body={"本题尚未完成作答，\n返回将记零分并结束本次答题。"} buttons={[{label:"继续答题",onClick:()=>setShowBackConfirm(false)},{label:"记零分返回",onClick:()=>{setShowBackConfirm(false);goBack();},danger:true}]}/>}
+      {showTabWarn&&<AppModal icon="👀" title={`检测到切屏 ${tabSwitchCount} 次`} body="请专注答题，切屏次数已被记录。" buttons={[{label:"我知道了",onClick:()=>setShowTabWarn(false),primary:true}]}/>}
     </div>
   );
 }
@@ -578,8 +774,8 @@ function HistoryScreen({ user, onBack }) {
   const [records,setRecords]=useState([]);
   const [loading,setLoading]=useState(true);
   useEffect(()=>{
-    apiJson(`/api/me/${user.staffId}`).then(d=>{
-      setRecords(d.records||[]);
+    apiJson(`/api/me/${user.staffId}/answers`).then(d=>{
+      setRecords(d||[]);
       setLoading(false);
     }).catch(()=>setLoading(false));
   },[]);
@@ -594,12 +790,12 @@ function HistoryScreen({ user, onBack }) {
       {records.map((r,i)=>(
         <div key={i} className="card" style={{marginBottom:10,padding:'12px 14px'}}>
           <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
-            <span style={{fontSize:12,color:'#64748b'}}>{r.answered_at?new Date(r.answered_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'--'}</span>
+            <span style={{fontSize:12,color:'#64748b'}}>{r.created_at?new Date(r.created_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'--'}</span>
             <span style={{fontWeight:700,color:r.score>=80?'#22c55e':r.score>=60?'#f59e0b':'#ef4444',fontSize:14}}>{r.score??'--'} 分</span>
           </div>
-          <div style={{fontSize:13,color:'#cbd5e1',marginBottom:4,lineHeight:1.5}}>{r.question_text||'（题目）'}</div>
-          <div style={{fontSize:11,color:'#475569'}}>答：{r.answer_text||'--'}</div>
-          {r.feedback&&<div style={{fontSize:11,color:'#3b82f6',marginTop:4}}>{r.feedback}</div>}
+          <div style={{fontSize:13,color:'#cbd5e1',marginBottom:4,lineHeight:1.5}}>{r.question_text||'（无题目记录）'}</div>
+          <div style={{fontSize:11,color:'#475569',marginBottom:r.level?4:0}}>答：{r.answer_text||'--'}</div>
+          {r.level&&<Badge label={r.level} color={r.level==='优秀'?'#22c55e':r.level==='合格'?'#f59e0b':'#ef4444'}/>}
         </div>
       ))}
     </div>
@@ -674,15 +870,24 @@ function HomeScreen({ user, nav }) {
   const [activeBank, setActiveBank] = useState(null);
   const [taskDone, setTaskDone] = useState(false);
   const [isExempt, setIsExempt] = useState(false);
+  const [quizInProgress, setQuizInProgress] = useState(null); // null or {answered, total}
 
   useEffect(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      const ip = JSON.parse(localStorage.getItem('quiz_inprogress') || 'null');
+      if (ip && ip.staffId === user.staffId && ip.date === today) {
+        setQuizInProgress({ answered: ip.answered ?? 0, total: ip.total ?? 3 });
+      }
+    } catch {}
+
     apiJson(`/api/me/${user.staffId}`).then(d => {
       setMe(d);
       const exempt = !!(d.staff && d.staff.is_exempt);
       setIsExempt(exempt);
       if (!exempt) {
-        const today = new Date().toISOString().slice(0, 10);
-        const doneToday = (d.recent || []).some(r => r.created_at && r.created_at.slice(0, 10) === today);
+        const today2 = new Date().toISOString().slice(0, 10);
+        const doneToday = (d.recent || []).some(r => r.created_at && r.created_at.slice(0, 10) === today2);
         setTaskDone(doneToday);
       }
     }).catch(() => {});
@@ -795,7 +1000,9 @@ function HomeScreen({ user, nav }) {
               flex:1, background:'#081828', border:'1px solid var(--border)',
               borderRadius:8, padding:'9px 10px', fontSize:11, color:'var(--text)', lineHeight:1.6, minHeight:48
             }}>{activeBank ? activeBank.name : '加载中…'}</div>
-            {taskDone
+            {quizInProgress
+              ? <button onClick={() => { localStorage.removeItem('quiz_inprogress'); setQuizInProgress(null); nav('quiz'); }} style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid rgba(200,57,75,.5)', cursor:'pointer', background:'linear-gradient(135deg,#7a1a24,#c8394b)', color:'white', fontSize:11, fontWeight:800, fontFamily:'var(--font)', letterSpacing:'0.5px' }}>已完成 {quizInProgress.answered}/{quizInProgress.total}，继续作答 ›</button>
+              : taskDone
               ? <button className="btn-done" style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid rgba(34,197,94,.4)', background:'rgba(34,197,94,.08)', color:'var(--green)', fontSize:11, fontWeight:700, fontFamily:'var(--font)' }}>✓ 今日已完成</button>
               : <button onClick={() => nav('quiz')} style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#9a6f10,#c8a84b)', color:'#07101f', fontSize:12, fontWeight:800, fontFamily:'var(--font)', letterSpacing:'1px' }}>开始抽问</button>
             }
@@ -855,7 +1062,7 @@ function HomeScreen({ user, nav }) {
             {[
               { label:'答题历史', val: null,     action: () => nav('history'), dev: false },
               { label:'我的分析', val: null,     action: () => nav('profile'), dev: false  },
-              { label:'个人总分', val: myPoints, action: () => alert('待开发'), dev: true  },
+              { label:'练习强化', val: null,     action: () => nav('practice'), dev: false },
             ].map(({ label, val, action, dev }) => (
               <div key={label} onClick={action} style={{
                 flex:1, display:'flex', alignItems:'center', justifyContent:'space-between',
@@ -973,18 +1180,28 @@ function HomeScreen({ user, nav }) {
   );
 }
 
-function ResultScreen({ user, results, points, onHome }) {
+function ResultScreen({ user, results, points, onHome, mode='normal', onContinuePractice }) {
   const avg=results.length?Math.min(100,Math.round(results.reduce((s,r)=>s+r.score,0)/results.length)):0;
-  const total100=results.length?Math.min(100,Math.round(results.reduce((s,r)=>s+r.score,0)/results.length)):0;
   const col=avg>=85?'#22c55e':avg>=60?'#f59e0b':'#ef4444';
+  const isPractice = mode !== 'normal';
   return(
     <div className="screen" style={{padding:'32px 16px',alignItems:'center'}}>
-      <div style={{fontSize:36,marginBottom:8}}>🎯</div>
-      <div style={{fontSize:20,fontWeight:700,color:'white',marginBottom:4}}>答题完成！</div>
+      <div style={{fontSize:36,marginBottom:8}}>{isPractice?'📝':'🎯'}</div>
+      <div style={{fontSize:20,fontWeight:700,color:'white',marginBottom:4}}>{isPractice?'练习完成！':'答题完成！'}</div>
       <div style={{fontSize:12,color:'#64748b',marginBottom:24}}>{user.name} · {results.length}题 · {new Date().toLocaleDateString('zh-CN')}</div>
       <ScoreRing score={avg} size={110}/>
       <div style={{fontSize:11,color:'rgba(255,255,255,0.4)',marginTop:4,letterSpacing:1}}>{results.length}题综合均分</div>
-      {points&&(
+      {isPractice&&points&&(
+        <div style={{margin:'20px 0',padding:'12px 20px',background:'rgba(245,158,11,0.08)',border:'1px solid rgba(245,158,11,0.25)',borderRadius:12,textAlign:'center'}}>
+          {points.practiceBonus>0
+            ? <><div style={{fontSize:14,fontWeight:700,color:'#f59e0b'}}>+1 练习加分已获得</div>
+                <div style={{fontSize:11,color:'rgba(255,255,255,0.4)',marginTop:4}}>本月已用 {points.practiceUsed} / {points.practiceMax} 次加分机会</div></>
+            : <><div style={{fontSize:14,fontWeight:600,color:'rgba(255,255,255,0.5)'}}>本月练习加分已用完</div>
+                <div style={{fontSize:11,color:'rgba(255,255,255,0.3)',marginTop:4}}>下月继续加油（每月最多 +3 分）</div></>
+          }
+        </div>
+      )}
+      {!isPractice&&points&&(
         <div style={{display:'flex',gap:12,margin:'20px 0',padding:'14px 20px',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:12}}>
           <div style={{textAlign:'center'}}><div style={{fontSize:18,fontWeight:700,color:'white'}}>{points.base}</div><div style={{fontSize:11,color:'#64748b'}}>基础积分</div></div>
           <div style={{fontSize:18,color:'#1b3255',alignSelf:'center'}}>+</div>
@@ -1005,7 +1222,84 @@ function ResultScreen({ user, results, points, onHome }) {
           </div>
         ))}
       </div>
-      <button className="btn-primary" style={{maxWidth:380}} onClick={onHome}>返回首页</button>
+      {isPractice?(
+        <div style={{width:'100%',maxWidth:380,display:'flex',flexDirection:'column',gap:10}}>
+          <button className="btn-primary" onClick={onContinuePractice} style={{background:'linear-gradient(135deg,#92400e,#f59e0b)'}}>继续练习</button>
+          <button onClick={onHome} style={{padding:'13px',borderRadius:10,border:'1px solid #1b3255',background:'none',color:'rgba(255,255,255,0.45)',fontSize:14,cursor:'pointer',fontFamily:'var(--font)'}}>返回首页</button>
+        </div>
+      ):(
+        <button className="btn-primary" style={{maxWidth:380}} onClick={onHome}>返回首页</button>
+      )}
+    </div>
+  );
+}
+
+// ─── 练习强化 ────────────────────────────────────────────────────────────────
+function PracticeScreen({ user, onBack, onStart }) {
+  const [status, setStatus] = useState(null);
+  useEffect(() => {
+    apiJson(`/api/practice/monthly-status/${user.staffId}`).then(setStatus).catch(()=>{});
+  }, []);
+
+  const bonusLeft = status ? status.max - status.used : null;
+
+  return (
+    <div className="screen" style={{padding:'16px'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:20}}>
+        <button onClick={onBack} style={{background:'none',border:'none',color:'#3b82f6',fontSize:22,cursor:'pointer',padding:'0 4px'}}>←</button>
+        <span style={{fontSize:16,fontWeight:700,color:'white'}}>练习强化</span>
+      </div>
+
+      {/* 月度加分状态 */}
+      <div style={{background:'rgba(245,158,11,0.08)',border:'1px solid rgba(245,158,11,0.2)',borderRadius:14,padding:'14px 16px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <div>
+          <div style={{fontSize:12,color:'rgba(255,255,255,0.5)',marginBottom:4}}>本月练习加分</div>
+          <div style={{fontSize:11,color:'rgba(255,255,255,0.35)'}}>每完成一次练习 +1 分，每月最多 +3 分</div>
+        </div>
+        <div style={{textAlign:'center',minWidth:52}}>
+          {status
+            ? <><div style={{fontSize:26,fontWeight:900,color:'#f59e0b',lineHeight:1}}>{status.used}</div>
+                <div style={{fontSize:10,color:'rgba(255,255,255,0.3)',marginTop:2}}>/ 3 分</div></>
+            : <div style={{width:28,height:28,border:'2px solid rgba(245,158,11,0.3)',borderTop:'2px solid #f59e0b',borderRadius:'50%',animation:'spin 0.8s linear infinite',margin:'0 auto'}}/>
+          }
+        </div>
+      </div>
+
+      {/* 应急抽问 */}
+      <div onClick={()=>onStart('practice_random')} style={{background:'linear-gradient(135deg,#0d2d5a,#1a4a8a)',border:'1px solid rgba(59,130,246,0.4)',borderRadius:14,padding:'18px',marginBottom:12,cursor:'pointer',transition:'transform .15s'}}
+        onMouseEnter={e=>e.currentTarget.style.transform='translateY(-2px)'}
+        onMouseLeave={e=>e.currentTarget.style.transform='none'}>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <div style={{width:44,height:44,borderRadius:12,background:'rgba(59,130,246,0.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>🎯</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:15,fontWeight:700,color:'white',marginBottom:4}}>应急抽问</div>
+            <div style={{fontSize:12,color:'rgba(255,255,255,0.45)',lineHeight:1.5}}>随机抽取 3 题，快速热身练习<br/>完成后可继续下一轮</div>
+          </div>
+          <span style={{fontSize:20,color:'rgba(255,255,255,0.3)'}}>›</span>
+        </div>
+      </div>
+
+      {/* 顺序练习 */}
+      <div onClick={()=>onStart('practice_sequential')} style={{background:'linear-gradient(135deg,#0d2d1a,#1a4a2a)',border:'1px solid rgba(34,197,94,0.3)',borderRadius:14,padding:'18px',cursor:'pointer',transition:'transform .15s'}}
+        onMouseEnter={e=>e.currentTarget.style.transform='translateY(-2px)'}
+        onMouseLeave={e=>e.currentTarget.style.transform='none'}>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <div style={{width:44,height:44,borderRadius:12,background:'rgba(34,197,94,0.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>📚</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:15,fontWeight:700,color:'white',marginBottom:4}}>顺序练习</div>
+            <div style={{fontSize:12,color:'rgba(255,255,255,0.45)',lineHeight:1.5}}>按题库顺序逐题过一遍<br/>全面巩固每一个知识点</div>
+          </div>
+          <span style={{fontSize:20,color:'rgba(255,255,255,0.3)'}}>›</span>
+        </div>
+      </div>
+
+      <div style={{marginTop:20,padding:'12px 14px',background:'rgba(255,255,255,0.03)',borderRadius:10,border:'1px solid rgba(255,255,255,0.06)'}}>
+        <div style={{fontSize:11,color:'rgba(255,255,255,0.3)',lineHeight:1.7}}>
+          · 练习分数不计入积分榜排名<br/>
+          · 每完成一次练习，总榜积分 +1（每月上限 3 次）<br/>
+          · 加分与正式答题积分合并计入排行榜
+        </div>
+      </div>
     </div>
   );
 }
@@ -1065,7 +1359,7 @@ function ProfileScreen({ user, onBack }) {
   const [aiAnalysis,setAiAnalysis]=useState('');
   const [aiLoading,setAiLoading]=useState(false);
 
-  useEffect(()=>{ apiJson(`/api/me/${user.staffId}`).then(setD).catch(()=>{}); },[]);
+  useEffect(()=>{ apiJson(`/api/me/${user.staffId}`).then(setD).catch(()=>setD({})); },[]);
 
   const loadAiAnalysis = async (data) => {
     if(aiLoading||aiAnalysis) return;
@@ -1095,8 +1389,9 @@ function ProfileScreen({ user, onBack }) {
   };
 
   if(!d)return(
-    <div style={{display:'flex',flex:1,alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'var(--bg)'}}>
+    <div style={{display:'flex',flex:1,alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'var(--bg)',flexDirection:'column',gap:16}}>
       <div className="spinner"/>
+      <button onClick={onBack} style={{background:'none',border:'none',color:'#3b82f6',fontSize:14,cursor:'pointer',fontFamily:'var(--font)'}}>← 返回</button>
     </div>
   );
 
@@ -1532,6 +1827,35 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
   );
 }
 
+function BankImportCard({ pwd, onImported }) {
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState('');
+  const doImport = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setImporting(true); setImportMsg('');
+    const fd = new FormData();
+    fd.append('file', file);
+    const bankName = prompt('新题库名称（留空则导入到默认题库）');
+    if (bankName?.trim()) fd.append('bank_name', bankName.trim());
+    else fd.append('bank_id', '1');
+    try {
+      const r = await fetch('/api/admin/banks/import', {method:'POST', headers:adminHeaders(pwd), body:fd});
+      const d = await r.json();
+      if (d.ok) { setImportMsg(`✅ 成功导入 ${d.count} 题`); onImported?.(); }
+      else setImportMsg('❌ ' + (d.error || '导入失败'));
+    } catch { setImportMsg('❌ 网络错误'); }
+    setImporting(false); e.target.value = '';
+  };
+  return (
+    <label className="card" style={{border:'1px dashed #1b3255',textAlign:'center',padding:'22px',cursor:'pointer',display:'block'}}>
+      <input type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}} onChange={doImport}/>
+      <div style={{fontSize:28,marginBottom:6}}>{importing ? '⏳' : '＋'}</div>
+      <div style={{fontSize:13,color:'#64748b'}}>{importing ? '导入中…' : '点击上传题库（Excel / CSV）'}</div>
+      {importMsg && <div style={{fontSize:12,marginTop:8,color:importMsg.startsWith('✅')?'#22c55e':'#ef4444'}}>{importMsg}</div>}
+    </label>
+  );
+}
+
 function AdminScreen({ onBack }) {
   const [authed,setAuthed]=useState(false);
   const [pwd,setPwd]=useState('');
@@ -1544,6 +1868,10 @@ function AdminScreen({ onBack }) {
   const [banks,setBanks]=useState([]);
   const [settings,setSettings]=useState({});
   const [qr,setQr]=useState(null);
+  const [logs,setLogs]=useState([]);
+  const [lbSessions,setLbSessions]=useState([]);
+  const [lbMode,setLbMode]=useState('cycle'); // 'cycle'|'alltime'
+  const [lbEdit,setLbEdit]=useState(false);
   const ah=useMemo?undefined:adminHeaders(pwd); // will pass inline
   const hdrs=(extra={})=>({...adminHeaders(pwd),'Content-Type':'application/json',...extra});
 
@@ -1555,10 +1883,11 @@ function AdminScreen({ onBack }) {
 
   useEffect(()=>{
     if(!authed)return;
-    if(tab==='overview')apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});
+    if(tab==='overview'){apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});}
     if(tab==='members')apiJson('/api/admin/members',{headers:hdrs()}).then(setMembers).catch(()=>{});
     if(tab==='banks'){apiJson('/api/banks',{headers:hdrs()}).then(setBanks).catch(()=>{});apiJson('/api/settings',{headers:hdrs()}).then(setSettings).catch(()=>{});}
     if(tab==='qr')apiJson('/api/qrcode').then(setQr).catch(()=>{});
+    if(tab==='logs')apiJson('/api/admin/logs',{headers:hdrs()}).then(setLogs).catch(()=>{});
   },[tab,authed]);
 
   const loadMemberDetail=async(id)=>{
@@ -1585,7 +1914,7 @@ function AdminScreen({ onBack }) {
     <div className="screen admin-screen">
       <div className="page-header"><button className="back-btn" onClick={onBack}>←</button><h2>管理员后台</h2><div/></div>
       <div className="tab-row" style={{flexWrap:'wrap',gap:5}}>
-        {[['overview','概览'],['members','人员'],['banks','题库'],['settings','设置'],['qr','扫码']].map(([k,v])=>(
+        {[['overview','概览'],['members','人员'],['banks','题库'],['settings','设置'],['logs','日志'],['qr','扫码']].map(([k,v])=>(
           <button key={k} className={`tab${tab===k?' active':''}`} style={{flex:'none',padding:'7px 12px'}} onClick={()=>setTab(k)}>{v}</button>
         ))}
       </div>
@@ -1618,15 +1947,28 @@ function AdminScreen({ onBack }) {
           )}
           <div className="card">
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
-              <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600}}>本轮积分榜 TOP5</div>
-              <span style={{fontSize:11,color:'#475569'}}>本轮：白班→夜班→早班</span>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600}}>
+                  {lbMode==='cycle'?'本轮积分榜':'总排行榜'}
+                </div>
+                <button onClick={()=>{const nm=lbMode==='cycle'?'alltime':'cycle';setLbMode(nm);setLbEdit(false);apiJson(nm==='alltime'?'/api/admin/leaderboard/alltime':'/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||d||[])).catch(()=>{});}} style={{fontSize:10,color:'#3b82f6',background:'none',border:'1px solid #1b3255',borderRadius:4,padding:'2px 7px',cursor:'pointer'}}>
+                  切换{lbMode==='cycle'?'总榜':'本轮'}
+                </button>
+              </div>
+              <button onClick={()=>setLbEdit(e=>!e)} style={{fontSize:11,color:lbEdit?'#ef4444':'#94a3b8',background:'none',border:`1px solid ${lbEdit?'rgba(239,68,68,0.4)':'#1b3255'}`,borderRadius:4,padding:'3px 9px',cursor:'pointer'}}>
+                {lbEdit?'退出编辑':'编辑'}
+              </button>
             </div>
-            {overview.cycleStats?.slice(0,5).map((r,i)=>(
-              <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 0',borderBottom:i<4?'1px solid #1b3255':'none'}}>
-                <span style={{fontSize:13,width:20,textAlign:'center'}}>{['🥇','🥈','🥉','4','5'][i]}</span>
-                <span style={{flex:1,fontSize:13,color:'white'}}>{r.staff_name}</span>
-                <span style={{fontSize:11,color:'#64748b'}}>{r.sessions}场 · 均{r.avg}分</span>
-                <span style={{fontWeight:700,color:'#c8a84b'}}>{r.pts}</span>
+            {lbSessions.slice(0,lbEdit?50:8).map((r,i)=>(
+              <div key={r.id} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 0',borderBottom:i<lbSessions.slice(0,lbEdit?50:8).length-1?'1px solid #1b3255':'none',opacity:r.hidden?0.4:1}}>
+                <span style={{fontSize:12,width:20,textAlign:'center',color:'#64748b'}}>{i+1}</span>
+                <span style={{flex:1,fontSize:13,color:r.hidden?'#64748b':'white'}}>{r.staff_name}{r.hidden?' [已隐藏]':''}</span>
+                <span style={{fontSize:11,color:'#64748b'}}>{r.q_count??r.sessions}题</span>
+                <span style={{fontWeight:700,color:'#c8a84b',minWidth:32,textAlign:'right'}}>{r.total_points??r.pts}</span>
+                {lbEdit&&<div style={{display:'flex',gap:4,marginLeft:4}}>
+                  <button onClick={async()=>{await api(`/api/admin/sessions/${r.id}/hide`,{method:'PUT',headers:hdrs(),body:JSON.stringify({hidden:!r.hidden})});setLbSessions(ls=>ls.map(s=>s.id===r.id?{...s,hidden:!s.hidden}:s));}} style={{fontSize:11,padding:'2px 6px',borderRadius:4,border:'1px solid #1b3255',background:'none',color:'#f59e0b',cursor:'pointer'}}>{r.hidden?'恢复':'隐藏'}</button>
+                  <button onClick={async()=>{if(!window.confirm(`确认删除 ${r.staff_name} 的这条成绩？`))return;await api(`/api/admin/sessions/${r.id}`,{method:'DELETE',headers:hdrs()});setLbSessions(ls=>ls.filter(s=>s.id!==r.id));}} style={{fontSize:11,padding:'2px 6px',borderRadius:4,border:'1px solid rgba(239,68,68,0.3)',background:'none',color:'#ef4444',cursor:'pointer'}}>删除</button>
+                </div>}
               </div>
             ))}
           </div>
@@ -1651,10 +1993,7 @@ function AdminScreen({ onBack }) {
               </div>
             </div>
           ))}
-          <div className="card" style={{border:'1px dashed #1b3255',textAlign:'center',padding:'22px',cursor:'pointer'}}>
-            <div style={{fontSize:28,marginBottom:6}}>＋</div>
-            <div style={{fontSize:13,color:'#64748b'}}>上传新题库（Excel / CSV）</div>
-          </div>
+          <BankImportCard pwd={pwd} onImported={()=>apiJson('/api/banks',{headers:hdrs()}).then(setBanks).catch(()=>{})}/>
         </>}
 
         {tab==='settings'&&<>
@@ -1688,6 +2027,28 @@ function AdminScreen({ onBack }) {
             {qr?<><img src={qr.qr} alt="QR" style={{width:240,height:240,borderRadius:10,border:'4px solid #1b3255'}}/><div style={{marginTop:12,fontSize:13,color:'#c8a84b'}}>{qr.url}</div></>:<div className="spinner"/>}
           </div>
         )}
+
+        {tab==='logs'&&(
+          <div className="card" style={{padding:0,overflow:'hidden'}}>
+            <div style={{padding:'12px 14px 8px',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:'1px solid #1b3255'}}>
+              <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600}}>后台操作日志</div>
+              <button onClick={()=>apiJson('/api/admin/logs',{headers:hdrs()}).then(setLogs).catch(()=>{})} style={{fontSize:11,color:'#3b82f6',background:'none',border:'none',cursor:'pointer'}}>刷新</button>
+            </div>
+            {logs.length===0&&<div style={{textAlign:'center',color:'#475569',padding:'24px 0',fontSize:13}}>暂无操作记录</div>}
+            {logs.map((l,i)=>(
+              <div key={l.id} style={{display:'flex',alignItems:'flex-start',gap:10,padding:'9px 14px',borderBottom:i<logs.length-1?'1px solid rgba(27,50,85,0.6)':'none'}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:2}}>
+                    <span style={{fontSize:13,fontWeight:600,color:'white'}}>{l.action}</span>
+                    <span style={{fontSize:10,color:'#64748b',background:'#1b3255',borderRadius:3,padding:'1px 5px'}}>{l.operator}</span>
+                  </div>
+                  {l.detail&&<div style={{fontSize:11,color:'#94a3b8',lineHeight:1.5}}>{l.detail}</div>}
+                </div>
+                <div style={{fontSize:10,color:'#475569',flexShrink:0,whiteSpace:'nowrap'}}>{l.created_at?.slice(5,16)}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1700,6 +2061,8 @@ export default function App() {
   const [user,setUser]=useState(null);
   const [quizResults,setQuizResults]=useState([]);
   const [quizPoints,setQuizPoints]=useState(null);
+  const [quizMode,setQuizMode]=useState('normal');
+  const [practiceMode,setPracticeMode]=useState('practice_random');
   const nav=s=>setScreen(s);
   return(
     <>
@@ -1707,8 +2070,11 @@ export default function App() {
       <div className="app-frame">
         {screen==="login"&&<LoginScreen onLogin={u=>{setUser(u);nav("home");}} onAdmin={()=>nav("admin")}/>}
         {screen==="home"&&<HomeScreen user={user} nav={nav}/>}
-        {screen==="quiz"&&<QuizScreen user={user} onDone={(r,p)=>{setQuizResults(r);setQuizPoints(p);nav("result");}}/>}
-        {screen==="result"&&<ResultScreen user={user} results={quizResults} points={quizPoints} onHome={()=>nav("home")}/>}
+        {screen==="quiz"&&<QuizScreen user={user} mode="normal" onDone={(r,p,m)=>{setQuizResults(r);setQuizPoints(p);setQuizMode(m);nav("result");}} onBack={()=>nav("home")}/>}
+        {screen==="practice_quiz"&&<QuizScreen user={user} mode={practiceMode} onDone={(r,p,m)=>{setQuizResults(r);setQuizPoints(p);setQuizMode(m);nav("practice_result");}}/>}
+        {screen==="result"&&<ResultScreen user={user} results={quizResults} points={quizPoints} mode={quizMode} onHome={()=>nav("home")}/>}
+        {screen==="practice_result"&&<ResultScreen user={user} results={quizResults} points={quizPoints} mode={quizMode} onHome={()=>nav("home")} onContinuePractice={()=>{nav("practice_quiz");}}/>}
+        {screen==="practice"&&<PracticeScreen user={user} onBack={()=>nav("home")} onStart={m=>{setPracticeMode(m);nav("practice_quiz");}}/>}
         {screen==="history"&&<HistoryScreen user={user} onBack={()=>nav("home")}/>}
         {screen==="banks"&&<BanksPreviewScreen onBack={()=>nav("home")}/>}
         {screen==="leaderboard"&&<LeaderboardScreen user={user} onBack={()=>nav("home")}/>}
