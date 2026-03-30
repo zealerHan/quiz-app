@@ -1378,7 +1378,7 @@ function LeaderboardScreen({ user, onBack }) {
             <div style={{width:34,height:34,borderRadius:17,background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,color:'white',fontSize:13}}>{r.staff_name[0]}</div>
             <div style={{flex:1}}>
               <div style={{fontSize:13,fontWeight:600,color:r.staff_id===user.staffId?'#c8a84b':'white'}}>{r.staff_name}{r.staff_id===user.staffId?' (我)':''}</div>
-              <div style={{fontSize:11,color:'#64748b',marginTop:1}}>均分{r.avg_score} · {r.sessions}场</div>
+              <div style={{fontSize:11,color:'#64748b',marginTop:1}}>得分{r.avg_score} · {r.q_count}题{r.attempts>1?<span style={{color:'#f59e0b'}}> · 答了{r.attempts}次</span>:''}</div>
             </div>
             <div style={{fontSize:18,fontWeight:900,color:'white'}}>{r.total_points}</div>
           </div>
@@ -1665,8 +1665,22 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
   const [editId,setEditId]=useState(null);
   const [editForm,setEditForm]=useState({real_name:'',phone_tail:'',is_exempt:false});
   const [editErr,setEditErr]=useState('');
+  const [batchSelected,setBatchSelected]=useState(new Set());
+  const [batchMode,setBatchMode]=useState(false);
 
   const hdrs = (extra={}) => ({'x-admin-password': pwd, 'Content-Type':'application/json', ...extra});
+
+  const toggleSelect = (id) => setBatchSelected(prev => { const s=new Set(prev); s.has(id)?s.delete(id):s.add(id); return s; });
+  const selectAll = () => setBatchSelected(new Set(members.map(m=>m.id)));
+  const clearSelect = () => setBatchSelected(new Set());
+  const batchSetIdentity = async (is_tester, is_exempt) => {
+    if(batchSelected.size===0) return;
+    const label = is_tester?'测试':is_exempt?'免答':'正常';
+    if(!window.confirm(`将选中的 ${batchSelected.size} 人设为「${label}」身份？`)) return;
+    const r = await apiJson('/api/admin/staff/batch-identity',{method:'PUT',headers:hdrs(),body:JSON.stringify({ids:[...batchSelected],is_tester,is_exempt})}).catch(()=>null);
+    if(r?.ok){ setBatchSelected(new Set()); onRefresh(); }
+    else alert('操作失败');
+  };
 
   const openEdit = (m) => {
     setEditId(m.id);
@@ -1716,14 +1730,31 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
 
   return (
     <div>
+      {/* 批量操作栏 */}
+      <div style={{display:'flex',alignItems:'center',gap:6,padding:'8px 12px',marginBottom:4,flexWrap:'wrap'}}>
+        <button onClick={()=>{setBatchMode(m=>!m);clearSelect();}} style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:`1px solid ${batchMode?'#3b82f6':'#1b3255'}`,background:batchMode?'rgba(59,130,246,0.15)':'none',color:batchMode?'#3b82f6':'#64748b',cursor:'pointer'}}>
+          {batchMode?'退出批量':'批量编辑'}
+        </button>
+        {batchMode&&<>
+          <button onClick={selectAll} style={{fontSize:11,padding:'4px 8px',borderRadius:6,border:'1px solid #1b3255',background:'none',color:'#94a3b8',cursor:'pointer'}}>全选</button>
+          <button onClick={clearSelect} style={{fontSize:11,padding:'4px 8px',borderRadius:6,border:'1px solid #1b3255',background:'none',color:'#94a3b8',cursor:'pointer'}}>清空</button>
+          {batchSelected.size>0&&<span style={{fontSize:11,color:'#3b82f6',marginLeft:2}}>已选{batchSelected.size}人</span>}
+          <div style={{display:'flex',gap:5,marginLeft:'auto'}}>
+            <button onClick={()=>batchSetIdentity(false,false)} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid rgba(34,197,94,0.4)',background:'rgba(34,197,94,0.1)',color:'#4ade80',cursor:'pointer',opacity:batchSelected.size?1:0.4}}>设为正常</button>
+            <button onClick={()=>batchSetIdentity(true,false)} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid rgba(168,85,247,0.4)',background:'rgba(168,85,247,0.1)',color:'#c084fc',cursor:'pointer',opacity:batchSelected.size?1:0.4}}>设为测试</button>
+            <button onClick={()=>batchSetIdentity(false,true)} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid rgba(100,116,139,0.4)',background:'rgba(100,116,139,0.1)',color:'#94a3b8',cursor:'pointer',opacity:batchSelected.size?1:0.4}}>设为免答</button>
+          </div>
+        </>}
+      </div>
       {/* 人员列表 */}
       <div className="card" style={{padding:'6px 0', marginBottom:10}}>
         {members.length === 0 && <div style={{padding:'20px',textAlign:'center',color:'#475569',fontSize:13}}>暂无人员，请添加</div>}
         {(()=>{const nameCnt={};members.forEach(m=>{nameCnt[m.real_name]=(nameCnt[m.real_name]||0)+1;});const dups=new Set(Object.keys(nameCnt).filter(n=>nameCnt[n]>1));if(dups.size>0&&!window._dupAlerted){window._dupAlerted=true;alert('⚠️ 发现重复姓名：'+[...dups].join('、')+'，请检查人员数据！');}return null;})()}
         {members.map((m,i)=>{const isDup=members.filter(x=>x.real_name===m.real_name).length>1; return (
           <div key={i}>
-            <div style={{display:'flex',alignItems:'center',gap:10,padding:'11px 14px',cursor:'pointer',background:selectedMember===m.id?'rgba(59,130,246,0.06)':'none'}}
-              onClick={()=>selectedMember===m.id?setSelectedMember(null):loadMemberDetail(m.id)}>
+            <div style={{display:'flex',alignItems:'center',gap:10,padding:'11px 14px',cursor:'pointer',background:batchSelected.has(m.id)?'rgba(59,130,246,0.08)':selectedMember===m.id?'rgba(59,130,246,0.06)':'none'}}
+              onClick={()=>batchMode?toggleSelect(m.id):(selectedMember===m.id?setSelectedMember(null):loadMemberDetail(m.id))}>
+              {batchMode&&<input type="checkbox" checked={batchSelected.has(m.id)} onChange={()=>toggleSelect(m.id)} onClick={e=>e.stopPropagation()} style={{width:15,height:15,flexShrink:0,accentColor:'#3b82f6'}}/>}
               <div style={{fontSize:11,color:'#475569',width:18,textAlign:'right',flexShrink:0}}>{i+1}</div>
               <div style={{width:36,height:36,borderRadius:18,background:isDup?'linear-gradient(135deg,#7c2d12,#ef4444)':'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,color:'white',fontSize:14,flexShrink:0}}>
                 {(m.real_name||'?')[0]}
@@ -2026,6 +2057,12 @@ function AdminScreen({ onBack }) {
             ))}
           </div>
           <a href={`/api/export?password=${pwd}`} target="_blank" className="btn-primary" style={{textAlign:'center',textDecoration:'none',display:'block',padding:'13px'}}>📊 导出本月 Excel</a>
+          <button onClick={async()=>{
+            if(!window.confirm('确认清除今日所有答题记录？此操作不可撤销。'))return;
+            const r=await apiJson('/api/admin/sessions/today',{method:'DELETE',headers:hdrs()}).catch(()=>null);
+            if(r?.ok){alert(`已清除今日 ${r.deleted} 条记录`);apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});}
+            else alert('清除失败');
+          }} style={{width:'100%',marginTop:8,padding:'13px',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:8,color:'#ef4444',fontSize:13,fontWeight:600,cursor:'pointer'}}>🗑 清除今日答题数据</button>
         </>}
 
         {tab==='members'&&<MembersTab members={members} pwd={pwd} onRefresh={()=>apiJson('/api/admin/members',{headers:hdrs()}).then(setMembers).catch(()=>{})} selectedMember={selectedMember} setSelectedMember={setSelectedMember} memberDetail={memberDetail} loadMemberDetail={loadMemberDetail}/>}

@@ -515,51 +515,61 @@ app.post('/api/session/:id/finish', (req, res) => {
 });
 
 // ─── Leaderboard (cycle-based) ─────────────────────────────────────────────
+// 每人只取本轮最新一次正式答题成绩（不累加）
 app.get('/api/leaderboard/cycle', (req, res) => {
   const cycle = getCurrentCycle();
   if (!cycle) return res.json([]);
   const rows = db.prepare(`
-    SELECT staff_id, staff_name,
-           SUM(total_points) as total_points,
-           SUM(CASE WHEN COALESCE(is_practice,0)=0 THEN 1 ELSE 0 END) as sessions,
-           ROUND(AVG(CASE WHEN COALESCE(is_practice,0)=0 THEN total_score END),1) as avg_score,
-           MAX(created_at) as last_at,
-           (SELECT avatar FROM staff WHERE id=staff_id LIMIT 1) as avatar
-    FROM sessions
-    WHERE cycle_id=? AND completed=1 AND COALESCE(hidden,0)=0
-    AND staff_id NOT IN (SELECT id FROM staff WHERE is_exempt=1)
-    GROUP BY staff_id
-    ORDER BY total_points DESC
-    LIMIT 30
+    SELECT s.staff_id, s.staff_name, s.total_points, s.total_score as avg_score,
+           s.q_count, s.tab_switch_count, s.created_at as last_at,
+           (SELECT COUNT(*) FROM sessions s2 WHERE s2.staff_id=s.staff_id AND s2.cycle_id=s.cycle_id
+            AND s2.completed=1 AND COALESCE(s2.is_practice,0)=0) as attempts,
+           (SELECT avatar FROM staff WHERE id=s.staff_id LIMIT 1) as avatar
+    FROM sessions s
+    WHERE s.id IN (
+      SELECT MAX(id) FROM sessions
+      WHERE cycle_id=? AND completed=1 AND COALESCE(hidden,0)=0
+      AND COALESCE(is_practice,0)=0
+      AND staff_id NOT IN (SELECT id FROM staff WHERE is_exempt=1)
+      GROUP BY staff_id
+    )
+    ORDER BY s.total_points DESC LIMIT 30
   `).all(cycle.id);
   res.json({ cycle, rows });
 });
 
 app.get('/api/leaderboard/today', (req, res) => {
   const rows = db.prepare(`
-    SELECT staff_id, staff_name,
-           SUM(total_points) as total_points,
-           ROUND(AVG(CASE WHEN COALESCE(is_practice,0)=0 THEN total_score END),1) as avg_score,
-           SUM(CASE WHEN COALESCE(is_practice,0)=0 THEN 1 ELSE 0 END) as sessions
-    FROM sessions
-    WHERE date(created_at)=date('now','localtime') AND completed=1 AND COALESCE(hidden,0)=0
-    GROUP BY staff_id
-    ORDER BY total_points DESC
-    LIMIT 30
+    SELECT s.staff_id, s.staff_name, s.total_points, s.total_score as avg_score,
+           s.q_count, s.tab_switch_count,
+           (SELECT COUNT(*) FROM sessions s2 WHERE s2.staff_id=s.staff_id
+            AND date(s2.created_at)=date('now','localtime')
+            AND s2.completed=1 AND COALESCE(s2.is_practice,0)=0) as attempts
+    FROM sessions s
+    WHERE s.id IN (
+      SELECT MAX(id) FROM sessions
+      WHERE date(created_at)=date('now','localtime') AND completed=1 AND COALESCE(hidden,0)=0
+      AND COALESCE(is_practice,0)=0
+      GROUP BY staff_id
+    )
+    ORDER BY s.total_points DESC LIMIT 30
   `).all();
   res.json(rows);
 });
 
 app.get('/api/leaderboard/alltime', (req, res) => {
   const rows = db.prepare(`
-    SELECT staff_id, staff_name,
-           SUM(total_points) as total_points,
-           SUM(CASE WHEN COALESCE(is_practice,0)=0 THEN 1 ELSE 0 END) as sessions,
-           ROUND(AVG(CASE WHEN COALESCE(is_practice,0)=0 THEN total_score END),1) as avg_score,
-           (SELECT avatar FROM staff WHERE id=staff_id LIMIT 1) as avatar
-    FROM sessions WHERE completed=1 AND COALESCE(hidden,0)=0
-    GROUP BY staff_id
-    ORDER BY total_points DESC LIMIT 30
+    SELECT s.staff_id, s.staff_name, s.total_points, s.total_score as avg_score,
+           s.q_count, s.tab_switch_count,
+           (SELECT avatar FROM staff WHERE id=s.staff_id LIMIT 1) as avatar
+    FROM sessions s
+    WHERE s.id IN (
+      SELECT MAX(id) FROM sessions
+      WHERE completed=1 AND COALESCE(hidden,0)=0
+      AND COALESCE(is_practice,0)=0
+      GROUP BY staff_id
+    )
+    ORDER BY s.total_points DESC LIMIT 30
   `).all();
   res.json(rows);
 });
@@ -707,6 +717,24 @@ app.get('/api/me/:staffId/answers', (req, res) => {
     FROM answers WHERE staff_id=? ORDER BY created_at DESC LIMIT 50
   `).all(req.params.staffId);
   res.json(rows);
+});
+
+// ─── Batch: delete today's sessions ────────────────────────────────────────
+app.delete('/api/admin/sessions/today', adminAuth, (req, res) => {
+  const info = db.prepare("DELETE FROM sessions WHERE date(created_at)=date('now','localtime')").run();
+  logAdmin('清除今日数据', `删除 ${info.changes} 条答题记录`);
+  res.json({ ok: true, deleted: info.changes });
+});
+
+// ─── Batch: update staff identity ──────────────────────────────────────────
+app.put('/api/admin/staff/batch-identity', adminAuth, (req, res) => {
+  const { ids, is_tester, is_exempt } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: '未选择人员' });
+  const stmt = db.prepare('UPDATE staff SET is_tester=?, is_exempt=? WHERE id=?');
+  const run = db.transaction(() => ids.forEach(id => stmt.run(is_tester ? 1 : 0, is_exempt ? 1 : 0, id)));
+  run();
+  logAdmin('批量修改身份', `${ids.length}人 → 测试:${is_tester?'是':'否'} 免答:${is_exempt?'是':'否'}`);
+  res.json({ ok: true });
 });
 
 // ─── Admin Logs ────────────────────────────────────────────────────────────
