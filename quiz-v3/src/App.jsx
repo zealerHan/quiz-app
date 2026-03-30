@@ -1345,7 +1345,7 @@ function LeaderboardScreen({ user, onBack }) {
   const [tab,setTab]=useState('cycle');
   const [data,setData]=useState([]);
   useEffect(()=>{
-    const ep=tab==='cycle'?'/api/leaderboard/cycle':tab==='today'?'/api/leaderboard/today':'/api/leaderboard/alltime';
+    const ep=tab==='cycle'?'/api/leaderboard/cycle':tab==='today'?'/api/leaderboard/today':'/api/leaderboard/monthly';
     apiJson(ep).then(d=>setData(Array.isArray(d)?d:d.rows||[])).catch(()=>{});
   },[tab]);
   const medal=['🥇','🥈','🥉'];
@@ -1353,7 +1353,7 @@ function LeaderboardScreen({ user, onBack }) {
     <div className="screen">
       <div className="page-header"><button className="back-btn" onClick={onBack}>←</button><h2>排行榜</h2><div/></div>
       <div className="tab-row">
-        {[['cycle','本轮班组'],['today','今日'],['alltime','历史总榜']].map(([k,v])=>(
+        {[['cycle','本轮班组'],['today','今日'],['monthly','本月总榜']].map(([k,v])=>(
           <button key={k} className={`tab${tab===k?' active':''}`} onClick={()=>setTab(k)}>{v}</button>
         ))}
       </div>
@@ -1366,6 +1366,8 @@ function LeaderboardScreen({ user, onBack }) {
               <div style={{width:46,height:46,borderRadius:23,background:i===1?'linear-gradient(135deg,#c8a84b,#e8c96a)':i===0?'#94a3b8':'#cd7f32',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'white',marginBottom:4}}>{p.staff_name[0]}</div>
               <div style={{fontSize:11,color:p.staff_id===user.staffId?'#c8a84b':'#e2e8f0',fontWeight:p.staff_id===user.staffId?700:400,textAlign:'center'}}>{p.staff_name}</div>
               <div style={{fontSize:14,fontWeight:900,color:'white'}}>{p.total_points}</div>
+              {p.attempts>1&&<div style={{fontSize:9,color:'#f59e0b',marginTop:1}}>答了{p.attempts}次</div>}
+              {p.cycle_count>0&&<div style={{fontSize:9,color:'#60a5fa',marginTop:1}}>{p.cycle_count}轮</div>}
               <div style={{width:90,background:'#0f2642',border:'1px solid #1b3255',borderRadius:'4px 4px 0 0',textAlign:'center',color:'#64748b',fontSize:12,padding:`${[32,44,24][i]}px 0 6px`,marginTop:6}}>#{[2,1,3][i]}</div>
             </div>
           ))}
@@ -1377,8 +1379,13 @@ function LeaderboardScreen({ user, onBack }) {
             <span style={{width:22,color:'#64748b',fontWeight:700,fontSize:13,textAlign:'center'}}>{i+4}</span>
             <div style={{width:34,height:34,borderRadius:17,background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,color:'white',fontSize:13}}>{r.staff_name[0]}</div>
             <div style={{flex:1}}>
-              <div style={{fontSize:13,fontWeight:600,color:r.staff_id===user.staffId?'#c8a84b':'white'}}>{r.staff_name}{r.staff_id===user.staffId?' (我)':''}</div>
-              <div style={{fontSize:11,color:'#64748b',marginTop:1}}>得分{r.avg_score} · {r.q_count}题{r.attempts>1?<span style={{color:'#f59e0b'}}> · 答了{r.attempts}次</span>:''}</div>
+              <div style={{fontSize:13,fontWeight:600,color:r.staff_id===user.staffId?'#c8a84b':'white',display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
+                {r.staff_name}{r.staff_id===user.staffId?' (我)':''}
+                {r.attempts>1&&<span style={{fontSize:9,color:'#f59e0b',background:'rgba(245,158,11,0.12)',border:'1px solid rgba(245,158,11,0.3)',borderRadius:4,padding:'0 4px',fontWeight:700}}>首次·答了{r.attempts}次</span>}
+              </div>
+              <div style={{fontSize:11,color:'#64748b',marginTop:1}}>
+                {r.cycle_count>0?<span>参与{r.cycle_count}轮</span>:<span>得分{r.score??r.avg_score} · {r.q_count}题</span>}
+              </div>
             </div>
             <div style={{fontSize:18,fontWeight:900,color:'white'}}>{r.total_points}</div>
           </div>
@@ -2033,7 +2040,7 @@ function AdminScreen({ onBack }) {
                   {lbMode==='cycle'?'本轮积分榜':'总排行榜'}
                 </div>
                 <button onClick={()=>{const nm=lbMode==='cycle'?'alltime':'cycle';setLbMode(nm);setLbEdit(false);apiJson(nm==='alltime'?'/api/admin/leaderboard/alltime':'/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||d||[])).catch(()=>{});}} style={{fontSize:10,color:'#3b82f6',background:'none',border:'1px solid #1b3255',borderRadius:4,padding:'2px 7px',cursor:'pointer'}}>
-                  切换{lbMode==='cycle'?'总榜':'本轮'}
+                  切换{lbMode==='cycle'?'全记录':'本轮'}
                 </button>
               </div>
               <button onClick={()=>setLbEdit(e=>!e)} style={{fontSize:11,color:lbEdit?'#ef4444':'#94a3b8',background:'none',border:`1px solid ${lbEdit?'rgba(239,68,68,0.4)':'#1b3255'}`,borderRadius:4,padding:'3px 9px',cursor:'pointer'}}>

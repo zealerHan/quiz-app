@@ -514,20 +514,20 @@ app.post('/api/session/:id/finish', (req, res) => {
   res.json({ points: pts });
 });
 
-// ─── Leaderboard (cycle-based) ─────────────────────────────────────────────
-// 每人只取本轮最新一次正式答题成绩（不累加）
+// ─── Leaderboard ───────────────────────────────────────────────────────────
+// 轮班榜：每人取本轮第一次正式答题成绩，多次答题标记次数
 app.get('/api/leaderboard/cycle', (req, res) => {
   const cycle = getCurrentCycle();
   if (!cycle) return res.json([]);
   const rows = db.prepare(`
-    SELECT s.staff_id, s.staff_name, s.total_points, s.total_score as avg_score,
+    SELECT s.staff_id, s.staff_name, s.total_points, s.total_score as score,
            s.q_count, s.tab_switch_count, s.created_at as last_at,
            (SELECT COUNT(*) FROM sessions s2 WHERE s2.staff_id=s.staff_id AND s2.cycle_id=s.cycle_id
             AND s2.completed=1 AND COALESCE(s2.is_practice,0)=0) as attempts,
            (SELECT avatar FROM staff WHERE id=s.staff_id LIMIT 1) as avatar
     FROM sessions s
     WHERE s.id IN (
-      SELECT MAX(id) FROM sessions
+      SELECT MIN(id) FROM sessions
       WHERE cycle_id=? AND completed=1 AND COALESCE(hidden,0)=0
       AND COALESCE(is_practice,0)=0
       AND staff_id NOT IN (SELECT id FROM staff WHERE is_exempt=1)
@@ -538,16 +538,17 @@ app.get('/api/leaderboard/cycle', (req, res) => {
   res.json({ cycle, rows });
 });
 
+// 今日榜：每人取今天第一次正式答题成绩
 app.get('/api/leaderboard/today', (req, res) => {
   const rows = db.prepare(`
-    SELECT s.staff_id, s.staff_name, s.total_points, s.total_score as avg_score,
+    SELECT s.staff_id, s.staff_name, s.total_points, s.total_score as score,
            s.q_count, s.tab_switch_count,
            (SELECT COUNT(*) FROM sessions s2 WHERE s2.staff_id=s.staff_id
             AND date(s2.created_at)=date('now','localtime')
             AND s2.completed=1 AND COALESCE(s2.is_practice,0)=0) as attempts
     FROM sessions s
     WHERE s.id IN (
-      SELECT MAX(id) FROM sessions
+      SELECT MIN(id) FROM sessions
       WHERE date(created_at)=date('now','localtime') AND completed=1 AND COALESCE(hidden,0)=0
       AND COALESCE(is_practice,0)=0
       GROUP BY staff_id
@@ -557,19 +558,25 @@ app.get('/api/leaderboard/today', (req, res) => {
   res.json(rows);
 });
 
-app.get('/api/leaderboard/alltime', (req, res) => {
+// 本月总榜：每人每轮取平均积分，跨轮累加（覆盖本月所有轮班）
+app.get('/api/leaderboard/monthly', (req, res) => {
   const rows = db.prepare(`
-    SELECT s.staff_id, s.staff_name, s.total_points, s.total_score as avg_score,
-           s.q_count, s.tab_switch_count,
-           (SELECT avatar FROM staff WHERE id=s.staff_id LIMIT 1) as avatar
-    FROM sessions s
-    WHERE s.id IN (
-      SELECT MAX(id) FROM sessions
-      WHERE completed=1 AND COALESCE(hidden,0)=0
-      AND COALESCE(is_practice,0)=0
-      GROUP BY staff_id
+    WITH cycle_avg AS (
+      SELECT staff_id, staff_name, cycle_id,
+             ROUND(AVG(total_points), 0) as cycle_pts
+      FROM sessions
+      WHERE completed=1 AND COALESCE(hidden,0)=0 AND COALESCE(is_practice,0)=0
+      AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')
+      AND staff_id NOT IN (SELECT id FROM staff WHERE is_exempt=1)
+      GROUP BY staff_id, cycle_id
     )
-    ORDER BY s.total_points DESC LIMIT 30
+    SELECT staff_id, staff_name,
+           SUM(cycle_pts) as total_points,
+           COUNT(DISTINCT cycle_id) as cycle_count,
+           (SELECT avatar FROM staff WHERE id=staff_id LIMIT 1) as avatar
+    FROM cycle_avg
+    GROUP BY staff_id
+    ORDER BY total_points DESC LIMIT 30
   `).all();
   res.json(rows);
 });
