@@ -1,0 +1,11 @@
+node_modules/
+*.bak
+*.bak_*
+quiz.log
+quiz.err
+server.log
+logs/
+data/quiz.db
+data/quiz.db-shm
+data/quiz.db-wal
+.env

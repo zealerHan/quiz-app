@@ -468,9 +468,31 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
   };
   submitRef.current = submit;
 
+  const captureAvatar = () => {
+    try {
+      const video = videoRef.current;
+      if (!video || !camOn || video.readyState < 2) return null;
+      const canvas = document.createElement('canvas');
+      const size = 120;
+      canvas.width = size; canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      // 居中裁剪为正方形
+      const vw = video.videoWidth, vh = video.videoHeight;
+      const side = Math.min(vw, vh);
+      const sx = (vw - side) / 2, sy = (vh - side) / 2;
+      ctx.drawImage(video, sx, sy, side, side, 0, 0, size, size);
+      return canvas.toDataURL('image/jpeg', 0.65);
+    } catch { return null; }
+  };
+
   const next = async () => {
     if (qi+1 >= questions.length) {
       localStorage.removeItem('quiz_inprogress');
+      // 拍摄头像（静默上传，不阻塞结算流程）
+      if (mode === 'normal') {
+        const photo = captureAvatar();
+        if (photo) api(`/api/staff/${user.staffId}/avatar`,{method:'PUT',body:JSON.stringify({avatar:photo})}).catch(()=>{});
+      }
       const avg = Math.round(results.reduce((s,r)=>s+r.score,0)/results.length);
       try { const pts = await apiJson(`/api/session/${sessionId}/finish`,{method:"POST",body:JSON.stringify({totalScore:avg})}); onDone(results,pts?.points,mode); }
       catch { onDone(results,null,mode); }
@@ -975,9 +997,15 @@ function HomeScreen({ user, nav }) {
 
       {/* ── 顶部欢迎 ── */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'18px 16px 6px' }}>
-        <div style={{ fontSize:16, fontWeight:700, color:'var(--text)' }}>
-          你好，<span style={{ color:'var(--gold)' }}>{user.name || user.staffId}</span>
-          {isExempt && <span style={{ marginLeft:6, fontSize:10, color:'var(--muted)', fontWeight:400, verticalAlign:'middle' }}>班组长</span>}
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          {me?.staff?.avatar
+            ? <img src={me.staff.avatar} style={{width:38,height:38,borderRadius:'50%',objectFit:'cover',border:'2px solid rgba(200,168,75,.5)',flexShrink:0}}/>
+            : <div style={{width:38,height:38,borderRadius:'50%',background:'linear-gradient(135deg,var(--blue),#0ea5e9)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,fontWeight:700,color:'white',flexShrink:0}}>{(user.name||user.staffId)?.[0]}</div>
+          }
+          <div style={{ fontSize:16, fontWeight:700, color:'var(--text)' }}>
+            你好，<span style={{ color:'var(--gold)' }}>{user.name || user.staffId}</span>
+            {isExempt && <span style={{ marginLeft:6, fontSize:10, color:'var(--muted)', fontWeight:400, verticalAlign:'middle' }}>班组长</span>}
+          </div>
         </div>
         <div style={{
           background:'rgba(200,168,75,.12)', border:'1px solid rgba(200,168,75,.35)',
@@ -1137,6 +1165,10 @@ function HomeScreen({ user, nav }) {
               }} style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 0', borderBottom: i < lbCycleFull.length-1 ? '1px solid rgba(27,50,85,.7)' : 'none', cursor:'pointer' }}>
                 <span style={{ width:18, fontSize: i < 3 ? 13 : 11, textAlign:'center', flexShrink:0,
                   color: ['#ffd700','#b0b8c8','#cd7f32'][i] || 'var(--muted)' }}>{rankIcon(i)}</span>
+                {r.avatar
+                  ? <img src={r.avatar} style={{width:20,height:20,borderRadius:'50%',objectFit:'cover',flexShrink:0}}/>
+                  : <div style={{width:20,height:20,borderRadius:'50%',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:700,color:'white',flexShrink:0}}>{r.staff_name?.[0]}</div>
+                }
                 <span style={{ flex:1, fontSize:11, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.staff_name}</span>
                 <span style={{ fontSize:11, fontWeight:700, color:'var(--gold)', flexShrink:0 }}>{r.total_points}</span>
               </div>
@@ -1159,6 +1191,10 @@ function HomeScreen({ user, nav }) {
               }} style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 0', borderBottom: i < lbTotalFull.length-1 ? '1px solid rgba(27,50,85,.7)' : 'none', cursor:'pointer' }}>
                 <span style={{ width:18, fontSize: i < 3 ? 13 : 11, textAlign:'center', flexShrink:0,
                   color: ['#ffd700','#b0b8c8','#cd7f32'][i] || 'var(--muted)' }}>{rankIcon(i)}</span>
+                {r.avatar
+                  ? <img src={r.avatar} style={{width:20,height:20,borderRadius:'50%',objectFit:'cover',flexShrink:0}}/>
+                  : <div style={{width:20,height:20,borderRadius:'50%',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:700,color:'white',flexShrink:0}}>{r.staff_name?.[0]}</div>
+                }
                 <span style={{ flex:1, fontSize:11, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.staff_name}</span>
                 <span style={{ fontSize:11, fontWeight:700, color:'var(--gold)', flexShrink:0 }}>{r.total_points}</span>
               </div>

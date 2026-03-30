@@ -118,6 +118,7 @@ try { db.exec('ALTER TABLE sessions ADD COLUMN hidden INTEGER DEFAULT 0'); } cat
 try { db.exec('ALTER TABLE staff ADD COLUMN real_name TEXT'); } catch(e) {}
 try { db.exec('ALTER TABLE staff ADD COLUMN phone_tail TEXT'); } catch(e) {}
 try { db.exec('ALTER TABLE staff ADD COLUMN is_tester INTEGER DEFAULT 0'); } catch(e) {}
+try { db.exec('ALTER TABLE staff ADD COLUMN avatar TEXT'); } catch(e) {}
 db.exec(`CREATE TABLE IF NOT EXISTS admin_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   action TEXT NOT NULL,
@@ -357,6 +358,15 @@ app.put('/api/banks/:id/activate', adminAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// 头像上传（答题结束时由本人设备提交，无需 admin 鉴权）
+app.put('/api/staff/:id/avatar', (req, res) => {
+  const { avatar } = req.body;
+  if (!avatar || !avatar.startsWith('data:image/')) return res.status(400).json({ error: '无效图片' });
+  if (avatar.length > 200000) return res.status(413).json({ error: '图片过大' }); // ~150KB base64 上限
+  db.prepare('UPDATE staff SET avatar=? WHERE id=?').run(avatar, req.params.id);
+  res.json({ ok: true });
+});
+
 // ─── Practice API ──────────────────────────────────────────────────────────
 app.get('/api/practice/questions', (req, res) => {
   const { mode, count } = req.query;
@@ -511,7 +521,8 @@ app.get('/api/leaderboard/cycle', (req, res) => {
            SUM(total_points) as total_points,
            SUM(CASE WHEN COALESCE(is_practice,0)=0 THEN 1 ELSE 0 END) as sessions,
            ROUND(AVG(CASE WHEN COALESCE(is_practice,0)=0 THEN total_score END),1) as avg_score,
-           MAX(created_at) as last_at
+           MAX(created_at) as last_at,
+           (SELECT avatar FROM staff WHERE id=staff_id LIMIT 1) as avatar
     FROM sessions
     WHERE cycle_id=? AND completed=1 AND COALESCE(hidden,0)=0
     AND staff_id NOT IN (SELECT id FROM staff WHERE is_exempt=1)
@@ -542,7 +553,8 @@ app.get('/api/leaderboard/alltime', (req, res) => {
     SELECT staff_id, staff_name,
            SUM(total_points) as total_points,
            SUM(CASE WHEN COALESCE(is_practice,0)=0 THEN 1 ELSE 0 END) as sessions,
-           ROUND(AVG(CASE WHEN COALESCE(is_practice,0)=0 THEN total_score END),1) as avg_score
+           ROUND(AVG(CASE WHEN COALESCE(is_practice,0)=0 THEN total_score END),1) as avg_score,
+           (SELECT avatar FROM staff WHERE id=staff_id LIMIT 1) as avatar
     FROM sessions WHERE completed=1 AND COALESCE(hidden,0)=0
     GROUP BY staff_id
     ORDER BY total_points DESC LIMIT 30
