@@ -120,6 +120,7 @@ try { db.exec('ALTER TABLE sessions ADD COLUMN tab_switch_count INTEGER DEFAULT 
 try { db.exec('ALTER TABLE staff ADD COLUMN real_name TEXT'); } catch(e) {}
 try { db.exec('ALTER TABLE staff ADD COLUMN phone_tail TEXT'); } catch(e) {}
 try { db.exec('ALTER TABLE staff ADD COLUMN is_tester INTEGER DEFAULT 0'); } catch(e) {}
+try { db.exec('ALTER TABLE staff ADD COLUMN is_cp INTEGER DEFAULT 0'); } catch(e) {}
 try { db.exec('ALTER TABLE staff ADD COLUMN avatar TEXT'); } catch(e) {}
 db.exec(`CREATE TABLE IF NOT EXISTS admin_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -226,11 +227,9 @@ function getCurrentCycle() {
   return ensureCurrentCycle();
 }
 function calcPoints(avgScore, qCount) {
-  const base = qCount * 6; // 每题6基础分，3题=18
-  let bonus = 0;
-  if (avgScore >= 85) bonus += qCount * 4;   // 优秀每题+4，3题满分30
-  else if (avgScore >= 70) bonus += qCount * 2; // 良好每题+2
-  return { base, bonus, total: base + bonus };
+  // 每题33分，按得分比例折算，qCount题满分 qCount*33
+  const base = Math.round(avgScore / 100 * 33 * qCount);
+  return { base, bonus: 0, total: base };
 }
 function adminAuth(req, res, next) {
   const pwd = req.headers['x-admin-password'] || req.query.password;
@@ -258,16 +257,16 @@ app.post('/api/login', (req, res) => {
 });
 
 app.get('/api/staff', adminAuth, (req, res) => {
-  res.json(db.prepare('SELECT id, real_name, phone_tail, is_exempt, is_tester, created_at FROM staff ORDER BY created_at DESC').all());
+  res.json(db.prepare('SELECT id, real_name, phone_tail, is_exempt, is_tester, COALESCE(is_cp,0) as is_cp, created_at FROM staff ORDER BY created_at DESC').all());
 });
 
 // 单条添加
 app.post('/api/staff', adminAuth, (req, res) => {
-  const { id, real_name, phone_tail, is_exempt, is_tester } = req.body;
+  const { id, real_name, phone_tail, is_exempt, is_tester, is_cp } = req.body;
   if (!id?.trim() || !real_name?.trim()) return res.status(400).json({ error: '工号和姓名不能为空' });
   const staffId = id.trim().replace(/^Y/i, '');
-  db.prepare('INSERT OR REPLACE INTO staff (id, name, real_name, phone_tail, is_exempt, is_tester) VALUES (?,?,?,?,?,?)')
-    .run(staffId, real_name.trim(), real_name.trim(), (phone_tail||'').toString().trim().slice(-4), is_exempt ? 1 : 0, is_tester ? 1 : 0);
+  db.prepare('INSERT OR REPLACE INTO staff (id, name, real_name, phone_tail, is_exempt, is_tester, is_cp) VALUES (?,?,?,?,?,?,?)')
+    .run(staffId, real_name.trim(), real_name.trim(), (phone_tail||'').toString().trim().slice(-4), is_exempt?1:0, is_tester?1:0, is_cp?1:0);
   logAdmin('添加人员', `工号${staffId} ${real_name.trim()}`);
   res.json({ ok: true });
 });
@@ -295,10 +294,10 @@ app.delete('/api/staff/:id', adminAuth, (req, res) => {
 });
 // 编辑人员
 app.put('/api/staff/:id', adminAuth, (req, res) => {
-  const { real_name, phone_tail, is_exempt, is_tester } = req.body;
+  const { real_name, phone_tail, is_exempt, is_tester, is_cp } = req.body;
   if (!real_name?.trim()) return res.status(400).json({ error: '姓名不能为空' });
-  db.prepare('UPDATE staff SET name=?, real_name=?, phone_tail=?, is_exempt=?, is_tester=? WHERE id=?')
-    .run(real_name.trim(), real_name.trim(), (phone_tail||'').toString().trim().slice(-4), is_exempt ? 1 : 0, is_tester ? 1 : 0, req.params.id);
+  db.prepare('UPDATE staff SET name=?, real_name=?, phone_tail=?, is_exempt=?, is_tester=?, is_cp=? WHERE id=?')
+    .run(real_name.trim(), real_name.trim(), (phone_tail||'').toString().trim().slice(-4), is_exempt?1:0, is_tester?1:0, is_cp?1:0, req.params.id);
   logAdmin('编辑人员', `工号${req.params.id} ${real_name.trim()}`);
   res.json({ ok: true });
 });
@@ -307,8 +306,33 @@ app.put('/api/staff/:id', adminAuth, (req, res) => {
 app.get('/api/questions', (req, res) => {
   const bankId = req.query.bank_id;
   const examMode = getSetting('exam_mode') === '1';
-  let activeBankId;
 
+  // 手动选题优先（仅在非考试模式、无指定bank_id时生效）
+  if (!examMode && !bankId) {
+    const pinnedVal = getSetting('pinned_questions');
+    if (pinnedVal) {
+      try {
+        const pinned = JSON.parse(pinnedVal);
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const active = (pinned.scope === 'today' && pinned.created_date === todayStr) || pinned.scope === 'shift';
+        if (active && pinned.ids?.length > 0) {
+          const placeholders = pinned.ids.map(() => '?').join(',');
+          let qs = db.prepare(`SELECT * FROM questions WHERE id IN (${placeholders}) AND active=1`).all(...pinned.ids);
+          // 题目不足3题时用备用题库补全
+          if (qs.length < 3 && pinned.bank_fallback_id) {
+            const needed = 3 - qs.length;
+            const existingIds = qs.map(q => q.id);
+            const excl = existingIds.length > 0 ? `AND id NOT IN (${existingIds.map(() => '?').join(',')})` : '';
+            const extras = db.prepare(`SELECT * FROM questions WHERE bank_id=? AND active=1 ${excl} ORDER BY RANDOM() LIMIT ?`).all(pinned.bank_fallback_id, ...existingIds, needed);
+            qs = [...qs, ...extras];
+          }
+          if (qs.length > 0) return res.json({ questions: qs, bankId: 'pinned', count: qs.length, examMode: false, pinned: true });
+        }
+      } catch(e) { /* fall through */ }
+    }
+  }
+
+  let activeBankId;
   if (examMode) {
     activeBankId = parseInt(getSetting('exam_bank_id'));
   } else if (bankId) {
@@ -510,6 +534,11 @@ app.post('/api/session/:id/finish', (req, res) => {
   }
 
   const pts = calcPoints(totalScore, cnt.c);
+  // 练习加成：本月练习过至少一次的+1分
+  const hasPracticed = db.prepare(
+    `SELECT COUNT(*) as c FROM sessions WHERE staff_id=? AND is_practice=1 AND completed=1 AND strftime('%Y-%m',created_at)=strftime('%Y-%m','now','localtime')`
+  ).get(sess.staff_id);
+  if (hasPracticed.c > 0) { pts.bonus = 1; pts.total += 1; }
   db.prepare('UPDATE sessions SET total_score=?,q_count=?,base_points=?,bonus_points=?,total_points=?,tab_switch_count=?,completed=1 WHERE id=?')
     .run(totalScore, cnt.c, pts.base, pts.bonus, pts.total, tabSwitch, req.params.id);
   res.json({ points: pts });
@@ -582,6 +611,61 @@ app.get('/api/leaderboard/monthly', (req, res) => {
   res.json(rows);
 });
 
+// ─── Leaderboard member detail ─────────────────────────────────────────────
+function getSessionsWithAnswers(staffId, whereExtra, params) {
+  const sessions = db.prepare(`
+    SELECT s.id, s.staff_id, s.staff_name, s.total_score, s.total_points,
+           s.q_count, s.tab_switch_count, s.created_at,
+           (SELECT avatar FROM staff WHERE id=s.staff_id LIMIT 1) as avatar,
+           c.label as cycle_label
+    FROM sessions s LEFT JOIN cycles c ON c.id=s.cycle_id
+    WHERE s.completed=1 AND COALESCE(s.is_practice,0)=0 AND COALESCE(s.hidden,0)=0
+    AND s.staff_id=? ${whereExtra}
+    ORDER BY s.id ASC LIMIT 10
+  `).all(staffId, ...params);
+  return sessions.map(s => ({
+    ...s,
+    answers: db.prepare(
+      'SELECT question_text, score, level FROM answers WHERE session_id=? ORDER BY id ASC'
+    ).all(s.id)
+  }));
+}
+
+app.get('/api/leaderboard/cycle/member/:staffId', (req, res) => {
+  const cycle = getCurrentCycle();
+  if (!cycle) return res.json({ sessions: [] });
+  res.json({ sessions: getSessionsWithAnswers(req.params.staffId, 'AND s.cycle_id=?', [cycle.id]) });
+});
+
+app.get('/api/leaderboard/alltime/member/:staffId', (req, res) => {
+  res.json({ sessions: getSessionsWithAnswers(
+    req.params.staffId,
+    "AND strftime('%Y-%m', s.created_at)=strftime('%Y-%m','now','localtime')",
+    []
+  )});
+});
+
+// Alias: alltime = monthly (home screen compatibility)
+app.get('/api/leaderboard/alltime', (req, res) => {
+  const rows = db.prepare(`
+    WITH cycle_avg AS (
+      SELECT staff_id, staff_name, cycle_id,
+             ROUND(AVG(total_points), 0) as cycle_pts
+      FROM sessions
+      WHERE completed=1 AND COALESCE(hidden,0)=0 AND COALESCE(is_practice,0)=0
+      AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')
+      AND staff_id NOT IN (SELECT id FROM staff WHERE is_exempt=1)
+      GROUP BY staff_id, cycle_id
+    )
+    SELECT staff_id, staff_name,
+           SUM(cycle_pts) as total_points,
+           COUNT(DISTINCT cycle_id) as cycle_count,
+           (SELECT avatar FROM staff WHERE id=staff_id LIMIT 1) as avatar
+    FROM cycle_avg GROUP BY staff_id ORDER BY total_points DESC LIMIT 30
+  `).all();
+  res.json(rows);
+});
+
 // ─── Personal Analytics ────────────────────────────────────────────────────
 app.get('/api/me/:staffId', (req, res) => {
   const sid = req.params.staffId;
@@ -645,15 +729,62 @@ app.get('/api/me/:staffId', (req, res) => {
 // ─── Admin Analytics ───────────────────────────────────────────────────────
 app.get('/api/admin/overview', adminAuth, (req, res) => {
   const cycle = getCurrentCycle();
-  const todayComplete = db.prepare("SELECT COUNT(DISTINCT staff_id) as c FROM sessions WHERE date(created_at)=date('now','localtime') AND completed=1").get().c;
-  const totalStaff = db.prepare("SELECT COUNT(*) as c FROM staff WHERE is_exempt=0").get().c;
+  const todayComplete = db.prepare(`
+    SELECT COUNT(DISTINCT s.staff_id) as c FROM sessions s
+    JOIN staff st ON st.id = s.staff_id
+    WHERE date(s.created_at)=date('now','localtime') AND s.completed=1 AND COALESCE(s.is_practice,0)=0
+      AND st.is_exempt=0 AND COALESCE(st.is_cp,0)=0
+  `).get().c;
+  const totalStaff = db.prepare("SELECT COUNT(*) as c FROM staff WHERE is_exempt=0 AND COALESCE(is_cp,0)=0").get().c;
   const catAvg = db.prepare("SELECT category, ROUND(AVG(score),0) as avg FROM answers GROUP BY category ORDER BY avg").all();
   const topWeak = catAvg.slice(0,2);
   const cycleStats = cycle ? db.prepare(`
     SELECT staff_id, staff_name, SUM(total_points) as pts, ROUND(AVG(total_score),1) as avg, COUNT(*) as sessions
     FROM sessions WHERE cycle_id=? AND completed=1 AND COALESCE(hidden,0)=0 GROUP BY staff_id ORDER BY pts DESC
   `).all(cycle.id) : [];
-  res.json({ todayComplete, totalStaff, catAvg, topWeak, cycle, cycleStats });
+  const incompleteList = db.prepare(`
+    SELECT COALESCE(s.real_name, s.name) as name,
+           COALESCE(s.is_tester,0) as is_tester
+    FROM staff s
+    WHERE s.is_exempt=0 AND COALESCE(s.is_cp,0)=0
+      AND s.id NOT IN (
+        SELECT DISTINCT staff_id FROM sessions
+        WHERE date(created_at)=date('now','localtime') AND completed=1 AND COALESCE(is_practice,0)=0
+      )
+    ORDER BY s.name
+  `).all();
+  res.json({ todayComplete, totalStaff, catAvg, topWeak, cycle, cycleStats, incompleteList });
+});
+
+app.get('/api/admin/weak-questions', adminAuth, (req, res) => {
+  const cycle = getCurrentCycle();
+  if (!cycle) return res.json([]);
+  const rows = db.prepare(`
+    SELECT a.question_text,
+           COUNT(*) as total,
+           SUM(CASE WHEN a.score < 67 THEN 1 ELSE 0 END) as wrong,
+           ROUND(AVG(a.score), 0) as avg_score
+    FROM answers a
+    JOIN sessions s ON s.id = a.session_id
+    WHERE s.cycle_id = ? AND s.completed = 1 AND COALESCE(s.is_practice, 0) = 0
+    GROUP BY a.question_text
+    HAVING total >= 2
+    ORDER BY (CAST(wrong AS REAL) / total) DESC, avg_score ASC
+    LIMIT 12
+  `).all(cycle.id);
+  const wrongNamesStmt = db.prepare(`
+    SELECT DISTINCT COALESCE(st.real_name, a.staff_name) as name
+    FROM answers a
+    JOIN sessions s ON s.id = a.session_id
+    LEFT JOIN staff st ON st.id = a.staff_id
+    WHERE s.cycle_id = ? AND s.completed = 1 AND COALESCE(s.is_practice, 0) = 0
+      AND a.question_text = ? AND a.score < 67
+  `);
+  res.json(rows.map(r => ({
+    ...r,
+    error_rate: Math.round(r.wrong / Math.max(r.total, 1) * 100),
+    wrong_names: wrongNamesStmt.all(cycle.id, r.question_text).map(n => n.name)
+  })));
 });
 
 app.get('/api/admin/members', adminAuth, (req, res) => {
@@ -744,13 +875,117 @@ app.get('/api/monitor/today', (req, res) => {
   `).all();
 
   const threshold = 5;
-  res.json({
+  const base = {
     date: today,
     completedCount: completed.length,
     completed: completed.map(r => r.name),
     threshold,
     reached: completed.length >= threshold,
     missing: Math.max(0, threshold - completed.length)
+  };
+
+  if (req.query.detail === '1') {
+    base.detail = completed.map(r => {
+      const ses = db.prepare(`SELECT id, total_points, total_score, tab_switch_count FROM sessions WHERE staff_id=? AND date(created_at)=date('now','localtime') AND completed=1 AND COALESCE(is_practice,0)=0 ORDER BY id ASC LIMIT 1`).get(r.staff_id);
+      if (!ses) return { name: r.name, total_points: 0, answers: [] };
+      const answers = db.prepare('SELECT question_text, score FROM answers WHERE session_id=? ORDER BY id ASC').all(ses.id);
+      return { name: r.name, total_points: ses.total_points, total_score: ses.total_score, tab_switch_count: ses.tab_switch_count || 0, answers };
+    });
+  }
+  res.json(base);
+});
+
+// ─── Monitor Today Text（纯文本，供 AI agent 直接 echo）─────────────────────
+app.get('/api/monitor/today/text', (req, res) => {
+  const token = req.headers['x-monitor-token'] || req.query.token;
+  if (token !== MONITOR_TOKEN) return res.status(401).send('unauthorized');
+
+  const completed = db.prepare(`
+    SELECT DISTINCT s.staff_id, COALESCE(st.real_name, s.staff_name) as name
+    FROM sessions s
+    LEFT JOIN staff st ON st.id = s.staff_id
+    WHERE date(s.created_at)=date('now','localtime')
+      AND s.completed=1 AND COALESCE(s.is_practice,0)=0
+      AND COALESCE(s.hidden,0)=0
+    ORDER BY s.created_at ASC
+  `).all();
+
+  const threshold = 5;
+  const count = completed.length;
+  const reached = count >= threshold;
+  const missing = Math.max(0, threshold - count);
+
+  if (count === 0) { res.type('text').send('🚨 今日暂无人完成答题'); return; }
+
+  const lines = [];
+  lines.push(reached
+    ? `✅ 今日达标，完成 ${count}/${threshold} 人`
+    : `⚠️ 今日完成 ${count}/${threshold} 人，还差 ${missing} 人`);
+
+  for (const r of completed) {
+    const ses = db.prepare(`SELECT id, total_points, total_score, tab_switch_count FROM sessions WHERE staff_id=? AND date(created_at)=date('now','localtime') AND completed=1 AND COALESCE(is_practice,0)=0 ORDER BY id ASC LIMIT 1`).get(r.staff_id);
+    if (!ses) { lines.push(`• ${r.name}`); continue; }
+    const sw = ses.tab_switch_count > 0 ? ` 切屏×${ses.tab_switch_count}` : '';
+    lines.push(`• ${r.name} ${ses.total_score}分（+${ses.total_points}积分）${sw}`);
+    const answers = db.prepare('SELECT question_text, score FROM answers WHERE session_id=? ORDER BY id ASC').all(ses.id);
+    for (const a of answers) {
+      const q = a.question_text.length > 12 ? a.question_text.slice(0, 12) + '…' : a.question_text;
+      lines.push(`  ${q} ${a.score}分`);
+    }
+  }
+  res.type('text').send(lines.join('\n'));
+});
+
+// ─── Monitor Push（手动触发，直接发微信）──────────────────────────────────────
+app.get('/api/monitor/push', (req, res) => {
+  const token = req.headers['x-monitor-token'] || req.query.token;
+  if (token !== MONITOR_TOKEN) return res.status(401).json({ error: 'unauthorized' });
+
+  const today = new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', year:'numeric', month:'2-digit', day:'2-digit' }).replace(/\//g, '-');
+  const completed = db.prepare(`
+    SELECT DISTINCT s.staff_id, COALESCE(st.real_name, s.staff_name) as name
+    FROM sessions s
+    LEFT JOIN staff st ON st.id = s.staff_id
+    WHERE date(s.created_at)=date('now','localtime')
+      AND s.completed=1 AND COALESCE(s.is_practice,0)=0
+      AND COALESCE(s.hidden,0)=0
+    ORDER BY s.created_at ASC
+  `).all();
+
+  const threshold = 5;
+  const count = completed.length;
+  const reached = count >= threshold;
+  const missing = Math.max(0, threshold - count);
+
+  const lines = [];
+  if (count === 0) {
+    lines.push(`🚨 今日暂无人完成答题！\n📅 ${today}\n请提醒班组成员完成答题！`);
+  } else {
+    lines.push(reached
+      ? `✅ 今日达标，完成 ${count}/${threshold} 人`
+      : `⚠️ 今日完成 ${count}/${threshold} 人，还差 ${missing} 人`);
+    for (const r of completed) {
+      const ses = db.prepare(`SELECT id, total_points, total_score, tab_switch_count FROM sessions WHERE staff_id=? AND date(created_at)=date('now','localtime') AND completed=1 AND COALESCE(is_practice,0)=0 ORDER BY id ASC LIMIT 1`).get(r.staff_id);
+      if (!ses) { lines.push(`• ${r.name}`); continue; }
+      const sw = ses.tab_switch_count > 0 ? ` 切屏×${ses.tab_switch_count}` : '';
+      lines.push(`• ${r.name} ${ses.total_score}分（+${ses.total_points}积分）${sw}`);
+      const answers = db.prepare('SELECT question_text, score FROM answers WHERE session_id=? ORDER BY id ASC').all(ses.id);
+      for (const a of answers) {
+        const q = a.question_text.length > 12 ? a.question_text.slice(0, 12) + '…' : a.question_text;
+        lines.push(`  ${q} ${a.score}分`);
+      }
+    }
+  }
+  const msg = lines.join('\n');
+
+  const { exec } = require('child_process');
+  const safeMsg = msg.replace(/'/g, "'\\''");
+  const cmd = `PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin openclaw message send --channel openclaw-weixin --account 045063e165ee-im-bot --target o9cq80yCzBQ87XKtGd0pIm3rGCPM@im.wechat --message '${safeMsg}'`;
+  exec(cmd, { timeout: 15000 }, (err) => {
+    if (err) {
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+    res.json({ ok: true });
   });
 });
 
@@ -763,12 +998,12 @@ app.delete('/api/admin/sessions/today', adminAuth, (req, res) => {
 
 // ─── Batch: update staff identity ──────────────────────────────────────────
 app.put('/api/admin/staff/batch-identity', adminAuth, (req, res) => {
-  const { ids, is_tester, is_exempt } = req.body;
+  const { ids, is_tester, is_exempt, is_cp } = req.body;
   if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: '未选择人员' });
-  const stmt = db.prepare('UPDATE staff SET is_tester=?, is_exempt=? WHERE id=?');
-  const run = db.transaction(() => ids.forEach(id => stmt.run(is_tester ? 1 : 0, is_exempt ? 1 : 0, id)));
+  const stmt = db.prepare('UPDATE staff SET is_tester=?, is_exempt=?, is_cp=? WHERE id=?');
+  const run = db.transaction(() => ids.forEach(id => stmt.run(is_tester?1:0, is_exempt?1:0, is_cp?1:0, id)));
   run();
-  logAdmin('批量修改身份', `${ids.length}人 → 测试:${is_tester?'是':'否'} 免答:${is_exempt?'是':'否'}`);
+  logAdmin('批量修改身份', `${ids.length}人 → 测试:${is_tester?'是':'否'} 免答:${is_exempt?'是':'否'} 车峰:${is_cp?'是':'否'}`);
   res.json({ ok: true });
 });
 
@@ -790,6 +1025,88 @@ app.delete('/api/admin/sessions/:id', adminAuth, (req, res) => {
   db.prepare('DELETE FROM answers WHERE session_id=?').run(req.params.id);
   db.prepare('DELETE FROM sessions WHERE id=?').run(req.params.id);
   logAdmin('删除成绩', `session_id=${req.params.id} ${sess?.staff_name||''}`);
+  res.json({ ok: true });
+});
+
+// 删除某人在某套班（cycle）或今日的全部成绩
+app.delete('/api/admin/sessions/staff/:staffId', adminAuth, (req, res) => {
+  const { staffId } = req.params;
+  const { cycle_id, today } = req.query;
+  let sessionIds;
+  if (today === '1') {
+    sessionIds = db.prepare("SELECT id FROM sessions WHERE staff_id=? AND date(created_at)=date('now','localtime')").all(staffId).map(r => r.id);
+  } else if (cycle_id) {
+    sessionIds = db.prepare('SELECT id FROM sessions WHERE staff_id=? AND cycle_id=?').all(staffId, cycle_id).map(r => r.id);
+  } else {
+    return res.status(400).json({ error: '请指定 cycle_id 或 today=1' });
+  }
+  if (sessionIds.length === 0) return res.json({ ok: true, deleted: 0 });
+  const staffName = db.prepare('SELECT real_name FROM staff WHERE id=?').get(staffId)?.real_name || staffId;
+  db.transaction(() => {
+    sessionIds.forEach(id => {
+      db.prepare('DELETE FROM answers WHERE session_id=?').run(id);
+      db.prepare('DELETE FROM sessions WHERE id=?').run(id);
+    });
+  })();
+  logAdmin('删除人员套班成绩', `${staffName}(${staffId}) cycle=${cycle_id||'今日'} 共${sessionIds.length}条`);
+  res.json({ ok: true, deleted: sessionIds.length });
+});
+
+// ─── 搜索所有题目（供手动选题）────────────────────────────────────────────
+app.get('/api/admin/questions/all', adminAuth, (req, res) => {
+  const { search, bank_id } = req.query;
+  let sql = 'SELECT q.id, q.text, q.reference, q.category, q.difficulty, q.bank_id, b.name as bank_name FROM questions q LEFT JOIN question_banks b ON b.id=q.bank_id WHERE q.active=1';
+  const params = [];
+  if (bank_id) { sql += ' AND q.bank_id=?'; params.push(parseInt(bank_id)); }
+  if (search) { sql += ' AND (q.text LIKE ? OR q.category LIKE ?)'; params.push(`%${search}%`, `%${search}%`); }
+  sql += ' ORDER BY q.id DESC LIMIT 200';
+  const rows = db.prepare(sql).all(...params);
+  res.json(rows);
+});
+
+// ─── AI 智能生成题目 ────────────────────────────────────────────────────────
+app.post('/api/admin/questions/ai-generate', adminAuth, async (req, res) => {
+  const { content, bank_id, count = 3 } = req.body;
+  if (!content?.trim()) return res.status(400).json({ error: '请提供文本内容' });
+  const KEY = process.env.DASHSCOPE_API_KEY;
+  if (!KEY) return res.status(503).json({ error: '未配置DASHSCOPE_API_KEY' });
+  try {
+    const resp = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${KEY}` },
+      body: JSON.stringify({
+        model: 'qwen-plus',
+        messages: [{ role: 'user', content:
+          `你是武汉地铁乘务培训专家，根据以下文本内容生成 ${count} 道业务考核题目。每道题必须是简答题（口述操作步骤）。只返回JSON数组，格式：[{"text":"题目内容","reference":"参考答案，各步骤用分号分隔","keywords":"关键词1,关键词2","category":"分类名称"}]\n\n文本内容：\n${content.slice(0, 3000)}` }],
+        max_tokens: 2000,
+        temperature: 0.3
+      })
+    });
+    const data = await resp.json();
+    const raw = (data.choices?.[0]?.message?.content || '[]').replace(/```json|```/g, '').trim();
+    const questions = JSON.parse(raw);
+    if (bank_id && Array.isArray(questions) && questions.length > 0) {
+      const stmt = db.prepare('INSERT INTO questions (bank_id,text,reference,keywords,category) VALUES (?,?,?,?,?)');
+      const ids = [];
+      db.transaction(() => { questions.forEach(q => { const r = stmt.run(parseInt(bank_id), q.text, q.reference, q.keywords || '', q.category || '业务知识'); ids.push(r.lastInsertRowid); }); })();
+      logAdmin('AI生成题目', `题库ID=${bank_id} 生成${questions.length}题`);
+      return res.json({ ok: true, questions, ids });
+    }
+    res.json({ ok: true, questions, ids: [] });
+  } catch(e) { res.status(500).json({ error: 'AI生成失败: ' + e.message }); }
+});
+
+// ─── 手动选题（管理员指定本次答题题目）───────────────────────────────────
+app.get('/api/admin/pinned-questions', adminAuth, (req, res) => {
+  const val = getSetting('pinned_questions');
+  if (!val) return res.json({ ids: [], scope: 'none', bank_fallback_id: null });
+  try { res.json(JSON.parse(val)); } catch { res.json({ ids: [], scope: 'none', bank_fallback_id: null }); }
+});
+app.put('/api/admin/pinned-questions', adminAuth, (req, res) => {
+  const { ids, scope, bank_fallback_id } = req.body;
+  const val = JSON.stringify({ ids: ids || [], scope: scope || 'none', bank_fallback_id: bank_fallback_id || null, created_date: new Date().toISOString().slice(0, 10) });
+  db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run('pinned_questions', val);
+  logAdmin('设置手动选题', `${ids?.length||0}题 scope=${scope}`);
   res.json({ ok: true });
 });
 
@@ -852,15 +1169,19 @@ app.get('/api/admin/leaderboard/cycle', adminAuth, (req, res) => {
   const cycle = getCurrentCycle();
   if (!cycle) return res.json([]);
   const rows = db.prepare(`
-    SELECT s.id, s.staff_id, s.staff_name, s.total_score, s.total_points, s.q_count, s.created_at, s.hidden, s.tab_switch_count
-    FROM sessions s WHERE s.cycle_id=? AND s.completed=1 ORDER BY s.total_points DESC, s.created_at DESC
+    SELECT s.id, s.staff_id, s.staff_name, s.total_score, s.total_points, s.q_count, s.created_at, s.hidden, s.tab_switch_count,
+           COALESCE(st.is_tester,0) as is_tester, COALESCE(st.is_cp,0) as is_cp, COALESCE(st.is_exempt,0) as is_exempt
+    FROM sessions s LEFT JOIN staff st ON st.id=s.staff_id
+    WHERE s.cycle_id=? AND s.completed=1 ORDER BY s.total_points DESC, s.created_at DESC
   `).all(cycle.id);
   res.json({ cycle, rows });
 });
 app.get('/api/admin/leaderboard/alltime', adminAuth, (req, res) => {
   const rows = db.prepare(`
-    SELECT s.id, s.staff_id, s.staff_name, s.total_score, s.total_points, s.q_count, s.created_at, s.hidden, s.tab_switch_count
-    FROM sessions s WHERE s.completed=1 ORDER BY s.total_points DESC, s.created_at DESC LIMIT 100
+    SELECT s.id, s.staff_id, s.staff_name, s.total_score, s.total_points, s.q_count, s.created_at, s.hidden, s.tab_switch_count,
+           COALESCE(st.is_tester,0) as is_tester, COALESCE(st.is_cp,0) as is_cp, COALESCE(st.is_exempt,0) as is_exempt
+    FROM sessions s LEFT JOIN staff st ON st.id=s.staff_id
+    WHERE s.completed=1 ORDER BY s.total_points DESC, s.created_at DESC LIMIT 100
   `).all();
   res.json(rows);
 });
@@ -917,9 +1238,12 @@ app.get('/api/export', adminAuth, async (req, res) => {
 
 // ─── QR Code ──────────────────────────────────────────────────────────────
 app.get('/api/qrcode', async (req, res) => {
-  const nets = os.networkInterfaces(); let ip='localhost';
-  for(const n of Object.values(nets)) for(const i of n) if(i.family==='IPv4'&&!i.internal){ip=i.address;break;}
-  const url=`http://${ip}:${PORT}`;
+  let url = process.env.PUBLIC_URL;
+  if (!url) {
+    const nets = os.networkInterfaces(); let ip='localhost';
+    for(const n of Object.values(nets)) for(const i of n) if(i.family==='IPv4'&&!i.internal){ip=i.address;break;}
+    url = `http://${ip}:${PORT}`;
+  }
   const qr=await QRCode.toDataURL(url,{width:300,margin:2,color:{dark:'#1b3a6e',light:'#ffffff'}});
   res.json({url,qr});
 });
@@ -1200,6 +1524,7 @@ wss.on('connection', async (clientWs) => {
           clientWs.send(JSON.stringify({ type: 'partial', text: finalText }));
         } else if (name === 'TranscriptionCompleted') {
           // 识别完成
+          if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
           clientWs.send(JSON.stringify({ type: 'final', text: finalText }));
           aliWs.close();
         } else if (name === 'TaskFailed') {
@@ -1223,6 +1548,8 @@ wss.on('connection', async (clientWs) => {
     return;
   }
 
+  let stopTimer = null;
+
   // 前端发来的消息
   clientWs.on('message', (data) => {
     if (!aliWs || aliWs.readyState !== WebSocket.OPEN) return;
@@ -1240,6 +1567,13 @@ wss.on('connection', async (clientWs) => {
               appkey: ALI_APPKEY,
             }
           }));
+          // 超时保障：10秒内未收到 TranscriptionCompleted，强制返回已有内容
+          stopTimer = setTimeout(() => {
+            if (clientWs.readyState === WebSocket.OPEN) {
+              clientWs.send(JSON.stringify({ type: 'final', text: finalText }));
+            }
+            try { aliWs.close(); } catch(e) {}
+          }, 10000);
         }
       } catch(e) {}
     } else {
@@ -1249,6 +1583,7 @@ wss.on('connection', async (clientWs) => {
   });
 
   clientWs.on('close', () => {
+    if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
     if (aliWs && aliWs.readyState === WebSocket.OPEN) {
       try {
         aliWs.send(JSON.stringify({

@@ -87,8 +87,16 @@ function Chip({ label, value, unit="" }) {
 }
 
 // ─── NEW: Login Screen ─────────────────────────────────────────────────────
+const LOGIN_STORAGE_KEY = 'quiz_last_login';
 function LoginScreen({ onLogin, onAdmin }) {
-  const [id,setId]=useState(""), [phone,setPhone]=useState(""), [err,setErr]=useState(""), [loading,setLoading]=useState(false);
+  const getSaved = () => { try { return JSON.parse(localStorage.getItem(LOGIN_STORAGE_KEY)||'null'); } catch { return null; } };
+  const [saved,setSaved]=useState(getSaved);
+  const [id,setId]=useState(()=>getSaved()?.staffId||"");
+  const [phone,setPhone]=useState(()=>getSaved()?.phoneTail||"");
+  const [err,setErr]=useState(""), [loading,setLoading]=useState(false);
+
+  const clearSaved=()=>{ localStorage.removeItem(LOGIN_STORAGE_KEY); setSaved(null); setId(""); setPhone(""); };
+
   const submit=async e=>{
     e.preventDefault();
     if(!/^\d{3,8}$/.test(id)){setErr("工号格式不正确");return;}
@@ -98,6 +106,7 @@ function LoginScreen({ onLogin, onAdmin }) {
       const r = await api("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({staffId:id.trim(),phoneTail:phone.trim()})});
       const d = await r.json();
       if(!r.ok){ setErr(d.error||"登录失败"); return; }
+      localStorage.setItem(LOGIN_STORAGE_KEY, JSON.stringify({staffId:id.trim(),phoneTail:phone.trim()}));
       onLogin({staffId:d.staffId, name:d.realName||d.staffId, isExempt:!!d.isExempt, isTester:!!d.isTester});
     }catch(e){ setErr("连接服务器失败"); }
     finally{setLoading(false);}
@@ -129,6 +138,12 @@ function LoginScreen({ onLogin, onAdmin }) {
           <div style={{flex:1,height:1,background:"linear-gradient(270deg,transparent,rgba(200,57,75,0.45))"}}/>
         </div>
 
+        {saved&&(
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,padding:"7px 10px",background:"rgba(34,197,94,0.07)",border:"1px solid rgba(34,197,94,0.22)",borderRadius:4}}>
+            <span style={{fontSize:10,color:"rgba(34,197,94,0.9)",letterSpacing:0.5}}>✓ 已记住账号 Y{saved.staffId}</span>
+            <button type="button" onClick={clearSaved} style={{background:"none",border:"none",color:"rgba(255,255,255,0.3)",cursor:"pointer",fontSize:14,lineHeight:1,padding:"0 2px"}}>×</button>
+          </div>
+        )}
         <form onSubmit={submit}>
           <div style={{marginBottom:14}}>
             <label style={{display:"block",fontSize:9,fontWeight:600,letterSpacing:2.5,color:"rgba(255,255,255,0.5)",marginBottom:7}}>工　　号</label>
@@ -221,9 +236,8 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
   const [showBackConfirm,setShowBackConfirm]=useState(false);
   const [tabSwitchCount,setTabSwitchCount]=useState(0);
   const [showTabWarn,setShowTabWarn]=useState(false);
-  const [camOn,setCamOn]=useState(false);
   const tabSwitchRef=useRef(0);
-  const videoRef=useRef(),streamRef=useRef(),recRef=useRef(),typeRef=useRef(),pendingSubmitRef=useRef(false),submitRef=useRef(null),scoreCacheRef=useRef(null);
+  const recRef=useRef(),typeRef=useRef(),pendingSubmitRef=useRef(false),submitRef=useRef(null),scoreCacheRef=useRef(null),audioStreamRef=useRef(null);
 
   const isPractice = mode !== 'normal';
 
@@ -243,10 +257,12 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
         localStorage.setItem('quiz_inprogress',JSON.stringify({staffId:user.staffId,date:today,answered:0,total:(qData.questions||[]).length}));
       }
     }).catch(()=>setPhase("error"));
-    navigator.mediaDevices?.getUserMedia({video:true,audio:false})
-      .then(s=>{streamRef.current=s;if(videoRef.current)videoRef.current.srcObject=s;setCamOn(true);})
+    navigator.mediaDevices?.getUserMedia({audio:{sampleRate:16000,channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}})
+      .then(s=>{audioStreamRef.current=s;})
       .catch(()=>{});
-    return()=>streamRef.current?.getTracks().forEach(t=>t.stop());
+    return()=>{
+      audioStreamRef.current?.getTracks().forEach(t=>t.stop());
+    };
   },[]);
 
   useEffect(()=>{
@@ -326,7 +342,9 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
     navigator.vibrate?.(50);
     if(countdownRef.current){clearInterval(countdownRef.current);countdownRef.current=null;setCountdown(null);}
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({audio:{sampleRate:16000,channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+      const stream = (audioStreamRef.current?.active)
+        ? audioStreamRef.current
+        : await navigator.mediaDevices.getUserMedia({audio:{sampleRate:16000,channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
       if(recRef.current === "aborted"){
         recRef.current = null;
         stream.getTracks().forEach(t=>t.stop());
@@ -403,7 +421,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
       recRef.current = {
         stop: () => {
           processor.disconnect(); source.disconnect();
-          stream.getTracks().forEach(t=>t.stop());
+          if (stream !== audioStreamRef.current) stream.getTracks().forEach(t=>t.stop());
           audioCtx.close();
           setIsRec(false);
           setIsRecognizing(true);
@@ -468,31 +486,11 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
   };
   submitRef.current = submit;
 
-  const captureAvatar = () => {
-    try {
-      const video = videoRef.current;
-      if (!video || !camOn || video.readyState < 2) return null;
-      const canvas = document.createElement('canvas');
-      const size = 120;
-      canvas.width = size; canvas.height = size;
-      const ctx = canvas.getContext('2d');
-      // 居中裁剪为正方形
-      const vw = video.videoWidth, vh = video.videoHeight;
-      const side = Math.min(vw, vh);
-      const sx = (vw - side) / 2, sy = (vh - side) / 2;
-      ctx.drawImage(video, sx, sy, side, side, 0, 0, size, size);
-      return canvas.toDataURL('image/jpeg', 0.65);
-    } catch { return null; }
-  };
 
   const next = async () => {
     if (qi+1 >= questions.length) {
       localStorage.removeItem('quiz_inprogress');
-      // 拍摄头像（静默上传，不阻塞结算流程）
-      if (mode === 'normal') {
-        const photo = captureAvatar();
-        if (photo) api(`/api/staff/${user.staffId}/avatar`,{method:'PUT',body:JSON.stringify({avatar:photo})}).catch(()=>{});
-      }
+
       const avg = Math.round(results.reduce((s,r)=>s+r.score,0)/results.length);
       try { const pts = await apiJson(`/api/session/${sessionId}/finish`,{method:"POST",body:JSON.stringify({totalScore:avg,tabSwitchCount:tabSwitchRef.current})}); onDone(results,pts?.points,mode); }
       catch { onDone(results,null,mode); }
@@ -906,8 +904,9 @@ function HomeScreen({ user, nav }) {
     apiJson(`/api/me/${user.staffId}`).then(d => {
       setMe(d);
       const exempt = !!(d.staff && d.staff.is_exempt);
+      const isTester = !!(d.staff && d.staff.is_tester);
       setIsExempt(exempt);
-      if (!exempt) {
+      if (!exempt && !isTester) {
         const today2 = new Date().toISOString().slice(0, 10);
         const doneToday = (d.recent || []).some(r => r.created_at && r.created_at.slice(0, 10) === today2);
         setTaskDone(doneToday);
@@ -1118,20 +1117,29 @@ function HomeScreen({ user, nav }) {
       {/* ══ 板块三：积分榜 ══ */}
       {lbModal && (
         <div onClick={()=>{setLbModal(null);setLbDetail(null);}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-          <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'#0d1e35',border:'1px solid rgba(59,130,246,0.3)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'70vh',overflowY:'auto'}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-              <div>
-                <div style={{fontSize:15,fontWeight:700,color:'white'}}>{lbModal.staffName}</div>
-                <div style={{fontSize:10,color:'#64748b',marginTop:2}}>{lbModal.type==='cycle'?`轮班答题记录`:'历史全部答题记录'}</div>
+          <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'#0d1e35',border:'1px solid rgba(59,130,246,0.3)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'75vh',overflowY:'auto'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
+              <div style={{display:'flex',gap:10,alignItems:'flex-start'}}>
+                {lbDetail?.sessions?.[0]?.avatar
+                  ? <img src={lbDetail.sessions[0].avatar} style={{width:44,height:44,borderRadius:'50%',objectFit:'cover',flexShrink:0,border:'2px solid rgba(59,130,246,0.4)'}}/>
+                  : <div style={{width:44,height:44,borderRadius:'50%',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'white',flexShrink:0}}>{lbModal.staffName?.[0]}</div>
+                }
+                <div>
+                  <div style={{fontSize:15,fontWeight:700,color:'white'}}>{lbModal.staffName}</div>
+                  <div style={{fontSize:10,color:'#64748b',marginTop:2}}>{lbModal.type==='cycle'?'轮班答题记录':'本月答题记录'}</div>
+                </div>
               </div>
-              <button onClick={()=>{setLbModal(null);setLbDetail(null);}} style={{background:'none',border:'1px solid #1b3255',color:'#64748b',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontSize:12}}>关闭</button>
+              <button onClick={()=>{setLbModal(null);setLbDetail(null);}} style={{background:'none',border:'1px solid #1b3255',color:'#64748b',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontSize:12,flexShrink:0}}>关闭</button>
             </div>
             {lbDetailLoading&&<div style={{textAlign:'center',padding:'20px 0'}}><div className="spinner" style={{margin:'0 auto'}}/></div>}
             {!lbDetailLoading&&lbDetail&&lbDetail.sessions?.length===0&&<div style={{color:'#475569',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无答题记录</div>}
             {!lbDetailLoading&&lbDetail?.sessions?.map((s,si)=>(
               <div key={si} style={{marginBottom:12,background:'rgba(15,38,66,0.6)',border:'1px solid #1b3255',borderRadius:10,padding:'12px 14px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                  <span style={{fontSize:11,color:'#64748b'}}>{s.created_at?.slice(5,10)}{s.cycle_label?` · ${s.cycle_label}`:''}</span>
+                  <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+                    <span style={{fontSize:11,color:'#64748b'}}>{s.created_at?.slice(5,10)}{s.cycle_label?` · ${s.cycle_label}`:''}</span>
+                    {s.tab_switch_count>0&&<span style={{fontSize:10,color:'#ef4444',background:'rgba(239,68,68,0.12)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
+                  </div>
                   <div style={{display:'flex',gap:8,alignItems:'center'}}>
                     <span style={{fontSize:12,fontWeight:700,color:'white'}}>{s.total_score}分</span>
                     <span style={{fontSize:11,color:'#c8a84b'}}>+{s.total_points}积分</span>
@@ -1140,7 +1148,7 @@ function HomeScreen({ user, nav }) {
                 {s.answers?.map((a,ai)=>(
                   <div key={ai} style={{padding:'6px 0',borderTop:'1px solid rgba(27,50,85,0.5)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
                     <span style={{fontSize:11,color:'rgba(255,255,255,0.7)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
-                    <span style={{fontSize:12,fontWeight:700,flexShrink:0,color:a.score>=85?'#22c55e':a.score>=60?'#f59e0b':'#ef4444'}}>{a.score}</span>
+                    <span style={{fontSize:12,fontWeight:700,flexShrink:0,color:a.score>=99?'#22c55e':a.score>=67?'#f59e0b':'#ef4444'}}>{Math.round(a.score*33/100)}</span>
                   </div>
                 ))}
               </div>
@@ -1251,7 +1259,7 @@ function ResultScreen({ user, results, points, onHome, mode='normal', onContinue
           <div key={i} style={{background:'#0f2642',border:'1px solid #1b3255',borderRadius:10,padding:'12px 14px',marginBottom:8}}>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
               <span style={{fontSize:11,color:'#64748b'}}>第{r.qNum}题 · {r.category}</span>
-              <div style={{display:'flex',gap:6,alignItems:'center'}}><Badge label={r.level} color={r.level==='优秀'?'#22c55e':r.level==='合格'?'#f59e0b':'#ef4444'}/><span style={{fontWeight:700,color:'white'}}>{Math.round(r.score/results.length)}<span style={{fontSize:10,color:'rgba(255,255,255,0.4)',fontWeight:400}}>/{Math.round(100/results.length)}分</span></span></div>
+              <div style={{display:'flex',gap:6,alignItems:'center'}}><Badge label={r.level} color={r.level==='优秀'?'#22c55e':r.level==='合格'?'#f59e0b':'#ef4444'}/><span style={{fontWeight:700,color:r.score>=99?'#22c55e':r.score>=67?'#f59e0b':'#ef4444'}}>{Math.round(r.score*33/100)}<span style={{fontSize:10,color:'rgba(255,255,255,0.4)',fontWeight:400}}>/33分</span></span></div>
             </div>
             <div style={{fontSize:12,color:'#94a3b8'}}>{r.questionText}</div>
             {r.missing_points?.length>0&&<div style={{fontSize:11,color:'#ef4444',marginTop:5}}>遗漏：{r.missing_points.join('、')}</div>}
@@ -1344,10 +1352,21 @@ function PracticeScreen({ user, onBack, onStart }) {
 function LeaderboardScreen({ user, onBack }) {
   const [tab,setTab]=useState('cycle');
   const [data,setData]=useState([]);
+  const [lbModal,setLbModal]=useState(null);
+  const [lbDetail,setLbDetail]=useState(null);
+  const [lbDetailLoading,setLbDetailLoading]=useState(false);
   useEffect(()=>{
     const ep=tab==='cycle'?'/api/leaderboard/cycle':tab==='today'?'/api/leaderboard/today':'/api/leaderboard/monthly';
     apiJson(ep).then(d=>setData(Array.isArray(d)?d:d.rows||[])).catch(()=>{});
   },[tab]);
+  const openMember=async(staffId,staffName)=>{
+    const type=tab==='monthly'?'monthly':'cycle';
+    setLbModal({staffId,staffName,type});
+    setLbDetail(null); setLbDetailLoading(true);
+    const ep=type==='monthly'?`/api/leaderboard/alltime/member/${staffId}`:`/api/leaderboard/cycle/member/${staffId}`;
+    const d=await apiJson(ep).catch(()=>null);
+    setLbDetail(d); setLbDetailLoading(false);
+  };
   const medal=['🥇','🥈','🥉'];
   return(
     <div className="screen">
@@ -1361,7 +1380,7 @@ function LeaderboardScreen({ user, onBack }) {
       {data.length>=3&&(
         <div style={{display:'flex',alignItems:'flex-end',justifyContent:'center',gap:10,padding:'20px 16px 0'}}>
           {[data[1],data[0],data[2]].map((p,i)=>p&&(
-            <div key={i} style={{display:'flex',flexDirection:'column',alignItems:'center',width:90,transform:i===1?'translateY(-10px)':'none'}}>
+            <div key={i} onClick={()=>openMember(p.staff_id,p.staff_name)} style={{display:'flex',flexDirection:'column',alignItems:'center',width:90,transform:i===1?'translateY(-10px)':'none',cursor:'pointer'}}>
               <div style={{fontSize:18,height:22}}>{medal[[1,0,2][i]]||''}</div>
               <div style={{width:46,height:46,borderRadius:23,background:i===1?'linear-gradient(135deg,#c8a84b,#e8c96a)':i===0?'#94a3b8':'#cd7f32',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'white',marginBottom:4}}>{p.staff_name[0]}</div>
               <div style={{fontSize:11,color:p.staff_id===user.staffId?'#c8a84b':'#e2e8f0',fontWeight:p.staff_id===user.staffId?700:400,textAlign:'center'}}>{p.staff_name}</div>
@@ -1375,7 +1394,7 @@ function LeaderboardScreen({ user, onBack }) {
       )}
       <div style={{padding:'8px 14px 24px'}}>
         {data.slice(3).map((r,i)=>(
-          <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'11px 13px',background:'#0f2642',border:`1px solid ${r.staff_id===user.staffId?'#c8a84b':'#1b3255'}`,borderRadius:10,marginBottom:7}}>
+          <div key={i} onClick={()=>openMember(r.staff_id,r.staff_name)} style={{display:'flex',alignItems:'center',gap:10,padding:'11px 13px',background:'#0f2642',border:`1px solid ${r.staff_id===user.staffId?'#c8a84b':'#1b3255'}`,borderRadius:10,marginBottom:7,cursor:'pointer'}}>
             <span style={{width:22,color:'#64748b',fontWeight:700,fontSize:13,textAlign:'center'}}>{i+4}</span>
             <div style={{width:34,height:34,borderRadius:17,background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,color:'white',fontSize:13}}>{r.staff_name[0]}</div>
             <div style={{flex:1}}>
@@ -1392,6 +1411,47 @@ function LeaderboardScreen({ user, onBack }) {
         ))}
         {data.length===0&&<div style={{textAlign:'center',color:'#475569',padding:40}}>暂无数据</div>}
       </div>
+      {lbModal&&(
+        <div onClick={()=>{setLbModal(null);setLbDetail(null);}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+          <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'#0d1e35',border:'1px solid rgba(59,130,246,0.3)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'75vh',overflowY:'auto'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
+              <div style={{display:'flex',gap:10,alignItems:'flex-start'}}>
+                {lbDetail?.sessions?.[0]?.avatar
+                  ?<img src={lbDetail.sessions[0].avatar} style={{width:44,height:44,borderRadius:'50%',objectFit:'cover',flexShrink:0,border:'2px solid rgba(59,130,246,0.4)'}}/>
+                  :<div style={{width:44,height:44,borderRadius:'50%',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'white',flexShrink:0}}>{lbModal.staffName?.[0]}</div>
+                }
+                <div>
+                  <div style={{fontSize:15,fontWeight:700,color:'white'}}>{lbModal.staffName}</div>
+                  <div style={{fontSize:10,color:'#64748b',marginTop:2}}>{lbModal.type==='monthly'?'本月答题记录':'轮班答题记录'}</div>
+                </div>
+              </div>
+              <button onClick={()=>{setLbModal(null);setLbDetail(null);}} style={{background:'none',border:'1px solid #1b3255',color:'#64748b',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontSize:12,flexShrink:0}}>关闭</button>
+            </div>
+            {lbDetailLoading&&<div style={{textAlign:'center',padding:'20px 0'}}><div className="spinner" style={{margin:'0 auto'}}/></div>}
+            {!lbDetailLoading&&lbDetail&&lbDetail.sessions?.length===0&&<div style={{color:'#475569',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无答题记录</div>}
+            {!lbDetailLoading&&lbDetail?.sessions?.map((s,si)=>(
+              <div key={si} style={{marginBottom:12,background:'rgba(15,38,66,0.6)',border:'1px solid #1b3255',borderRadius:10,padding:'12px 14px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                  <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+                    <span style={{fontSize:11,color:'#64748b'}}>{s.created_at?.slice(5,10)}{s.cycle_label?` · ${s.cycle_label}`:''}</span>
+                    {s.tab_switch_count>0&&<span style={{fontSize:10,color:'#ef4444',background:'rgba(239,68,68,0.12)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
+                  </div>
+                  <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                    <span style={{fontSize:12,fontWeight:700,color:'white'}}>{s.total_score}分</span>
+                    <span style={{fontSize:11,color:'#c8a84b'}}>+{s.total_points}积分</span>
+                  </div>
+                </div>
+                {s.answers?.map((a,ai)=>(
+                  <div key={ai} style={{padding:'6px 0',borderTop:'1px solid rgba(27,50,85,0.5)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                    <span style={{fontSize:11,color:'rgba(255,255,255,0.7)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
+                    <span style={{fontSize:12,fontWeight:700,flexShrink:0,color:a.score>=99?'#22c55e':a.score>=67?'#f59e0b':'#ef4444'}}>{Math.round(a.score*33/100)}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1664,13 +1724,13 @@ function ProfileScreen({ user, onBack }) {
 function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember, memberDetail, loadMemberDetail }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showBatch, setShowBatch] = useState(false);
-  const [addForm, setAddForm] = useState({id:'', real_name:'', phone_tail:'', is_exempt:false, is_tester:false});
+  const [addForm, setAddForm] = useState({id:'', real_name:'', phone_tail:'', is_exempt:false, is_tester:false, is_cp:false});
   const [addErr, setAddErr] = useState('');
   const [batchText, setBatchText] = useState('');
   const [batchErr, setBatchErr] = useState('');
   const [delConfirm, setDelConfirm] = useState(null);
   const [editId,setEditId]=useState(null);
-  const [editForm,setEditForm]=useState({real_name:'',phone_tail:'',is_exempt:false});
+  const [editForm,setEditForm]=useState({real_name:'',phone_tail:'',is_exempt:false,is_tester:false,is_cp:false});
   const [editErr,setEditErr]=useState('');
   const [batchSelected,setBatchSelected]=useState(new Set());
   const [batchMode,setBatchMode]=useState(false);
@@ -1680,25 +1740,25 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
   const toggleSelect = (id) => setBatchSelected(prev => { const s=new Set(prev); s.has(id)?s.delete(id):s.add(id); return s; });
   const selectAll = () => setBatchSelected(new Set(members.map(m=>m.id)));
   const clearSelect = () => setBatchSelected(new Set());
-  const batchSetIdentity = async (is_tester, is_exempt) => {
+  const batchSetIdentity = async (is_tester, is_exempt, is_cp=false) => {
     if(batchSelected.size===0) return;
-    const label = is_tester?'测试':is_exempt?'免答':'正常';
+    const label = is_cp?'车峰':is_tester?'测试':is_exempt?'免答':'正常';
     if(!window.confirm(`将选中的 ${batchSelected.size} 人设为「${label}」身份？`)) return;
-    const r = await apiJson('/api/admin/staff/batch-identity',{method:'PUT',headers:hdrs(),body:JSON.stringify({ids:[...batchSelected],is_tester,is_exempt})}).catch(()=>null);
+    const r = await apiJson('/api/admin/staff/batch-identity',{method:'PUT',headers:hdrs(),body:JSON.stringify({ids:[...batchSelected],is_tester,is_exempt,is_cp})}).catch(()=>null);
     if(r?.ok){ setBatchSelected(new Set()); onRefresh(); }
     else alert('操作失败');
   };
 
   const openEdit = (m) => {
     setEditId(m.id);
-    setEditForm({real_name:m.real_name||'',phone_tail:m.phone_tail||'',is_exempt:!!m.is_exempt,is_tester:!!m.is_tester});
+    setEditForm({real_name:m.real_name||'',phone_tail:m.phone_tail||'',is_exempt:!!m.is_exempt,is_tester:!!m.is_tester,is_cp:!!m.is_cp});
     setEditErr('');
   };
   const saveEdit = async () => {
     setEditErr('');
     if (!editForm.real_name.trim()) { setEditErr('姓名不能为空'); return; }
     if (editForm.phone_tail && !/^\d{4}$/.test(editForm.phone_tail)) { setEditErr('手机尾号须为4位数字'); return; }
-    const r = await fetch('/api/staff/'+editId, {method:'PUT', headers:hdrs(), body: JSON.stringify({real_name:editForm.real_name.trim(), phone_tail:editForm.phone_tail.trim(), is_exempt:editForm.is_exempt, is_tester:!!editForm.is_tester})});
+    const r = await fetch('/api/staff/'+editId, {method:'PUT', headers:hdrs(), body: JSON.stringify({real_name:editForm.real_name.trim(), phone_tail:editForm.phone_tail.trim(), is_exempt:editForm.is_exempt, is_tester:!!editForm.is_tester, is_cp:!!editForm.is_cp})});
     const d = await r.json();
     if (d.ok) { setEditId(null); onRefresh(); }
     else setEditErr(d.error || '保存失败');
@@ -1708,9 +1768,9 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
     const id = addForm.id.trim().replace(/^Y/i,'');
     if (!id || !addForm.real_name.trim()) { setAddErr('工号和姓名不能为空'); return; }
     if (addForm.phone_tail && !/^\d{4}$/.test(addForm.phone_tail)) { setAddErr('手机尾号须为4位数字'); return; }
-    const r = await fetch('/api/staff', {method:'POST', headers:hdrs(), body: JSON.stringify({id, real_name: addForm.real_name.trim(), phone_tail: addForm.phone_tail.trim(), is_exempt: addForm.is_exempt, is_tester: !!addForm.is_tester})});
+    const r = await fetch('/api/staff', {method:'POST', headers:hdrs(), body: JSON.stringify({id, real_name: addForm.real_name.trim(), phone_tail: addForm.phone_tail.trim(), is_exempt: addForm.is_exempt, is_tester: !!addForm.is_tester, is_cp: !!addForm.is_cp})});
     const d = await r.json();
-    if (d.ok) { setShowAdd(false); setAddForm({id:'',real_name:'',phone_tail:'',is_exempt:false}); onRefresh(); }
+    if (d.ok) { setShowAdd(false); setAddForm({id:'',real_name:'',phone_tail:'',is_exempt:false,is_tester:false,is_cp:false}); onRefresh(); }
     else setAddErr(d.error || '添加失败');
   };
 
@@ -1747,9 +1807,10 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
           <button onClick={clearSelect} style={{fontSize:11,padding:'4px 8px',borderRadius:6,border:'1px solid #1b3255',background:'none',color:'#94a3b8',cursor:'pointer'}}>清空</button>
           {batchSelected.size>0&&<span style={{fontSize:11,color:'#3b82f6',marginLeft:2}}>已选{batchSelected.size}人</span>}
           <div style={{display:'flex',gap:5,marginLeft:'auto'}}>
-            <button onClick={()=>batchSetIdentity(false,false)} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid rgba(34,197,94,0.4)',background:'rgba(34,197,94,0.1)',color:'#4ade80',cursor:'pointer',opacity:batchSelected.size?1:0.4}}>设为正常</button>
-            <button onClick={()=>batchSetIdentity(true,false)} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid rgba(168,85,247,0.4)',background:'rgba(168,85,247,0.1)',color:'#c084fc',cursor:'pointer',opacity:batchSelected.size?1:0.4}}>设为测试</button>
-            <button onClick={()=>batchSetIdentity(false,true)} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid rgba(100,116,139,0.4)',background:'rgba(100,116,139,0.1)',color:'#94a3b8',cursor:'pointer',opacity:batchSelected.size?1:0.4}}>设为免答</button>
+            <button onClick={()=>batchSetIdentity(false,false)} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid rgba(34,197,94,0.4)',background:'rgba(34,197,94,0.1)',color:'#4ade80',cursor:'pointer',opacity:batchSelected.size?1:0.4}}>正常</button>
+            <button onClick={()=>batchSetIdentity(true,false)} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid rgba(168,85,247,0.4)',background:'rgba(168,85,247,0.1)',color:'#c084fc',cursor:'pointer',opacity:batchSelected.size?1:0.4}}>测试</button>
+            <button onClick={()=>batchSetIdentity(false,true)} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid rgba(100,116,139,0.4)',background:'rgba(100,116,139,0.1)',color:'#94a3b8',cursor:'pointer',opacity:batchSelected.size?1:0.4}}>免答</button>
+            <button onClick={()=>batchSetIdentity(false,false,true)} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid rgba(234,179,8,0.4)',background:'rgba(234,179,8,0.1)',color:'#eab308',cursor:'pointer',opacity:batchSelected.size?1:0.4}}>车峰</button>
           </div>
         </>}
       </div>
@@ -1771,6 +1832,7 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
                   {m.real_name||'（未设姓名）'}{isDup&&<span style={{fontSize:10,color:'#ef4444',marginLeft:4,background:'rgba(239,68,68,0.1)',padding:'1px 5px',borderRadius:4}}>重复</span>}
                   {m.is_exempt?<Badge label="免答" color="#64748b"/>:null}
                   {m.is_tester?<Badge label="测试" color="#a855f7"/>:null}
+                  {m.is_cp?<Badge label="车峰" color="#eab308"/>:null}
                 </div>
                 <div style={{fontSize:11,color:'#64748b',marginTop:2,display:'flex',gap:8}}>
                   <span>Y{m.id}</span>
@@ -1789,8 +1851,7 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
             </div>
             {selectedMember===m.id&&memberDetail&&(
               <div style={{padding:'12px 16px',background:'rgba(15,38,66,0.6)',borderTop:'1px solid #1b3255'}}>
-                {memberDetail.catScores?.map((c,j)=><MiniBar key={j} label={c.category} value={c.avg}/>)}
-                {(!memberDetail.catScores?.length)&&<div style={{color:'#475569',fontSize:12}}>暂无答题数据</div>}
+                {(!memberDetail.sessions?.length)&&<div style={{color:'#475569',fontSize:12}}>暂无答题数据</div>}
                 {memberDetail.sessions?.length>0&&(
                   <div style={{marginTop:10}}>
                     <div style={{fontSize:11,color:'#475569',letterSpacing:1,marginBottom:6}}>最近答题记录</div>
@@ -1834,6 +1895,10 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
                 <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
                   <input type="checkbox" id={"edit_tester_"+m.id} checked={!!editForm.is_tester} onChange={e=>setEditForm(f=>({...f,is_tester:e.target.checked}))} style={{width:15,height:15}}/>
                   <label htmlFor={"edit_tester_"+m.id} style={{fontSize:12,color:'#94a3b8',cursor:'pointer'}}>测试员（积分标注测试）</label>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+                  <input type="checkbox" id={"edit_cp_"+m.id} checked={!!editForm.is_cp} onChange={e=>setEditForm(f=>({...f,is_cp:e.target.checked}))} style={{width:15,height:15,accentColor:'#eab308'}}/>
+                  <label htmlFor={"edit_cp_"+m.id} style={{fontSize:12,color:'#eab308',cursor:'pointer'}}>车峰（不计入今日未完成列表）</label>
                 </div>
                 {editErr&&<div style={{color:'#ef4444',fontSize:12,marginBottom:6}}>⚠ {editErr}</div>}
                 <div style={{display:'flex',gap:8}}>
@@ -1879,9 +1944,13 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
             <input type="checkbox" id="exempt" checked={addForm.is_exempt} onChange={e=>setAddForm(f=>({...f,is_exempt:e.target.checked}))} style={{width:16,height:16}}/>
             <label htmlFor="exempt" style={{fontSize:12,color:'#94a3b8',cursor:'pointer'}}>班组长/免答</label>
           </div>
-          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
             <input type="checkbox" id="tester" checked={!!addForm.is_tester} onChange={e=>setAddForm(f=>({...f,is_tester:e.target.checked}))} style={{width:16,height:16}}/>
             <label htmlFor="tester" style={{fontSize:12,color:'#94a3b8',cursor:'pointer'}}>测试员（积分标注测试）</label>
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+            <input type="checkbox" id="add_cp" checked={!!addForm.is_cp} onChange={e=>setAddForm(f=>({...f,is_cp:e.target.checked}))} style={{width:16,height:16,accentColor:'#eab308'}}/>
+            <label htmlFor="add_cp" style={{fontSize:12,color:'#eab308',cursor:'pointer'}}>车峰（不计入今日未完成列表）</label>
           </div>
           {addErr&&<div style={{color:'#ef4444',fontSize:12,marginBottom:8}}>⚠ {addErr}</div>}
           <div style={{display:'flex',gap:8}}>
@@ -1960,6 +2029,30 @@ function AdminScreen({ onBack }) {
   const [lbSessions,setLbSessions]=useState([]);
   const [lbMode,setLbMode]=useState('cycle'); // 'cycle'|'alltime'
   const [lbEdit,setLbEdit]=useState(false);
+  const [lbAdminDetail,setLbAdminDetail]=useState(null);
+  const [lbAdminDetailLoading,setLbAdminDetailLoading]=useState(false);
+  const [weakQuestions,setWeakQuestions]=useState([]);
+  const [expandedLbStaffId,setExpandedLbStaffId]=useState(null);
+  const [incompleteExpanded,setIncompleteExpanded]=useState(false);
+  const [lbCollapsed,setLbCollapsed]=useState(true);
+  const [allCorrectExpanded,setAllCorrectExpanded]=useState(false);
+  // 手动添加题目
+  const [addQ,setAddQ]=useState({text:'',reference:'',keywords:'',category:'业务知识',difficulty:'中等',bank_id:''});
+  const [addQLoading,setAddQLoading]=useState(false);
+  // AI生成题目
+  const [aiContent,setAiContent]=useState('');
+  const [aiCount,setAiCount]=useState(3);
+  const [aiBankId,setAiBankId]=useState('');
+  const [aiResult,setAiResult]=useState(null);
+  const [aiLoading,setAiLoading]=useState(false);
+  // 手动选题
+  const [qSearch,setQSearch]=useState('');
+  const [qAll,setQAll]=useState([]);
+  const [qPinned,setQPinned]=useState({ids:[],scope:'none',bank_fallback_id:null});
+  const [qSelected,setQSelected]=useState([]);
+  const [pinScope,setPinScope]=useState('today');
+  const [pinFallback,setPinFallback]=useState('');
+  const [qSelectOpen,setQSelectOpen]=useState(false);
   const ah=useMemo?undefined:adminHeaders(pwd); // will pass inline
   const hdrs=(extra={})=>({...adminHeaders(pwd),'Content-Type':'application/json',...extra});
 
@@ -1971,9 +2064,9 @@ function AdminScreen({ onBack }) {
 
   useEffect(()=>{
     if(!authed)return;
-    if(tab==='overview'){apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});}
+    if(tab==='overview'){apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});apiJson('/api/admin/weak-questions',{headers:hdrs()}).then(setWeakQuestions).catch(()=>{});}
     if(tab==='members')apiJson('/api/admin/members',{headers:hdrs()}).then(setMembers).catch(()=>{});
-    if(tab==='banks'){apiJson('/api/banks',{headers:hdrs()}).then(setBanks).catch(()=>{});apiJson('/api/settings',{headers:hdrs()}).then(setSettings).catch(()=>{});}
+    if(tab==='banks'){apiJson('/api/banks',{headers:hdrs()}).then(d=>{setBanks(d);if(d.length>0){setAiBankId(String(d[0].id));setPinFallback(String(d[0].id));}}).catch(()=>{});apiJson('/api/settings',{headers:hdrs()}).then(setSettings).catch(()=>{});apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(d=>{setQPinned(d);setQSelected(d.ids||[]);setPinScope(d.scope==='none'?'today':d.scope);setPinFallback(d.bank_fallback_id?String(d.bank_fallback_id):'');}).catch(()=>{});}
     if(tab==='qr')apiJson('/api/qrcode').then(setQr).catch(()=>{});
     if(tab==='logs')apiJson('/api/admin/logs',{headers:hdrs()}).then(setLogs).catch(()=>{});
   },[tab,authed]);
@@ -2009,65 +2102,178 @@ function AdminScreen({ onBack }) {
       <div style={{padding:'12px 14px 28px',display:'flex',flexDirection:'column',gap:12,overflowY:'auto'}}>
 
         {tab==='overview'&&overview&&<>
-          <div className="card">
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-              <div>
-                <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:6}}>今日完成情况</div>
-                <div style={{fontSize:28,fontWeight:900,color:'white'}}>{overview.todayComplete} <span style={{fontSize:13,color:'#64748b',fontWeight:400}}>/ {overview.totalStaff} 人</span></div>
+
+          {/* ── 今日完成情况 ── */}
+          <div className="card" style={{padding:0,overflow:'hidden'}}>
+            <div style={{padding:'14px 16px 12px'}}>
+              <div style={{fontSize:10,color:'#64748b',letterSpacing:2,fontWeight:600,marginBottom:10,textTransform:'uppercase'}}>今日完成情况</div>
+              <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:10}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:30,fontWeight:900,color:'white',lineHeight:1}}>{overview.todayComplete}<span style={{fontSize:12,color:'#64748b',fontWeight:400,marginLeft:5}}>/ {overview.totalStaff} 人</span></div>
+                  {overview.incompleteList?.length>0
+                    ? <div style={{fontSize:11,color:'#f59e0b',marginTop:4}}>还差 {overview.incompleteList.length} 人未完成</div>
+                    : <div style={{fontSize:11,color:'#22c55e',marginTop:4}}>全部完成 ✓</div>
+                  }
+                </div>
+                <ScoreRing score={Math.round((overview.todayComplete/Math.max(overview.totalStaff,1))*100)} size={62}/>
               </div>
-              <ScoreRing score={Math.round((overview.todayComplete/Math.max(overview.totalStaff,1))*100)} size={68}/>
+              <div style={{height:5,background:'#1e293b',borderRadius:3,overflow:'hidden'}}>
+                <div style={{height:'100%',width:`${(overview.todayComplete/Math.max(overview.totalStaff,1))*100}%`,background:'linear-gradient(90deg,#3b82f6,#22c55e)',borderRadius:3,transition:'width 0.8s ease'}}/>
+              </div>
             </div>
-            <div style={{marginTop:10,height:7,background:'#1e293b',borderRadius:4,overflow:'hidden'}}>
-              <div style={{height:'100%',width:`${(overview.todayComplete/Math.max(overview.totalStaff,1))*100}%`,background:'linear-gradient(90deg,#3b82f6,#22c55e)',borderRadius:4}}/>
-            </div>
+            {overview.incompleteList?.length>0&&(
+              <div style={{borderTop:'1px solid #1b3255'}}>
+                {(incompleteExpanded?overview.incompleteList:overview.incompleteList.slice(0,5)).map((p,ni)=>(
+                  <div key={ni} style={{display:'flex',alignItems:'center',gap:8,padding:'9px 16px',borderBottom:'1px solid rgba(27,50,85,0.4)'}}>
+                    <div style={{width:6,height:6,borderRadius:'50%',background:'#f59e0b',flexShrink:0}}/>
+                    <span style={{fontSize:13,color:'rgba(255,255,255,0.8)'}}>{p.name}</span>
+                    {p.is_tester?<Badge label="测试" color="#a855f7"/>:null}
+                  </div>
+                ))}
+                {overview.incompleteList.length>5&&(
+                  <div onClick={()=>setIncompleteExpanded(e=>!e)} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:5,padding:'9px 16px',cursor:'pointer',color:'#64748b',fontSize:11}}>
+                    <span style={{display:'inline-block',transform:incompleteExpanded?'rotate(180deg)':'none',transition:'transform 0.2s'}}>⌄</span>
+                    {incompleteExpanded?'收起':(`还有 ${overview.incompleteList.length-5} 人，点击展开`)}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+
+          {/* ── 本期高错误率题目 ── */}
+          {weakQuestions.length>0&&(()=>{
+            const hasError=weakQuestions.filter(q=>q.error_rate>0);
+            const allCorrect=weakQuestions.filter(q=>q.error_rate===0);
+            return(
+              <div className="card" style={{borderColor:'rgba(239,68,68,0.3)'}}>
+                <div style={{fontSize:10,color:'#ef4444',letterSpacing:2,fontWeight:600,marginBottom:14,textTransform:'uppercase'}}>本期高错误率题目</div>
+                {hasError.map((q,qi)=>{
+                  const col=q.error_rate>=70?'#ef4444':q.error_rate>=40?'#f59e0b':'#22c55e';
+                  return(
+                    <div key={qi} style={{marginBottom:qi<hasError.length-1||allCorrect.length>0?14:0}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,marginBottom:5}}>
+                        <span style={{fontSize:11,color:'rgba(255,255,255,0.85)',flex:1,lineHeight:1.6}}>{q.question_text.length>42?q.question_text.slice(0,42)+'…':q.question_text}</span>
+                        <span style={{fontSize:14,fontWeight:800,color:col,flexShrink:0}}>{q.error_rate}%</span>
+                      </div>
+                      <div style={{height:5,background:'#1e293b',borderRadius:3,overflow:'hidden',marginBottom:4}}>
+                        <div style={{height:'100%',width:`${q.error_rate}%`,background:`linear-gradient(90deg,${col}55,${col})`,borderRadius:3,transition:'width 0.8s ease'}}/>
+                      </div>
+                      <div style={{fontSize:9,color:'#475569'}}>
+                        {q.total} 次作答 · 均分 {q.avg_score} 分 · {q.wrong} 人错误
+                        {q.wrong_names?.length>0&&<span style={{color:'#64748b'}}> （{q.wrong_names.join('、')}）</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+                {allCorrect.length>0&&(
+                  <div style={{borderTop:hasError.length>0?'1px solid rgba(27,50,85,0.5)':'none',paddingTop:hasError.length>0?12:0}}>
+                    <div onClick={()=>setAllCorrectExpanded(e=>!e)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',marginBottom:allCorrectExpanded?10:0}}>
+                      <span style={{fontSize:10,color:'#22c55e',letterSpacing:1,fontWeight:600}}>✓ 全部答对的题目（{allCorrect.length} 道）</span>
+                      <span style={{fontSize:11,color:'#334155',display:'inline-block',transform:allCorrectExpanded?'rotate(180deg)':'none',transition:'transform 0.2s'}}>⌄</span>
+                    </div>
+                    {allCorrectExpanded&&allCorrect.map((q,qi)=>(
+                      <div key={qi} style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,padding:'6px 0',borderTop:'1px solid rgba(27,50,85,0.3)'}}>
+                        <span style={{fontSize:11,color:'rgba(255,255,255,0.45)',flex:1,lineHeight:1.5}}>{q.question_text.length>42?q.question_text.slice(0,42)+'…':q.question_text}</span>
+                        <span style={{fontSize:11,fontWeight:700,color:'#22c55e',flexShrink:0}}>100%</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* ── 班组各类题均分 ── */}
           <div className="card">
-            <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:10,fontWeight:600}}>班组各类题均分</div>
+            <div style={{fontSize:10,color:'#64748b',letterSpacing:2,fontWeight:600,marginBottom:10,textTransform:'uppercase'}}>班组各类题均分</div>
             {overview.catAvg?.map((c,i)=><MiniBar key={i} label={c.category} value={c.avg}/>)}
           </div>
-          {overview.topWeak?.length>0&&(
-            <div className="card" style={{borderColor:'rgba(239,68,68,0.3)'}}>
-              <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:8,fontWeight:600}}>⚠ 班组薄弱提示</div>
-              <div style={{fontSize:13,color:'#fca5a5',lineHeight:1.8}}>
-                {overview.topWeak.map(c=>`${c.category}（均分${c.avg}）`).join('、')} 得分偏低，建议安排专项复习。
-              </div>
-            </div>
-          )}
-          <div className="card">
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+
+          {/* ── 积分榜（折叠式，默认收起，展开显示前10） ── */}
+          <div className="card" style={{padding:0,overflow:'hidden'}}>
+            <div style={{padding:'12px 16px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
               <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600}}>
-                  {lbMode==='cycle'?'本轮积分榜':'总排行榜'}
-                </div>
-                <button onClick={()=>{const nm=lbMode==='cycle'?'alltime':'cycle';setLbMode(nm);setLbEdit(false);apiJson(nm==='alltime'?'/api/admin/leaderboard/alltime':'/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||d||[])).catch(()=>{});}} style={{fontSize:10,color:'#3b82f6',background:'none',border:'1px solid #1b3255',borderRadius:4,padding:'2px 7px',cursor:'pointer'}}>
-                  切换{lbMode==='cycle'?'全记录':'本轮'}
+                <span style={{fontSize:10,color:'#64748b',letterSpacing:2,fontWeight:600,textTransform:'uppercase'}}>{lbMode==='cycle'?'本轮积分榜':'总排行榜'}</span>
+                <button onClick={()=>{const nm=lbMode==='cycle'?'alltime':'cycle';setLbMode(nm);setLbEdit(false);setExpandedLbStaffId(null);setLbAdminDetail(null);apiJson(nm==='alltime'?'/api/admin/leaderboard/alltime':'/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||d||[])).catch(()=>{});}} style={{fontSize:10,color:'#3b82f6',background:'rgba(59,130,246,0.08)',border:'1px solid rgba(59,130,246,0.2)',borderRadius:20,padding:'2px 9px',cursor:'pointer'}}>切换{lbMode==='cycle'?'全记录':'本轮'}</button>
+              </div>
+              <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                {!lbCollapsed&&<button onClick={()=>{setLbEdit(e=>!e);setExpandedLbStaffId(null);setLbAdminDetail(null);}} style={{fontSize:11,color:lbEdit?'#ef4444':'#94a3b8',background:'none',border:`1px solid ${lbEdit?'rgba(239,68,68,0.4)':'#1b3255'}`,borderRadius:6,padding:'3px 9px',cursor:'pointer'}}>{lbEdit?'完成':'编辑'}</button>}
+                <button onClick={()=>{setLbCollapsed(c=>!c);setExpandedLbStaffId(null);setLbAdminDetail(null);setLbEdit(false);}} style={{fontSize:11,color:'#64748b',background:'none',border:'1px solid #1b3255',borderRadius:6,padding:'3px 9px',cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>
+                  <span style={{display:'inline-block',transform:lbCollapsed?'none':'rotate(180deg)',transition:'transform 0.2s'}}>⌄</span>
+                  {lbCollapsed?`展开 (${Math.min(lbSessions.length,10)})` :'收起'}
                 </button>
               </div>
-              <button onClick={()=>setLbEdit(e=>!e)} style={{fontSize:11,color:lbEdit?'#ef4444':'#94a3b8',background:'none',border:`1px solid ${lbEdit?'rgba(239,68,68,0.4)':'#1b3255'}`,borderRadius:4,padding:'3px 9px',cursor:'pointer'}}>
-                {lbEdit?'退出编辑':'编辑'}
-              </button>
             </div>
-            {lbSessions.slice(0,lbEdit?50:8).map((r,i)=>(
-              <div key={r.id} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 0',borderBottom:i<lbSessions.slice(0,lbEdit?50:8).length-1?'1px solid #1b3255':'none',opacity:r.hidden?0.4:1}}>
-                <span style={{fontSize:12,width:20,textAlign:'center',color:'#64748b'}}>{i+1}</span>
-                <span style={{flex:1,fontSize:13,color:r.hidden?'#64748b':'white',display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
-                  {r.staff_name}{r.hidden?' [已隐藏]':''}
-                  {r.tab_switch_count>0&&<span style={{fontSize:10,color:'#ef4444',background:'rgba(239,68,68,0.12)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:5,padding:'0 5px',fontWeight:700,flexShrink:0}}>切屏×{r.tab_switch_count}</span>}
-                </span>
-                <span style={{fontSize:11,color:'#64748b'}}>{r.q_count??r.sessions}题</span>
-                <span style={{fontWeight:700,color:'#c8a84b',minWidth:32,textAlign:'right'}}>{r.total_points??r.pts}</span>
-                {lbEdit&&<div style={{display:'flex',gap:4,marginLeft:4}}>
-                  <button onClick={async()=>{await api(`/api/admin/sessions/${r.id}/hide`,{method:'PUT',headers:hdrs(),body:JSON.stringify({hidden:!r.hidden})});setLbSessions(ls=>ls.map(s=>s.id===r.id?{...s,hidden:!s.hidden}:s));}} style={{fontSize:11,padding:'2px 6px',borderRadius:4,border:'1px solid #1b3255',background:'none',color:'#f59e0b',cursor:'pointer'}}>{r.hidden?'恢复':'隐藏'}</button>
-                  <button onClick={async()=>{if(!window.confirm(`确认删除 ${r.staff_name} 的这条成绩？`))return;await api(`/api/admin/sessions/${r.id}`,{method:'DELETE',headers:hdrs()});setLbSessions(ls=>ls.filter(s=>s.id!==r.id));}} style={{fontSize:11,padding:'2px 6px',borderRadius:4,border:'1px solid rgba(239,68,68,0.3)',background:'none',color:'#ef4444',cursor:'pointer'}}>删除</button>
-                </div>}
-              </div>
-            ))}
+            {!lbCollapsed&&<div style={{borderTop:'1px solid #1b3255'}}/>}
+            {!lbCollapsed&&lbSessions.slice(0,10).map((r,i)=>{
+              const isExp=expandedLbStaffId===r.staff_id&&!lbEdit;
+              const medals=['🥇','🥈','🥉'];
+              return(
+                <div key={r.id} style={{borderBottom:i<lbSessions.length-1?'1px solid rgba(27,50,85,0.4)':'none',opacity:r.hidden?0.35:1}}>
+                  <div onClick={async()=>{
+                    if(lbEdit)return;
+                    if(expandedLbStaffId===r.staff_id){setExpandedLbStaffId(null);setLbAdminDetail(null);return;}
+                    setExpandedLbStaffId(r.staff_id);setLbAdminDetail(null);setLbAdminDetailLoading(true);
+                    const ep=lbMode==='alltime'?`/api/leaderboard/alltime/member/${r.staff_id}`:`/api/leaderboard/cycle/member/${r.staff_id}`;
+                    const d=await apiJson(ep).catch(()=>null);
+                    setLbAdminDetail(d);setLbAdminDetailLoading(false);
+                  }} style={{display:'flex',alignItems:'center',gap:8,padding:'11px 16px',cursor:lbEdit?'default':'pointer'}}>
+                    <span style={{fontSize:i<3?15:12,width:24,textAlign:'center',flexShrink:0}}>{i<3?medals[i]:(i+1)}</span>
+                    <span style={{flex:1,fontSize:13,color:r.hidden?'#475569':'var(--text)',fontWeight:500,display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
+                      {r.staff_name}
+                      {r.is_tester?<Badge label="测试" color="#a855f7"/>:null}
+                      {r.is_cp?<Badge label="车峰" color="#eab308"/>:null}
+                      {r.is_exempt?<Badge label="免答" color="#64748b"/>:null}
+                      {r.hidden&&<span style={{fontSize:10,color:'#475569'}}>[已隐藏]</span>}
+                      {r.tab_switch_count>0&&<span style={{fontSize:10,color:'#ef4444',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{r.tab_switch_count}</span>}
+                    </span>
+                    <span style={{fontSize:11,color:'#64748b',flexShrink:0}}>{r.q_count??r.sessions}题</span>
+                    <span style={{fontWeight:700,color:'#c8a84b',fontSize:14,minWidth:28,textAlign:'right',flexShrink:0}}>{r.total_points??r.pts}</span>
+                    {!lbEdit&&<span style={{fontSize:11,color:'#334155',display:'inline-block',transform:isExp?'rotate(180deg)':'none',transition:'transform 0.2s',marginLeft:2}}>⌄</span>}
+                    {lbEdit&&<div style={{display:'flex',gap:4,marginLeft:4}}>
+                      <button onClick={async e=>{e.stopPropagation();await api(`/api/admin/sessions/${r.id}/hide`,{method:'PUT',headers:hdrs(),body:JSON.stringify({hidden:!r.hidden})});setLbSessions(ls=>ls.map(s=>s.id===r.id?{...s,hidden:!s.hidden}:s));}} style={{fontSize:10,padding:'2px 7px',borderRadius:4,border:'1px solid #1b3255',background:'none',color:'#f59e0b',cursor:'pointer'}}>{r.hidden?'恢复':'隐藏'}</button>
+                      <button onClick={async e=>{e.stopPropagation();if(!window.confirm(`确认删除 ${r.staff_name} 的这条成绩？`))return;await api(`/api/admin/sessions/${r.id}`,{method:'DELETE',headers:hdrs()});setLbSessions(ls=>ls.filter(s=>s.id!==r.id));}} style={{fontSize:10,padding:'2px 7px',borderRadius:4,border:'1px solid rgba(239,68,68,0.3)',background:'none',color:'#ef4444',cursor:'pointer'}}>删除</button>
+                    </div>}
+                  </div>
+                  {isExp&&(
+                    <div style={{borderTop:'1px solid rgba(27,50,85,0.4)',padding:'8px 16px 12px 48px'}}>
+                      {lbAdminDetailLoading&&<div style={{padding:'12px 0',display:'flex',justifyContent:'center'}}><div className="spinner" style={{width:20,height:20,borderWidth:2}}/></div>}
+                      {!lbAdminDetailLoading&&lbAdminDetail?.sessions?.length===0&&<div style={{color:'#475569',fontSize:12,padding:'8px 0'}}>暂无记录</div>}
+                      {!lbAdminDetailLoading&&lbAdminDetail?.sessions?.map((s,si)=>(
+                        <div key={si} style={{marginTop:8,background:'rgba(15,38,66,0.5)',border:'1px solid rgba(27,50,85,0.6)',borderRadius:8,padding:'10px 12px'}}>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                            <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+                              <span style={{fontSize:10,color:'#64748b'}}>{s.created_at?.slice(5,10)}{s.cycle_label?` · ${s.cycle_label}`:''}</span>
+                              {s.tab_switch_count>0&&<span style={{fontSize:10,color:'#ef4444',background:'rgba(239,68,68,0.12)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
+                            </div>
+                            <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                              <span style={{fontSize:11,fontWeight:700,color:'white'}}>{s.total_score}分</span>
+                              <span style={{fontSize:10,color:'#c8a84b'}}>+{s.total_points}</span>
+                            </div>
+                          </div>
+                          {s.answers?.map((a,ai)=>(
+                            <div key={ai} style={{padding:'4px 0',borderTop:'1px solid rgba(27,50,85,0.4)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                              <span style={{fontSize:10,color:'rgba(255,255,255,0.6)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
+                              <span style={{fontSize:11,fontWeight:700,flexShrink:0,color:a.score>=99?'#22c55e':a.score>=67?'#f59e0b':'#ef4444'}}>{Math.round(a.score*33/100)}</span>
+                            </div>
+                          ))}
+                          {overview.cycle&&si===0&&lbAdminDetail.sessions.length>0&&(
+                            <button onClick={async()=>{if(!window.confirm(`确认删除 ${r.staff_name} 在本套班的全部 ${lbAdminDetail.sessions.length} 条成绩？`))return;const res=await apiJson(`/api/admin/sessions/staff/${r.staff_id}?cycle_id=${overview.cycle.id}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);if(res?.ok){setExpandedLbStaffId(null);setLbAdminDetail(null);apiJson(lbMode==='alltime'?'/api/admin/leaderboard/alltime':'/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||d||[])).catch(()=>{});}}} style={{marginTop:8,width:'100%',padding:'5px',background:'rgba(239,68,68,0.07)',border:'1px solid rgba(239,68,68,0.2)',borderRadius:6,color:'#ef4444',fontSize:10,cursor:'pointer'}}>删除本套班全部成绩</button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
+
           <a href={`/api/export?password=${pwd}`} target="_blank" className="btn-primary" style={{textAlign:'center',textDecoration:'none',display:'block',padding:'13px'}}>📊 导出本月 Excel</a>
           <button onClick={async()=>{
             if(!window.confirm('确认清除今日所有答题记录？此操作不可撤销。'))return;
             const r=await apiJson('/api/admin/sessions/today',{method:'DELETE',headers:hdrs()}).catch(()=>null);
-            if(r?.ok){alert(`已清除今日 ${r.deleted} 条记录`);apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});}
+            if(r?.ok){alert(`已清除今日 ${r.deleted} 条记录`);apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/weak-questions',{headers:hdrs()}).then(setWeakQuestions).catch(()=>{});const ep=lbMode==='alltime'?'/api/admin/leaderboard/alltime':'/api/admin/leaderboard/cycle';apiJson(ep,{headers:hdrs()}).then(d=>setLbSessions(d.rows||d||[])).catch(()=>{});}
             else alert('清除失败');
           }} style={{width:'100%',marginTop:8,padding:'13px',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:8,color:'#ef4444',fontSize:13,fontWeight:600,cursor:'pointer'}}>🗑 清除今日答题数据</button>
         </>}
@@ -2091,6 +2297,84 @@ function AdminScreen({ onBack }) {
             </div>
           ))}
           <BankImportCard pwd={pwd} onImported={()=>apiJson('/api/banks',{headers:hdrs()}).then(setBanks).catch(()=>{})}/>
+
+          {/* ── 手动添加题目 ── */}
+          <div className="card">
+            <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:12,fontWeight:600}}>✍️ 手动添加题目</div>
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              <select value={addQ.bank_id} onChange={e=>setAddQ(q=>({...q,bank_id:e.target.value}))} style={{background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}>
+                <option value="">选择题库</option>
+                {banks.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+              <textarea value={addQ.text} onChange={e=>setAddQ(q=>({...q,text:e.target.value}))} placeholder="题目内容（必填）" rows={2} style={{background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'8px 10px',fontSize:13,resize:'vertical'}}/>
+              <textarea value={addQ.reference} onChange={e=>setAddQ(q=>({...q,reference:e.target.value}))} placeholder="参考答案 / 各步骤用分号分隔（必填）" rows={3} style={{background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'8px 10px',fontSize:13,resize:'vertical'}}/>
+              <input value={addQ.keywords} onChange={e=>setAddQ(q=>({...q,keywords:e.target.value}))} placeholder="关键词（逗号分隔，可选）" style={{background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'8px 10px',fontSize:13}}/>
+              <div style={{display:'flex',gap:8}}>
+                <select value={addQ.category} onChange={e=>setAddQ(q=>({...q,category:e.target.value}))} style={{flex:1,background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}>
+                  {['业务知识','应急处置','设备操作','规章制度','安全管理'].map(c=><option key={c}>{c}</option>)}
+                </select>
+                <select value={addQ.difficulty} onChange={e=>setAddQ(q=>({...q,difficulty:e.target.value}))} style={{flex:1,background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}>
+                  {['简单','中等','困难'].map(d=><option key={d}>{d}</option>)}
+                </select>
+              </div>
+              <button disabled={addQLoading||!addQ.text.trim()||!addQ.reference.trim()||!addQ.bank_id} onClick={async()=>{setAddQLoading(true);const r=await apiJson('/api/questions',{method:'POST',headers:hdrs(),body:JSON.stringify({...addQ,bank_id:parseInt(addQ.bank_id)})}).catch(()=>null);setAddQLoading(false);if(r?.id){alert('添加成功');setAddQ(q=>({...q,text:'',reference:'',keywords:''}));apiJson('/api/banks',{headers:hdrs()}).then(setBanks);}else alert('添加失败');}} style={{background:'#1b3a6e',border:'none',color:'white',borderRadius:7,padding:'10px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:addQLoading?0.6:1}}>{addQLoading?'提交中…':'添加题目'}</button>
+            </div>
+          </div>
+
+          {/* ── AI 生成题目 ── */}
+          <div className="card">
+            <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:12,fontWeight:600}}>🤖 AI 智能生成题目</div>
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              <select value={aiBankId} onChange={e=>setAiBankId(e.target.value)} style={{background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}>
+                <option value="">选择保存到题库</option>
+                {banks.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+              <textarea value={aiContent} onChange={e=>setAiContent(e.target.value)} placeholder="粘贴事件分析报告、规章文本或任意培训材料，AI将自动提取题目" rows={5} style={{background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'8px 10px',fontSize:13,resize:'vertical'}}/>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <span style={{fontSize:12,color:'#94a3b8',flexShrink:0}}>生成题数</span>
+                {[2,3,5,8].map(n=><button key={n} onClick={()=>setAiCount(n)} style={{padding:'4px 12px',borderRadius:6,border:`1px solid ${aiCount===n?'#3b82f6':'#1b3255'}`,background:aiCount===n?'rgba(59,130,246,0.15)':'none',color:aiCount===n?'#60a5fa':'#94a3b8',cursor:'pointer',fontSize:13}}>{n}</button>)}
+              </div>
+              {aiResult&&<div style={{background:'rgba(34,197,94,0.08)',border:'1px solid rgba(34,197,94,0.3)',borderRadius:8,padding:'10px 12px'}}>
+                <div style={{fontSize:12,color:'#22c55e',marginBottom:6}}>已生成 {aiResult.questions?.length} 题{aiResult.ids?.length>0?'，并已保存到题库':''}</div>
+                {aiResult.questions?.map((q,i)=><div key={i} style={{fontSize:12,color:'#94a3b8',padding:'4px 0',borderTop:'1px solid rgba(27,50,85,0.5)'}}><span style={{color:'white'}}>{i+1}. {q.text}</span></div>)}
+              </div>}
+              <button disabled={aiLoading||!aiContent.trim()} onClick={async()=>{setAiLoading(true);setAiResult(null);const r=await apiJson('/api/admin/questions/ai-generate',{method:'POST',headers:hdrs(),body:JSON.stringify({content:aiContent,count:aiCount,bank_id:aiBankId?parseInt(aiBankId):undefined})}).catch(()=>null);setAiLoading(false);if(r?.ok){setAiResult(r);if(r.ids?.length>0)apiJson('/api/banks',{headers:hdrs()}).then(setBanks);}else alert(r?.error||'AI生成失败');}} style={{background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',border:'none',color:'white',borderRadius:7,padding:'10px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:aiLoading?0.6:1}}>{aiLoading?'AI分析中…':'AI生成题目'}</button>
+            </div>
+          </div>
+
+          {/* ── 手动选题 ── */}
+          <div className="card">
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+              <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600}}>📌 手动选题</div>
+              {qPinned.scope!=='none'&&<span style={{fontSize:10,color:'#22c55e',background:'rgba(34,197,94,0.12)',border:'1px solid rgba(34,197,94,0.3)',borderRadius:4,padding:'2px 8px'}}>已启用·{qPinned.ids?.length}题·{qPinned.scope==='today'?'今日':'本套班'}</span>}
+            </div>
+            <div style={{fontSize:12,color:'#94a3b8',marginBottom:10,lineHeight:1.6}}>指定本次答题题目。不足3题时自动用所选题库补充。</div>
+            <div style={{display:'flex',gap:8,marginBottom:8}}>
+              <input value={qSearch} onChange={e=>{setQSearch(e.target.value);apiJson(`/api/admin/questions/all?search=${encodeURIComponent(e.target.value)}`,{headers:hdrs()}).then(setQAll).catch(()=>{});}} placeholder="搜索题目关键词…" style={{flex:1,background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}/>
+              <button onClick={()=>setQSelectOpen(o=>!o)} style={{background:'none',border:'1px solid #1b3255',color:'#3b82f6',borderRadius:6,padding:'6px 12px',cursor:'pointer',fontSize:12}}>{qSelectOpen?'收起':'展开搜索'}</button>
+            </div>
+            {qSelectOpen&&<div style={{maxHeight:240,overflowY:'auto',marginBottom:8,border:'1px solid #1b3255',borderRadius:8}}>
+              {qAll.length===0&&<div style={{textAlign:'center',color:'#475569',padding:'16px 0',fontSize:13}}>输入关键词搜索题目</div>}
+              {qAll.map(q=>{const sel=qSelected.includes(q.id);return(<div key={q.id} onClick={()=>setQSelected(s=>sel?s.filter(id=>id!==q.id):[...s,q.id])} style={{display:'flex',gap:8,alignItems:'flex-start',padding:'8px 12px',borderBottom:'1px solid rgba(27,50,85,0.5)',cursor:'pointer',background:sel?'rgba(59,130,246,0.1)':'none'}}>
+                <div style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel?'#3b82f6':'#475569'}`,background:sel?'#3b82f6':'none',flexShrink:0,marginTop:1}}>{sel&&<span style={{color:'white',fontSize:10,lineHeight:'14px',display:'block',textAlign:'center'}}>✓</span>}</div>
+                <div style={{flex:1}}><div style={{fontSize:12,color:'white',lineHeight:1.4}}>{q.text}</div><div style={{fontSize:10,color:'#64748b',marginTop:2}}>{q.bank_name} · {q.category}</div></div>
+              </div>);})}
+            </div>}
+            {qSelected.length>0&&<div style={{marginBottom:8,padding:'8px 10px',background:'rgba(59,130,246,0.08)',border:'1px solid rgba(59,130,246,0.2)',borderRadius:8}}>
+              <div style={{fontSize:11,color:'#60a5fa',marginBottom:5}}>已选 {qSelected.length} 题{qSelected.length<3?`（不足3题将从备用题库补全至3题）`:''}</div>
+              {qSelected.length<3&&<select value={pinFallback} onChange={e=>setPinFallback(e.target.value)} style={{width:'100%',background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'6px 10px',fontSize:12,marginBottom:5}}>
+                <option value="">选择补题题库（应急故障处理）</option>
+                {banks.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>}
+            </div>}
+            <div style={{display:'flex',gap:8,marginBottom:8}}>
+              {['today','shift'].map(s=><button key={s} onClick={()=>setPinScope(s)} style={{flex:1,padding:'7px',borderRadius:6,border:`1px solid ${pinScope===s?'#3b82f6':'#1b3255'}`,background:pinScope===s?'rgba(59,130,246,0.15)':'none',color:pinScope===s?'#60a5fa':'#94a3b8',cursor:'pointer',fontSize:12}}>{s==='today'?'今天生效':'本套班生效'}</button>)}
+            </div>
+            <div style={{display:'flex',gap:8}}>
+              <button disabled={qSelected.length===0} onClick={async()=>{const r=await apiJson('/api/admin/pinned-questions',{method:'PUT',headers:hdrs(),body:JSON.stringify({ids:qSelected,scope:pinScope,bank_fallback_id:pinFallback?parseInt(pinFallback):null})}).catch(()=>null);if(r?.ok){alert(`已设置 ${qSelected.length} 道指定题目（${pinScope==='today'?'今天':'本套班'}生效）`);apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(setQPinned);}else alert('设置失败');}} style={{flex:2,background:'#1b3a6e',border:'none',color:'white',borderRadius:7,padding:'10px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:qSelected.length===0?0.4:1}}>确认启用选题</button>
+              <button onClick={async()=>{const r=await apiJson('/api/admin/pinned-questions',{method:'PUT',headers:hdrs(),body:JSON.stringify({ids:[],scope:'none',bank_fallback_id:null})}).catch(()=>null);if(r?.ok){setQPinned({ids:[],scope:'none',bank_fallback_id:null});setQSelected([]);alert('已取消手动选题，恢复随机出题');}}} style={{flex:1,background:'none',border:'1px solid rgba(239,68,68,0.3)',color:'#ef4444',borderRadius:7,padding:'10px',fontSize:12,cursor:'pointer'}}>取消选题</button>
+            </div>
+          </div>
         </>}
 
         {tab==='settings'&&<>
@@ -2110,9 +2394,9 @@ function AdminScreen({ onBack }) {
           <div className="card">
             <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:12,fontWeight:600}}>积分规则说明</div>
             <div style={{fontSize:13,color:'#94a3b8',lineHeight:2}}>
-              每题基础分：<strong style={{color:'white'}}>10分</strong><br/>
-              优秀（≥85）：每题额外 <strong style={{color:'#c8a84b'}}>+5分</strong><br/>
-              良好（≥70）：每题额外 <strong style={{color:'#f59e0b'}}>+2分</strong><br/>
+              每题满分：<strong style={{color:'white'}}>33分</strong>，三题满分 <strong style={{color:'#c8a84b'}}>99分</strong><br/>
+              60分及格，按答题得分比例折算<br/>
+              本月练习过：额外 <strong style={{color:'#22c55e'}}>+1分</strong><br/>
               本轮排行榜范围：<strong style={{color:'white'}}>白班→夜班→早班（27人）</strong>
             </div>
           </div>
