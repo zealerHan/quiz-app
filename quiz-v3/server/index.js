@@ -17,6 +17,7 @@ const QRCode = require('qrcode');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin888';
+const MONITOR_TOKEN = process.env.MONITOR_TOKEN || 'monitor_quiz_5line';
 
 // ─── Database ──────────────────────────────────────────────────────────────
 const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'quiz.db');
@@ -724,6 +725,33 @@ app.get('/api/me/:staffId/answers', (req, res) => {
     FROM answers WHERE staff_id=? ORDER BY created_at DESC LIMIT 50
   `).all(req.params.staffId);
   res.json(rows);
+});
+
+// ─── Monitor API（只读，供 OpenClaw cron 调用）─────────────────────────────
+app.get('/api/monitor/today', (req, res) => {
+  const token = req.headers['x-monitor-token'] || req.query.token;
+  if (token !== MONITOR_TOKEN) return res.status(401).json({ error: 'unauthorized' });
+
+  const today = new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', year:'numeric', month:'2-digit', day:'2-digit' }).replace(/\//g, '-');
+  const completed = db.prepare(`
+    SELECT DISTINCT s.staff_id, COALESCE(st.real_name, s.staff_name) as name
+    FROM sessions s
+    LEFT JOIN staff st ON st.id = s.staff_id
+    WHERE date(s.created_at)=date('now','localtime')
+      AND s.completed=1 AND COALESCE(s.is_practice,0)=0
+      AND COALESCE(s.hidden,0)=0
+    ORDER BY s.created_at ASC
+  `).all();
+
+  const threshold = 5;
+  res.json({
+    date: today,
+    completedCount: completed.length,
+    completed: completed.map(r => r.name),
+    threshold,
+    reached: completed.length >= threshold,
+    missing: Math.max(0, threshold - completed.length)
+  });
 });
 
 // ─── Batch: delete today's sessions ────────────────────────────────────────
