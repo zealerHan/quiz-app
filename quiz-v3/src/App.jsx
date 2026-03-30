@@ -494,7 +494,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
         if (photo) api(`/api/staff/${user.staffId}/avatar`,{method:'PUT',body:JSON.stringify({avatar:photo})}).catch(()=>{});
       }
       const avg = Math.round(results.reduce((s,r)=>s+r.score,0)/results.length);
-      try { const pts = await apiJson(`/api/session/${sessionId}/finish`,{method:"POST",body:JSON.stringify({totalScore:avg})}); onDone(results,pts?.points,mode); }
+      try { const pts = await apiJson(`/api/session/${sessionId}/finish`,{method:"POST",body:JSON.stringify({totalScore:avg,tabSwitchCount:tabSwitchRef.current})}); onDone(results,pts?.points,mode); }
       catch { onDone(results,null,mode); }
     } else { if(countdownRef.current){clearInterval(countdownRef.current);countdownRef.current=null;} setCountdown(null); setQi(i=>i+1); setTranscript(""); setTranscriptItems([]); setEditingIdx(-1); setAiRes(null); setPhase("intro"); setDisplayText(""); setEditMode(false); scoreCacheRef.current=null; }
   };
@@ -503,7 +503,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
     if (q && sessionId) {
       try {
         await api(`/api/session/${sessionId}/answer`,{method:"POST",body:JSON.stringify({staffId:user.staffId,staffName:user.name,questionId:q.id,questionText:q.text,category:q.category,answerText:'',score:0,level:'需加强',summary:'未作答',correctPoints:[],missingPoints:[],suggestion:'请认真参与',scoreMethod:'skip'})});
-        await api(`/api/session/${sessionId}/finish`,{method:"POST",body:JSON.stringify({totalScore:0})});
+        await api(`/api/session/${sessionId}/finish`,{method:"POST",body:JSON.stringify({totalScore:0,tabSwitchCount:tabSwitchRef.current})});
       } catch {}
     }
     // 保留进度标记（带已答题数），主页据此显示「继续作答」而非「已完成」
@@ -1753,6 +1753,20 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
               <div style={{padding:'12px 16px',background:'rgba(15,38,66,0.6)',borderTop:'1px solid #1b3255'}}>
                 {memberDetail.catScores?.map((c,j)=><MiniBar key={j} label={c.category} value={c.avg}/>)}
                 {(!memberDetail.catScores?.length)&&<div style={{color:'#475569',fontSize:12}}>暂无答题数据</div>}
+                {memberDetail.sessions?.length>0&&(
+                  <div style={{marginTop:10}}>
+                    <div style={{fontSize:11,color:'#475569',letterSpacing:1,marginBottom:6}}>最近答题记录</div>
+                    {memberDetail.sessions.map((s,j)=>(
+                      <div key={j} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:j<memberDetail.sessions.length-1?'1px solid rgba(27,50,85,0.6)':'none'}}>
+                        <span style={{fontSize:11,color:'#475569',flexShrink:0}}>{s.created_at?.slice(5,16)}</span>
+                        <span style={{fontSize:11,color:'#94a3b8',flex:1}}>{s.q_count}题</span>
+                        <span style={{fontSize:12,fontWeight:700,color:'#c8a84b'}}>{s.total_points}分</span>
+                        <span style={{fontSize:11,color:'#64748b'}}>均{s.total_score?.toFixed?.(0)??'--'}</span>
+                        {s.tab_switch_count>0&&<span style={{fontSize:10,color:'#ef4444',background:'rgba(239,68,68,0.12)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
             {delConfirm===m.id&&(
@@ -1998,7 +2012,10 @@ function AdminScreen({ onBack }) {
             {lbSessions.slice(0,lbEdit?50:8).map((r,i)=>(
               <div key={r.id} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 0',borderBottom:i<lbSessions.slice(0,lbEdit?50:8).length-1?'1px solid #1b3255':'none',opacity:r.hidden?0.4:1}}>
                 <span style={{fontSize:12,width:20,textAlign:'center',color:'#64748b'}}>{i+1}</span>
-                <span style={{flex:1,fontSize:13,color:r.hidden?'#64748b':'white'}}>{r.staff_name}{r.hidden?' [已隐藏]':''}</span>
+                <span style={{flex:1,fontSize:13,color:r.hidden?'#64748b':'white',display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
+                  {r.staff_name}{r.hidden?' [已隐藏]':''}
+                  {r.tab_switch_count>0&&<span style={{fontSize:10,color:'#ef4444',background:'rgba(239,68,68,0.12)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:5,padding:'0 5px',fontWeight:700,flexShrink:0}}>切屏×{r.tab_switch_count}</span>}
+                </span>
                 <span style={{fontSize:11,color:'#64748b'}}>{r.q_count??r.sessions}题</span>
                 <span style={{fontWeight:700,color:'#c8a84b',minWidth:32,textAlign:'right'}}>{r.total_points??r.pts}</span>
                 {lbEdit&&<div style={{display:'flex',gap:4,marginLeft:4}}>

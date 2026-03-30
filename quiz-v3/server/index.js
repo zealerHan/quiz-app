@@ -115,6 +115,7 @@ db.exec(`
 try { db.exec('ALTER TABLE sessions ADD COLUMN is_practice INTEGER DEFAULT 0'); } catch(e) {}
 try { db.exec('ALTER TABLE sessions ADD COLUMN practice_bonus INTEGER DEFAULT 0'); } catch(e) {}
 try { db.exec('ALTER TABLE sessions ADD COLUMN hidden INTEGER DEFAULT 0'); } catch(e) {}
+try { db.exec('ALTER TABLE sessions ADD COLUMN tab_switch_count INTEGER DEFAULT 0'); } catch(e) {}
 try { db.exec('ALTER TABLE staff ADD COLUMN real_name TEXT'); } catch(e) {}
 try { db.exec('ALTER TABLE staff ADD COLUMN phone_tail TEXT'); } catch(e) {}
 try { db.exec('ALTER TABLE staff ADD COLUMN is_tester INTEGER DEFAULT 0'); } catch(e) {}
@@ -489,8 +490,9 @@ app.post('/api/session/:id/finish', (req, res) => {
       db.prepare("UPDATE sessions SET staff_name = CASE WHEN staff_name NOT LIKE '%(测试)' THEN staff_name || '(测试)' ELSE staff_name END WHERE id=?").run(req.params.id);
     }
   }
-  const { totalScore } = req.body;
+  const { totalScore, tabSwitchCount } = req.body;
   const cnt = db.prepare('SELECT COUNT(*) as c FROM answers WHERE session_id=?').get(req.params.id);
+  const tabSwitch = parseInt(tabSwitchCount) || 0;
 
   if (sess?.is_practice) {
     // 练习模式：不计入常规积分，每完成1次给1分奖励（每月最多3次）
@@ -501,14 +503,14 @@ app.post('/api/session/:id/finish', (req, res) => {
       AND strftime('%Y-%m', created_at)=?
     `).get(sess.staff_id, monthStr);
     const bonus = usedThisMonth.c < 3 ? 1 : 0;
-    db.prepare('UPDATE sessions SET total_score=?,q_count=?,base_points=0,bonus_points=0,total_points=?,practice_bonus=?,completed=1 WHERE id=?')
-      .run(totalScore, cnt.c, bonus, bonus, req.params.id);
+    db.prepare('UPDATE sessions SET total_score=?,q_count=?,base_points=0,bonus_points=0,total_points=?,practice_bonus=?,tab_switch_count=?,completed=1 WHERE id=?')
+      .run(totalScore, cnt.c, bonus, bonus, tabSwitch, req.params.id);
     return res.json({ points: { base: 0, bonus: 0, total: bonus, isPractice: true, practiceBonus: bonus, practiceUsed: usedThisMonth.c + bonus, practiceMax: 3 } });
   }
 
   const pts = calcPoints(totalScore, cnt.c);
-  db.prepare('UPDATE sessions SET total_score=?,q_count=?,base_points=?,bonus_points=?,total_points=?,completed=1 WHERE id=?')
-    .run(totalScore, cnt.c, pts.base, pts.bonus, pts.total, req.params.id);
+  db.prepare('UPDATE sessions SET total_score=?,q_count=?,base_points=?,bonus_points=?,total_points=?,tab_switch_count=?,completed=1 WHERE id=?')
+    .run(totalScore, cnt.c, pts.base, pts.bonus, pts.total, tabSwitch, req.params.id);
   res.json({ points: pts });
 });
 
@@ -787,14 +789,14 @@ app.get('/api/admin/leaderboard/cycle', adminAuth, (req, res) => {
   const cycle = getCurrentCycle();
   if (!cycle) return res.json([]);
   const rows = db.prepare(`
-    SELECT s.id, s.staff_id, s.staff_name, s.total_score, s.total_points, s.q_count, s.created_at, s.hidden
+    SELECT s.id, s.staff_id, s.staff_name, s.total_score, s.total_points, s.q_count, s.created_at, s.hidden, s.tab_switch_count
     FROM sessions s WHERE s.cycle_id=? AND s.completed=1 ORDER BY s.total_points DESC, s.created_at DESC
   `).all(cycle.id);
   res.json({ cycle, rows });
 });
 app.get('/api/admin/leaderboard/alltime', adminAuth, (req, res) => {
   const rows = db.prepare(`
-    SELECT s.id, s.staff_id, s.staff_name, s.total_score, s.total_points, s.q_count, s.created_at, s.hidden
+    SELECT s.id, s.staff_id, s.staff_name, s.total_score, s.total_points, s.q_count, s.created_at, s.hidden, s.tab_switch_count
     FROM sessions s WHERE s.completed=1 ORDER BY s.total_points DESC, s.created_at DESC LIMIT 100
   `).all();
   res.json(rows);
