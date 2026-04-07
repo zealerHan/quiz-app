@@ -237,7 +237,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
   const [tabSwitchCount,setTabSwitchCount]=useState(0);
   const [showTabWarn,setShowTabWarn]=useState(false);
   const tabSwitchRef=useRef(0);
-  const recRef=useRef(),typeRef=useRef(),pendingSubmitRef=useRef(false),submitRef=useRef(null),scoreCacheRef=useRef(null),audioStreamRef=useRef(null);
+  const recRef=useRef(),typeRef=useRef(),pendingSubmitRef=useRef(false),submitRef=useRef(null),scoreCacheRef=useRef(null),audioStreamRef=useRef(null),recognizeTimeoutRef=useRef(null);
 
   const isPractice = mode !== 'normal';
 
@@ -376,6 +376,10 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
         processor.connect(audioCtx.destination);
       };
 
+      const clearRecognizeTimeout = () => {
+        if (recognizeTimeoutRef.current) { clearTimeout(recognizeTimeoutRef.current); recognizeTimeoutRef.current = null; }
+      };
+
       ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data);
@@ -383,6 +387,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
             setTranscript(msg.text);
             window._streamingTranscript = msg.text;
           } else if(msg.type === 'final') {
+            clearRecognizeTimeout();
             setTranscript(msg.text);
             setTranscriptItems(splitToItems(msg.text));
             window._streamingTranscript = msg.text;
@@ -400,6 +405,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
               setTimeout(()=>submitRef.current?.(), 50);
             }
           } else if(msg.type === 'error') {
+            clearRecognizeTimeout();
             setTranscript(msg.text);
             window._streamingTranscript = '';
             setIsRecognizing(false);
@@ -409,12 +415,14 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
       };
 
       ws.onerror = () => {
+        clearRecognizeTimeout();
         setTranscript('连接识别服务失败，请纠正模式手动输入');
         setIsRec(false);
         setIsRecognizing(false);
       };
 
       ws.onclose = () => {
+        clearRecognizeTimeout();
         setIsRecognizing(false);
       };
 
@@ -428,6 +436,13 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
           if(ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({type:'stop'}));
           }
+          // 超时保护：15秒内未收到 final/error，强制解除识别状态
+          recognizeTimeoutRef.current = setTimeout(() => {
+            recognizeTimeoutRef.current = null;
+            setIsRecognizing(false);
+            pendingSubmitRef.current = false;
+            try { ws.close(); } catch {}
+          }, 15000);
         },
         ws
       };
@@ -609,7 +624,8 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
                 </div>
               ) : transcriptItems.length > 0 ? (
                 <div>
-                  <div style={{fontSize:9,color:"rgba(255,255,255,0.35)",letterSpacing:2,marginBottom:7}}>您语音识别摘要内容：</div>
+                  <div style={{fontSize:9,color:"rgba(255,255,255,0.35)",letterSpacing:2,marginBottom:4}}>语音识别结果（仅供参考）</div>
+                  <div style={{fontSize:10,color:"rgba(34,197,94,0.7)",marginBottom:7,lineHeight:1.4}}>✓ AI按语义理解评分，识别有误差属正常，不影响最终得分</div>
                   {transcriptItems.map((item,idx)=>(
                     <div key={idx} style={{display:"flex",alignItems:"flex-start",gap:7,padding:"5px 0",borderBottom:idx<transcriptItems.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
                       <span style={{fontSize:15,color:"#e8c97a",flexShrink:0,lineHeight:1.55,userSelect:"none"}}>{CIRCLE_NUMS[idx]||`${idx+1}.`}</span>
@@ -645,8 +661,22 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
                   ))}
                 </div>
               ) : (
-                <div style={{color:"rgba(255,255,255,0.2)",fontSize:14,textAlign:"center",padding:"10px 0"}}>
-                  {phase==="intro"?"题目朗读中，稍候…":"点击下方录音按钮开始作答"}
+                <div style={{display:"flex",flexDirection:"column",gap:6,padding:"6px 0"}}>
+                  <div style={{color:"rgba(255,255,255,0.2)",fontSize:14,textAlign:"center"}}>
+                    {phase==="intro"?"题目朗读中，稍候…":"点击下方录音按钮开始作答"}
+                  </div>
+                  {phase!=="intro"&&<div style={{display:"flex",flexDirection:"column",gap:4,background:"rgba(34,197,94,0.05)",border:"1px solid rgba(34,197,94,0.15)",borderRadius:8,padding:"8px 12px"}}>
+                    {[
+                      ["🎙️","手机靠近嘴巴 20–30cm，声音清晰"],
+                      ["🔇","尽量减少周围噪音，背对风口"],
+                      ["🗣️","语速放慢，说完整句子再停顿"],
+                    ].map(([icon,tip])=>(
+                      <div key={tip} style={{display:"flex",gap:7,alignItems:"center"}}>
+                        <span style={{fontSize:13,flexShrink:0}}>{icon}</span>
+                        <span style={{fontSize:11,color:"rgba(255,255,255,0.4)",lineHeight:1.4}}>{tip}</span>
+                      </div>
+                    ))}
+                  </div>}
                 </div>
               )}
             </div>
@@ -782,7 +812,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
 
       {phase==="processing"&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:100}}><div className="spinner"/><div style={{color:"rgba(255,255,255,0.5)",marginTop:12,fontSize:14}}>AI 分析中…</div></div>}
 
-      {showSubmitConfirm&&<AppModal icon="📝" title="准备提交" body={"注意答题顺序和准确，\n确认后将提交当前作答内容。"} buttons={[{label:"再想想",onClick:()=>setShowSubmitConfirm(false)},{label:"提交",onClick:()=>{setShowSubmitConfirm(false);submit();},primary:true}]}/>}
+      {showSubmitConfirm&&<AppModal icon="📝" title="准备提交" body={"确认提交当前语音作答？\nAI将按语义理解评分，\n识别文字有偏差不影响得分。"} buttons={[{label:"再想想",onClick:()=>setShowSubmitConfirm(false)},{label:"提交",onClick:()=>{setShowSubmitConfirm(false);submit();},primary:true}]}/>}
       {showBackConfirm&&<AppModal icon="⚠️" title="确认返回？" body={"本题尚未完成作答，\n返回将记零分并结束本次答题。"} buttons={[{label:"继续答题",onClick:()=>setShowBackConfirm(false)},{label:"记零分返回",onClick:()=>{setShowBackConfirm(false);goBack();},danger:true}]}/>}
       {showTabWarn&&<AppModal icon="👀" title={`检测到切屏 ${tabSwitchCount} 次`} body="请专注答题，切屏次数已被记录。" buttons={[{label:"我知道了",onClick:()=>setShowTabWarn(false),primary:true}]}/>}
     </div>
@@ -888,6 +918,7 @@ function HomeScreen({ user, nav }) {
   const [periodDone, setPeriodDone] = useState(0);
   const [periodTotal, setPeriodTotal] = useState(0);
   const [activeBank, setActiveBank] = useState(null);
+  const [pinnedInfo, setPinnedInfo] = useState(null);
   const [taskDone, setTaskDone] = useState(false);
   const [isExempt, setIsExempt] = useState(false);
   const [quizInProgress, setQuizInProgress] = useState(null); // null or {answered, total}
@@ -933,8 +964,17 @@ function HomeScreen({ user, nav }) {
       }).catch(() => {});
 
     apiJson('/api/banks').then(banks => {
-      setActiveBank(banks.find(b => b.is_active && b.is_default) || banks[0]);
+      setActiveBank(banks.find(b => b.is_default) || banks.find(b => b.is_active) || banks[0]);
     }).catch(() => {});
+
+    fetch('/api/admin/pinned-questions', { headers: { 'x-admin-password': 'admin888' } })
+      .then(r => r.json()).then(p => {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const active = p.ids?.length > 0 && (
+          (p.scope === 'today' && p.created_date === todayStr) || p.scope === 'shift'
+        );
+        setPinnedInfo(active ? p : null);
+      }).catch(() => {});
   }, [user.staffId]);
 
   const getShiftDeadline = () => {
@@ -1026,7 +1066,24 @@ function HomeScreen({ user, nav }) {
             <div style={{
               flex:1, background:'#081828', border:'1px solid var(--border)',
               borderRadius:8, padding:'9px 10px', fontSize:11, color:'var(--text)', lineHeight:1.6, minHeight:48
-            }}>{activeBank ? activeBank.name : '加载中…'}</div>
+            }}>
+              {pinnedInfo && pinnedInfo.questions?.length > 0
+                ? (() => {
+                    const catMap = {};
+                    pinnedInfo.questions.forEach(q => {
+                      const c = q.category || '业务知识';
+                      catMap[c] = (catMap[c] || 0) + 1;
+                    });
+                    const summary = Object.entries(catMap).map(([c, n]) => `${n}个${c}`).join('，');
+                    return (
+                      <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                        <div style={{color:'#22c55e',fontWeight:700,fontSize:10}}>📌 今日指定题目</div>
+                        <div style={{color:'#e2e8f0',fontSize:12,fontWeight:600,lineHeight:1.5}}>{summary}</div>
+                      </div>
+                    );
+                  })()
+                : activeBank ? activeBank.name : '加载中…'}
+            </div>
             {quizInProgress
               ? <button onClick={() => { localStorage.removeItem('quiz_inprogress'); setQuizInProgress(null); nav('quiz'); }} style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid rgba(200,57,75,.5)', cursor:'pointer', background:'linear-gradient(135deg,#7a1a24,#c8394b)', color:'white', fontSize:11, fontWeight:800, fontFamily:'var(--font)', letterSpacing:'0.5px' }}>已完成 {quizInProgress.answered}/{quizInProgress.total}，继续作答 ›</button>
               : taskDone
@@ -1182,7 +1239,7 @@ function HomeScreen({ user, nav }) {
               </div>
             ))}
             {lbCycleFull.length > 3 && (
-              <div onClick={()=>setShowAllCycle(v=>!v)} style={{textAlign:'center',marginTop:6,fontSize:10,color:'var(--blue)',cursor:'pointer'}}>
+              <div onClick={()=>setShowAllCycle(v=>!v)} style={{textAlign:'center',marginTop:8,fontSize:13,color:'#60a5fa',cursor:'pointer',fontWeight:600,letterSpacing:0.5}}>
                 {showAllCycle ? '收起 ▲' : `查看全部 ${lbCycleFull.length} 人 ▼`}
               </div>
             )}
@@ -1208,7 +1265,7 @@ function HomeScreen({ user, nav }) {
               </div>
             ))}
             {lbTotalFull.length > 3 && (
-              <div onClick={()=>setShowAllTotal(v=>!v)} style={{textAlign:'center',marginTop:6,fontSize:10,color:'var(--blue)',cursor:'pointer'}}>
+              <div onClick={()=>setShowAllTotal(v=>!v)} style={{textAlign:'center',marginTop:8,fontSize:13,color:'#60a5fa',cursor:'pointer',fontWeight:600,letterSpacing:0.5}}>
                 {showAllTotal ? '收起 ▲' : `查看全部 ${lbTotalFull.length} 人 ▼`}
               </div>
             )}
@@ -2013,6 +2070,118 @@ function BankImportCard({ pwd, onImported }) {
   );
 }
 
+function DocParseCard({ pwd, banks, onImported }) {
+  const [step, setStep] = useState('idle'); // idle | parsing | preview | saving
+  const [msg, setMsg] = useState('');
+  const [questions, setQuestions] = useState([]);
+  const [docType, setDocType] = useState('general');
+  const [checked, setChecked] = useState([]);
+  const [bankId, setBankId] = useState('');
+  const [newBankName, setNewBankName] = useState('');
+  const fileRef = useRef();
+
+  const adminHeaders = pwd => ({ 'x-admin-password': pwd });
+
+  const doParse = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    e.target.value = '';
+    setStep('parsing'); setMsg(''); setQuestions([]); setChecked([]);
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('count', '5');
+    try {
+      const r = await fetch('/api/admin/banks/parse-doc', { method: 'POST', headers: adminHeaders(pwd), body: fd });
+      const d = await r.json();
+      if (!d.ok) { setMsg('❌ ' + (d.error || '解析失败')); setStep('idle'); return; }
+      setQuestions(d.questions || []);
+      setDocType(d.docType || 'general');
+      setChecked((d.questions || []).map((_, i) => i));
+      setStep('preview');
+    } catch { setMsg('❌ 网络错误'); setStep('idle'); }
+  };
+
+  const doSave = async () => {
+    const toSave = questions.filter((_, i) => checked.includes(i));
+    if (toSave.length === 0) { setMsg('❌ 请至少选择一道题'); return; }
+    setStep('saving');
+    const target = banks.find(b => b.id === parseInt(bankId));
+    const fd = new FormData();
+    // 复用 ai-generate 端点保存
+    const body = { questions: toSave, bank_id: bankId ? parseInt(bankId) : undefined, bank_name: newBankName.trim() || undefined };
+    try {
+      const r = await fetch('/api/admin/questions/ai-generate', {
+        method: 'POST',
+        headers: { ...adminHeaders(pwd), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: '__presaved__', count: 0, bank_id: bankId ? parseInt(bankId) : undefined, bank_name: newBankName.trim() || undefined, presaved: toSave })
+      });
+      // 因 ai-generate 不支持 presaved，直接用 parse-doc 保存（带 bank_id）
+      // 重新调用并带上 bank 信息
+      const fd2 = new FormData();
+      fd2.append('_saveOnly', '1');
+      if (bankId) fd2.append('bank_id', bankId);
+      if (newBankName.trim()) fd2.append('bank_name', newBankName.trim());
+      // 通过 admin/questions/batch-save 保存
+      const r2 = await fetch('/api/admin/questions/batch-save', {
+        method: 'POST',
+        headers: { ...adminHeaders(pwd), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ questions: toSave, bank_id: bankId ? parseInt(bankId) : undefined, bank_name: newBankName.trim() || undefined })
+      });
+      const d2 = await r2.json();
+      if (d2.ok) { setMsg(`✅ 已保存 ${d2.count} 题`); setStep('idle'); onImported?.(); }
+      else { setMsg('❌ ' + (d2.error || '保存失败')); setStep('preview'); }
+    } catch { setMsg('❌ 网络错误'); setStep('preview'); }
+  };
+
+  const toggleCheck = (i) => setChecked(prev => prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i]);
+
+  if (step === 'idle' || step === 'parsing') return (
+    <label className="card" style={{border:'1px dashed #1e3a5f',textAlign:'center',padding:'22px',cursor: step==='parsing'?'default':'pointer',display:'block',background:'rgba(59,130,246,0.04)'}}>
+      <input ref={fileRef} type="file" accept=".docx,.pdf,.jpg,.jpeg,.png,.gif,.webp" style={{display:'none'}} onChange={doParse} disabled={step==='parsing'}/>
+      <div style={{fontSize:24,marginBottom:6}}>{step === 'parsing' ? '🤖' : '📄'}</div>
+      <div style={{fontSize:13,color:'#3b82f6',fontWeight:600}}>{step === 'parsing' ? 'AI解析中，请稍候…' : '智能出题（Word / PDF / 图片）'}</div>
+      <div style={{fontSize:11,color:'#64748b',marginTop:4}}>支持事故分析报告·自动识别出题结构</div>
+      {msg && <div style={{fontSize:12,marginTop:8,color:'#ef4444'}}>{msg}</div>}
+    </label>
+  );
+
+  return (
+    <div className="card" style={{border:'1px solid #1e3a5f',padding:'16px'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+        <div style={{fontSize:13,fontWeight:700,color:'#3b82f6'}}>
+          🤖 AI识别结果 {docType==='incident' ? '·📋 安全事件报告' : '·📖 业务材料'}
+        </div>
+        <button onClick={()=>{setStep('idle');setMsg('');}} style={{background:'none',border:'none',color:'#64748b',cursor:'pointer',fontSize:12}}>重新上传</button>
+      </div>
+      <div style={{fontSize:11,color:'#64748b',marginBottom:8}}>共 {questions.length} 道题，已选 {checked.length} 道</div>
+      <div style={{maxHeight:300,overflowY:'auto',marginBottom:12}}>
+        {questions.map((q, i) => (
+          <div key={i} onClick={()=>toggleCheck(i)} style={{padding:'8px 10px',marginBottom:6,borderRadius:6,border:`1px solid ${checked.includes(i)?'#3b82f6':'#1b3255'}`,cursor:'pointer',background:checked.includes(i)?'rgba(59,130,246,0.08)':'transparent'}}>
+            <div style={{display:'flex',gap:8,alignItems:'flex-start'}}>
+              <span style={{color:checked.includes(i)?'#3b82f6':'#475569',fontSize:14,flexShrink:0}}>{checked.includes(i)?'☑':'☐'}</span>
+              <div>
+                <div style={{fontSize:12,color:'#e2e8f0',marginBottom:3}}>{q.text}</div>
+                <div style={{fontSize:11,color:'#64748b'}}>参考：{q.reference?.slice(0,60)}{q.reference?.length>60?'…':''}</div>
+                {q.category && <span style={{fontSize:10,color:'#3b82f6',background:'rgba(59,130,246,0.1)',padding:'1px 5px',borderRadius:3,marginTop:3,display:'inline-block'}}>{q.category}</span>}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{display:'flex',gap:8,marginBottom:8,flexWrap:'wrap'}}>
+        <select value={bankId} onChange={e=>{setBankId(e.target.value);setNewBankName('');}} style={{flex:1,minWidth:120,padding:'6px 8px',borderRadius:6,border:'1px solid #1b3255',background:'#0d1117',color:'#e2e8f0',fontSize:12}}>
+          <option value=''>-- 选择已有题库 --</option>
+          {banks.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
+        <input placeholder="或新建题库名称" value={newBankName} onChange={e=>{setNewBankName(e.target.value);setBankId('');}} style={{flex:1,minWidth:120,padding:'6px 8px',borderRadius:6,border:'1px solid #1b3255',background:'#0d1117',color:'#e2e8f0',fontSize:12}}/>
+      </div>
+      <button onClick={doSave} disabled={step==='saving'||checked.length===0||(!bankId&&!newBankName.trim())} style={{width:'100%',padding:'9px',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',border:'none',borderRadius:7,color:'white',fontSize:13,fontWeight:600,cursor:'pointer',opacity:(step==='saving'||checked.length===0||(!bankId&&!newBankName.trim()))?0.5:1}}>
+        {step==='saving'?'保存中…':`保存选中 ${checked.length} 题到题库`}
+      </button>
+      {msg && <div style={{fontSize:12,marginTop:8,color:msg.startsWith('✅')?'#22c55e':'#ef4444'}}>{msg}</div>}
+    </div>
+  );
+}
+
 function AdminScreen({ onBack }) {
   const [authed,setAuthed]=useState(false);
   const [pwd,setPwd]=useState('');
@@ -2036,6 +2205,9 @@ function AdminScreen({ onBack }) {
   const [incompleteExpanded,setIncompleteExpanded]=useState(false);
   const [lbCollapsed,setLbCollapsed]=useState(true);
   const [allCorrectExpanded,setAllCorrectExpanded]=useState(false);
+  const [lowErrorExpanded,setLowErrorExpanded]=useState(false);
+  const [exportMonths,setExportMonths]=useState([]);
+  const [showExportMenu,setShowExportMenu]=useState(false);
   // 手动添加题目
   const [addQ,setAddQ]=useState({text:'',reference:'',keywords:'',category:'业务知识',difficulty:'中等',bank_id:''});
   const [addQLoading,setAddQLoading]=useState(false);
@@ -2064,7 +2236,7 @@ function AdminScreen({ onBack }) {
 
   useEffect(()=>{
     if(!authed)return;
-    if(tab==='overview'){apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});apiJson('/api/admin/weak-questions',{headers:hdrs()}).then(setWeakQuestions).catch(()=>{});}
+    if(tab==='overview'){apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});apiJson('/api/admin/weak-questions',{headers:hdrs()}).then(setWeakQuestions).catch(()=>{});apiJson('/api/export/months',{headers:hdrs()}).then(setExportMonths).catch(()=>{});}
     if(tab==='members')apiJson('/api/admin/members',{headers:hdrs()}).then(setMembers).catch(()=>{});
     if(tab==='banks'){apiJson('/api/banks',{headers:hdrs()}).then(d=>{setBanks(d);if(d.length>0){setAiBankId(String(d[0].id));setPinFallback(String(d[0].id));}}).catch(()=>{});apiJson('/api/settings',{headers:hdrs()}).then(setSettings).catch(()=>{});apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(d=>{setQPinned(d);setQSelected(d.ids||[]);setPinScope(d.scope==='none'?'today':d.scope);setPinFallback(d.bank_fallback_id?String(d.bank_fallback_id):'');}).catch(()=>{});}
     if(tab==='qr')apiJson('/api/qrcode').then(setQr).catch(()=>{});
@@ -2122,18 +2294,20 @@ function AdminScreen({ onBack }) {
               </div>
             </div>
             {overview.incompleteList?.length>0&&(
-              <div style={{borderTop:'1px solid #1b3255'}}>
-                {(incompleteExpanded?overview.incompleteList:overview.incompleteList.slice(0,5)).map((p,ni)=>(
-                  <div key={ni} style={{display:'flex',alignItems:'center',gap:8,padding:'9px 16px',borderBottom:'1px solid rgba(27,50,85,0.4)'}}>
-                    <div style={{width:6,height:6,borderRadius:'50%',background:'#f59e0b',flexShrink:0}}/>
-                    <span style={{fontSize:13,color:'rgba(255,255,255,0.8)'}}>{p.name}</span>
-                    {p.is_tester?<Badge label="测试" color="#a855f7"/>:null}
-                  </div>
-                ))}
-                {overview.incompleteList.length>5&&(
-                  <div onClick={()=>setIncompleteExpanded(e=>!e)} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:5,padding:'9px 16px',cursor:'pointer',color:'#64748b',fontSize:11}}>
-                    <span style={{display:'inline-block',transform:incompleteExpanded?'rotate(180deg)':'none',transition:'transform 0.2s'}}>⌄</span>
-                    {incompleteExpanded?'收起':(`还有 ${overview.incompleteList.length-5} 人，点击展开`)}
+              <div style={{borderTop:'1px solid #1b3255',padding:'10px 14px 4px'}}>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'6px 8px'}}>
+                  {(incompleteExpanded?overview.incompleteList:overview.incompleteList.slice(0,9)).map((p,ni)=>(
+                    <div key={ni} style={{display:'flex',flexDirection:'column',gap:2,padding:'6px 8px',background:'rgba(15,38,66,0.5)',border:'1px solid rgba(27,50,85,0.6)',borderRadius:7,minWidth:0}}>
+                      <div style={{fontSize:9,color:'#475569',fontWeight:700,lineHeight:1}}>№{ni+1}</div>
+                      <div style={{fontSize:12,color:'rgba(255,255,255,0.85)',fontWeight:600,lineHeight:1.3,wordBreak:'keep-all',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
+                      {(p.is_tester||p.is_cp||p.is_exempt)?<div style={{display:'flex',gap:3,flexWrap:'wrap'}}>{p.is_tester&&<Badge label="测试" color="#a855f7"/>}{p.is_cp&&<Badge label="车峰" color="#eab308"/>}{p.is_exempt&&<Badge label="免答" color="#64748b"/>}</div>:null}
+                    </div>
+                  ))}
+                </div>
+                {overview.incompleteList.length>9&&(
+                  <div onClick={()=>setIncompleteExpanded(e=>!e)} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'10px 0 6px',cursor:'pointer',color:'#f59e0b',fontSize:13,fontWeight:600}}>
+                    <span style={{display:'inline-block',transform:incompleteExpanded?'rotate(180deg)':'none',transition:'transform 0.2s',fontSize:16}}>⌄</span>
+                    {incompleteExpanded?'收起':(`还有 ${overview.incompleteList.length-9} 人，点击展开`)}
                   </div>
                 )}
               </div>
@@ -2142,34 +2316,46 @@ function AdminScreen({ onBack }) {
 
           {/* ── 本期高错误率题目 ── */}
           {weakQuestions.length>0&&(()=>{
-            const hasError=weakQuestions.filter(q=>q.error_rate>0);
+            const highError=weakQuestions.filter(q=>q.error_rate>=40);
+            const lowError=weakQuestions.filter(q=>q.error_rate>0&&q.error_rate<40);
             const allCorrect=weakQuestions.filter(q=>q.error_rate===0);
+            const renderQ=(q,qi,arr,dimmed=false)=>{
+              const col=q.error_rate>=70?'#ef4444':q.error_rate>=40?'#f59e0b':'#22c55e';
+              return(
+                <div key={qi} style={{marginBottom:qi<arr.length-1?14:0}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,marginBottom:5}}>
+                    <span style={{fontSize:11,color:dimmed?'rgba(255,255,255,0.45)':'rgba(255,255,255,0.85)',flex:1,lineHeight:1.6}}>{q.question_text.length>42?q.question_text.slice(0,42)+'…':q.question_text}</span>
+                    <span style={{fontSize:14,fontWeight:800,color:col,flexShrink:0}}>{q.error_rate}%</span>
+                  </div>
+                  <div style={{height:5,background:'#1e293b',borderRadius:3,overflow:'hidden',marginBottom:4}}>
+                    <div style={{height:'100%',width:`${q.error_rate}%`,background:`linear-gradient(90deg,${col}55,${col})`,borderRadius:3,transition:'width 0.8s ease'}}/>
+                  </div>
+                  <div style={{fontSize:9,color:'#475569'}}>
+                    {q.total} 次作答 · 均分 {q.avg_score} 分 · {q.wrong} 人错误
+                    {q.wrong_names?.length>0&&<span style={{color:'#64748b'}}> （{q.wrong_names.join('、')}）</span>}
+                  </div>
+                </div>
+              );
+            };
             return(
               <div className="card" style={{borderColor:'rgba(239,68,68,0.3)'}}>
                 <div style={{fontSize:10,color:'#ef4444',letterSpacing:2,fontWeight:600,marginBottom:14,textTransform:'uppercase'}}>本期高错误率题目</div>
-                {hasError.map((q,qi)=>{
-                  const col=q.error_rate>=70?'#ef4444':q.error_rate>=40?'#f59e0b':'#22c55e';
-                  return(
-                    <div key={qi} style={{marginBottom:qi<hasError.length-1||allCorrect.length>0?14:0}}>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,marginBottom:5}}>
-                        <span style={{fontSize:11,color:'rgba(255,255,255,0.85)',flex:1,lineHeight:1.6}}>{q.question_text.length>42?q.question_text.slice(0,42)+'…':q.question_text}</span>
-                        <span style={{fontSize:14,fontWeight:800,color:col,flexShrink:0}}>{q.error_rate}%</span>
-                      </div>
-                      <div style={{height:5,background:'#1e293b',borderRadius:3,overflow:'hidden',marginBottom:4}}>
-                        <div style={{height:'100%',width:`${q.error_rate}%`,background:`linear-gradient(90deg,${col}55,${col})`,borderRadius:3,transition:'width 0.8s ease'}}/>
-                      </div>
-                      <div style={{fontSize:9,color:'#475569'}}>
-                        {q.total} 次作答 · 均分 {q.avg_score} 分 · {q.wrong} 人错误
-                        {q.wrong_names?.length>0&&<span style={{color:'#64748b'}}> （{q.wrong_names.join('、')}）</span>}
-                      </div>
+                {highError.length===0&&<div style={{fontSize:12,color:'#22c55e',marginBottom:8}}>✓ 暂无错误率 ≥40% 的题目</div>}
+                {highError.map((q,qi)=>renderQ(q,qi,highError))}
+                {lowError.length>0&&(
+                  <div style={{borderTop:highError.length>0?'1px solid rgba(27,50,85,0.5)':'none',paddingTop:highError.length>0?12:0,marginTop:highError.length>0?2:0}}>
+                    <div onClick={()=>setLowErrorExpanded(e=>!e)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',marginBottom:lowErrorExpanded?10:0}}>
+                      <span style={{fontSize:13,color:'#f59e0b',letterSpacing:0.5,fontWeight:700}}>⚠ 低错误率题目（{lowError.length} 道，1%–39%）</span>
+                      <span style={{fontSize:16,color:'#f59e0b',display:'inline-block',transform:lowErrorExpanded?'rotate(180deg)':'none',transition:'transform 0.2s'}}>⌄</span>
                     </div>
-                  );
-                })}
+                    {lowErrorExpanded&&lowError.map((q,qi)=>renderQ(q,qi,lowError,true))}
+                  </div>
+                )}
                 {allCorrect.length>0&&(
-                  <div style={{borderTop:hasError.length>0?'1px solid rgba(27,50,85,0.5)':'none',paddingTop:hasError.length>0?12:0}}>
+                  <div style={{borderTop:(highError.length>0||lowError.length>0)?'1px solid rgba(27,50,85,0.5)':'none',paddingTop:(highError.length>0||lowError.length>0)?12:0,marginTop:2}}>
                     <div onClick={()=>setAllCorrectExpanded(e=>!e)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',marginBottom:allCorrectExpanded?10:0}}>
-                      <span style={{fontSize:10,color:'#22c55e',letterSpacing:1,fontWeight:600}}>✓ 全部答对的题目（{allCorrect.length} 道）</span>
-                      <span style={{fontSize:11,color:'#334155',display:'inline-block',transform:allCorrectExpanded?'rotate(180deg)':'none',transition:'transform 0.2s'}}>⌄</span>
+                      <span style={{fontSize:13,color:'#22c55e',letterSpacing:0.5,fontWeight:700}}>✓ 全部答对的题目（{allCorrect.length} 道）</span>
+                      <span style={{fontSize:16,color:'#22c55e',display:'inline-block',transform:allCorrectExpanded?'rotate(180deg)':'none',transition:'transform 0.2s'}}>⌄</span>
                     </div>
                     {allCorrectExpanded&&allCorrect.map((q,qi)=>(
                       <div key={qi} style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,padding:'6px 0',borderTop:'1px solid rgba(27,50,85,0.3)'}}>
@@ -2197,15 +2383,11 @@ function AdminScreen({ onBack }) {
                 <button onClick={()=>{const nm=lbMode==='cycle'?'alltime':'cycle';setLbMode(nm);setLbEdit(false);setExpandedLbStaffId(null);setLbAdminDetail(null);apiJson(nm==='alltime'?'/api/admin/leaderboard/alltime':'/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||d||[])).catch(()=>{});}} style={{fontSize:10,color:'#3b82f6',background:'rgba(59,130,246,0.08)',border:'1px solid rgba(59,130,246,0.2)',borderRadius:20,padding:'2px 9px',cursor:'pointer'}}>切换{lbMode==='cycle'?'全记录':'本轮'}</button>
               </div>
               <div style={{display:'flex',gap:6,alignItems:'center'}}>
-                {!lbCollapsed&&<button onClick={()=>{setLbEdit(e=>!e);setExpandedLbStaffId(null);setLbAdminDetail(null);}} style={{fontSize:11,color:lbEdit?'#ef4444':'#94a3b8',background:'none',border:`1px solid ${lbEdit?'rgba(239,68,68,0.4)':'#1b3255'}`,borderRadius:6,padding:'3px 9px',cursor:'pointer'}}>{lbEdit?'完成':'编辑'}</button>}
-                <button onClick={()=>{setLbCollapsed(c=>!c);setExpandedLbStaffId(null);setLbAdminDetail(null);setLbEdit(false);}} style={{fontSize:11,color:'#64748b',background:'none',border:'1px solid #1b3255',borderRadius:6,padding:'3px 9px',cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>
-                  <span style={{display:'inline-block',transform:lbCollapsed?'none':'rotate(180deg)',transition:'transform 0.2s'}}>⌄</span>
-                  {lbCollapsed?`展开 (${Math.min(lbSessions.length,10)})` :'收起'}
-                </button>
+                <button onClick={()=>{setLbEdit(e=>!e);setExpandedLbStaffId(null);setLbAdminDetail(null);}} style={{fontSize:11,color:lbEdit?'#ef4444':'#94a3b8',background:'none',border:`1px solid ${lbEdit?'rgba(239,68,68,0.4)':'#1b3255'}`,borderRadius:6,padding:'3px 9px',cursor:'pointer'}}>{lbEdit?'完成':'编辑'}</button>
               </div>
             </div>
-            {!lbCollapsed&&<div style={{borderTop:'1px solid #1b3255'}}/>}
-            {!lbCollapsed&&lbSessions.slice(0,10).map((r,i)=>{
+            <div style={{borderTop:'1px solid #1b3255'}}/>
+            {lbSessions.slice(0, lbCollapsed ? 10 : lbSessions.length).map((r,i)=>{
               const isExp=expandedLbStaffId===r.staff_id&&!lbEdit;
               const medals=['🥇','🥈','🥉'];
               return(
@@ -2229,7 +2411,7 @@ function AdminScreen({ onBack }) {
                     </span>
                     <span style={{fontSize:11,color:'#64748b',flexShrink:0}}>{r.q_count??r.sessions}题</span>
                     <span style={{fontWeight:700,color:'#c8a84b',fontSize:14,minWidth:28,textAlign:'right',flexShrink:0}}>{r.total_points??r.pts}</span>
-                    {!lbEdit&&<span style={{fontSize:11,color:'#334155',display:'inline-block',transform:isExp?'rotate(180deg)':'none',transition:'transform 0.2s',marginLeft:2}}>⌄</span>}
+                    {!lbEdit&&<span style={{fontSize:16,color:'#60a5fa',display:'inline-block',transform:isExp?'rotate(180deg)':'none',transition:'transform 0.2s',marginLeft:2}}>⌄</span>}
                     {lbEdit&&<div style={{display:'flex',gap:4,marginLeft:4}}>
                       <button onClick={async e=>{e.stopPropagation();await api(`/api/admin/sessions/${r.id}/hide`,{method:'PUT',headers:hdrs(),body:JSON.stringify({hidden:!r.hidden})});setLbSessions(ls=>ls.map(s=>s.id===r.id?{...s,hidden:!s.hidden}:s));}} style={{fontSize:10,padding:'2px 7px',borderRadius:4,border:'1px solid #1b3255',background:'none',color:'#f59e0b',cursor:'pointer'}}>{r.hidden?'恢复':'隐藏'}</button>
                       <button onClick={async e=>{e.stopPropagation();if(!window.confirm(`确认删除 ${r.staff_name} 的这条成绩？`))return;await api(`/api/admin/sessions/${r.id}`,{method:'DELETE',headers:hdrs()});setLbSessions(ls=>ls.filter(s=>s.id!==r.id));}} style={{fontSize:10,padding:'2px 7px',borderRadius:4,border:'1px solid rgba(239,68,68,0.3)',background:'none',color:'#ef4444',cursor:'pointer'}}>删除</button>
@@ -2267,11 +2449,33 @@ function AdminScreen({ onBack }) {
                 </div>
               );
             })}
+            {lbSessions.length>10&&(
+              <div onClick={()=>{setLbCollapsed(c=>!c);setExpandedLbStaffId(null);setLbAdminDetail(null);}} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'11px 16px',cursor:'pointer',borderTop:'1px solid rgba(27,50,85,0.4)',color:'#60a5fa',fontSize:13,fontWeight:600}}>
+                <span style={{display:'inline-block',transform:lbCollapsed?'none':'rotate(180deg)',transition:'transform 0.2s',fontSize:15}}>⌄</span>
+                {lbCollapsed?`展开全部 (共 ${lbSessions.length} 条)`:'收起（只显示前 10）'}
+              </div>
+            )}
           </div>
 
-          <a href={`/api/export?password=${pwd}`} target="_blank" className="btn-primary" style={{textAlign:'center',textDecoration:'none',display:'block',padding:'13px'}}>📊 导出本月 Excel</a>
+          {/* ── 导出记录 ── */}
+          <div style={{position:'relative'}}>
+            <button onClick={()=>{setShowExportMenu(m=>!m);if(!exportMonths.length)apiJson('/api/export/months',{headers:hdrs()}).then(setExportMonths).catch(()=>{});}} className="btn-primary" style={{width:'100%',textAlign:'center',padding:'13px',border:'none',cursor:'pointer'}}>📊 导出记录 ▾</button>
+            {showExportMenu&&(
+              <div onClick={()=>setShowExportMenu(false)} style={{position:'absolute',bottom:'calc(100% + 6px)',left:0,right:0,background:'#0d1e35',border:'1px solid rgba(59,130,246,0.4)',borderRadius:10,overflow:'hidden',zIndex:50,boxShadow:'0 -4px 20px rgba(0,0,0,0.5)'}}>
+                <div style={{padding:'8px 14px 6px',fontSize:10,color:'#64748b',letterSpacing:1,fontWeight:600,textTransform:'uppercase'}}>选择月份</div>
+                {exportMonths.length===0&&<div style={{padding:'10px 14px',fontSize:12,color:'#475569'}}>暂无数据</div>}
+                {exportMonths.map(m=>(
+                  <a key={m} href={`/api/export?password=${pwd}&month=${m}`} target="_blank" style={{display:'block',padding:'11px 16px',fontSize:14,color:'white',textDecoration:'none',borderTop:'1px solid rgba(27,50,85,0.5)'}}
+                    onMouseEnter={e=>e.currentTarget.style.background='rgba(59,130,246,0.12)'}
+                    onMouseLeave={e=>e.currentTarget.style.background='none'}>
+                    {m} <span style={{fontSize:11,color:'#64748b',marginLeft:6}}>下载 Excel</span>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
           <button onClick={async()=>{
-            if(!window.confirm('确认清除今日所有答题记录？此操作不可撤销。'))return;
+            if(!window.confirm('确认清除今日所有答题记录？\n（记录会保留在数据库中，不影响 Excel 导出）'))return;
             const r=await apiJson('/api/admin/sessions/today',{method:'DELETE',headers:hdrs()}).catch(()=>null);
             if(r?.ok){alert(`已清除今日 ${r.deleted} 条记录`);apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/weak-questions',{headers:hdrs()}).then(setWeakQuestions).catch(()=>{});const ep=lbMode==='alltime'?'/api/admin/leaderboard/alltime':'/api/admin/leaderboard/cycle';apiJson(ep,{headers:hdrs()}).then(d=>setLbSessions(d.rows||d||[])).catch(()=>{});}
             else alert('清除失败');
@@ -2281,100 +2485,194 @@ function AdminScreen({ onBack }) {
         {tab==='members'&&<MembersTab members={members} pwd={pwd} onRefresh={()=>apiJson('/api/admin/members',{headers:hdrs()}).then(setMembers).catch(()=>{})} selectedMember={selectedMember} setSelectedMember={setSelectedMember} memberDetail={memberDetail} loadMemberDetail={loadMemberDetail}/>}
 
         {tab==='banks'&&<>
-          {banks.map((b,i)=>(
-            <div key={i} className="card">
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-                <div>
-                  <div style={{display:'flex',gap:6,marginBottom:5}}>
-                    <span style={{fontSize:14,fontWeight:700,color:'white'}}>{b.name}</span>
-                    {b.is_default?<Badge label="默认" color="#c8a84b"/>:null}
-                    {b.is_active?<Badge label="当前使用" color="#22c55e"/>:null}
-                  </div>
-                  <div style={{fontSize:12,color:'#64748b'}}>{b.q_count||0} 题 · {b.q_type} · 每次{b.default_count}题</div>
+
+          {/* ══ 板块1：本套班抽问题目 ══ */}
+          {(()=>{
+            // 从题库中筛选"概述题"（安全事件类，含"请简述"或"请简要概述"）
+            const summaryQs = qAll.filter(q => q.category==='安全事件' && (q.text.includes('请简述') || q.text.includes('请简要概述')));
+            // 已选题目详情
+            const slots = [0,1,2].map(i => {
+              const id = qSelected[i];
+              return id ? (qPinned.questions?.find(q=>q.id===id) || summaryQs.find(q=>q.id===id) || qAll.find(q=>q.id===id) || {id,text:'...'}) : null;
+            });
+            const isManual = qPinned.scope !== 'none';
+            return (
+              <div className="card">
+                <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600,marginBottom:10}}>📌 本套班抽问题目</div>
+                {/* 两个模式按钮 */}
+                <div style={{display:'flex',gap:8,marginBottom:14}}>
+                  <button onClick={async()=>{
+                    const r=await apiJson('/api/admin/pinned-questions',{method:'PUT',headers:hdrs(),body:JSON.stringify({ids:[],scope:'none',bank_fallback_id:null})}).catch(()=>null);
+                    if(r?.ok){setQPinned({ids:[],scope:'none',bank_fallback_id:null,questions:[]});setQSelected([]);setQSelectOpen(false);}
+                  }} style={{flex:1,padding:'10px',borderRadius:8,border:`2px solid ${!isManual?'#3b82f6':'#1b3255'}`,background:!isManual?'rgba(59,130,246,0.12)':'none',color:!isManual?'#60a5fa':'#64748b',cursor:'pointer',fontSize:13,fontWeight:600}}>
+                    🎲 应急随机三题
+                  </button>
+                  <button onClick={()=>{
+                    setQSelectOpen(true);
+                    if(qAll.length===0) apiJson('/api/admin/questions/all',{headers:hdrs()}).then(setQAll).catch(()=>{});
+                  }} style={{flex:1,padding:'10px',borderRadius:8,border:`2px solid ${isManual?'#3b82f6':'#1b3255'}`,background:isManual?'rgba(59,130,246,0.12)':'none',color:isManual?'#60a5fa':'#64748b',cursor:'pointer',fontSize:13,fontWeight:600}}>
+                    ✏️ 手动选题
+                  </button>
                 </div>
-                {!b.is_active&&<button style={{background:'none',border:'1px solid #1b3255',color:'#94a3b8',padding:'5px 12px',borderRadius:7,cursor:'pointer',fontSize:12}} onClick={()=>api(`/api/banks/${b.id}/activate`,{method:'PUT',headers:hdrs()}).then(()=>apiJson('/api/banks',{headers:hdrs()}).then(setBanks))}>启用</button>}
-              </div>
-            </div>
-          ))}
-          <BankImportCard pwd={pwd} onImported={()=>apiJson('/api/banks',{headers:hdrs()}).then(setBanks).catch(()=>{})}/>
 
-          {/* ── 手动添加题目 ── */}
+                {/* 三个槽位 - 始终显示当前状态 */}
+                <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:qSelectOpen?12:0}}>
+                  {[0,1,2].map(i=>{
+                    const q = isManual ? (qPinned.questions?.[i] || null) : null;
+                    const editing = qSelectOpen && qSelected[i]!==undefined;
+                    const draft = qSelectOpen ? (qAll.find(x=>x.id===qSelected[i])||null) : null;
+                    const display = qSelectOpen ? draft : q;
+                    return (
+                      <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'9px 12px',borderRadius:8,border:`1px solid ${display?'#1e3a5f':'rgba(27,50,85,0.5)'}`,background:display?'rgba(30,58,95,0.3)':'rgba(13,17,23,0.4)'}}>
+                        <div style={{width:22,height:22,borderRadius:'50%',background:display?'#1e3a5f':'#0d1117',border:`1px solid ${display?'#3b82f6':'#1b3255'}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                          <span style={{fontSize:11,color:display?'#60a5fa':'#475569',fontWeight:700}}>{i+1}</span>
+                        </div>
+                        <div style={{flex:1,minWidth:0}}>
+                          {display
+                            ? <div style={{fontSize:12,color:'#e2e8f0',lineHeight:1.4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{display.text?.slice(0,32)}{display.text?.length>32?'…':''}</div>
+                            : <div style={{fontSize:12,color:'#475569'}}>未选题{qSelectOpen?'，请从下方选择':''}</div>
+                          }
+                        </div>
+                        {qSelectOpen&&display&&<button onClick={()=>setQSelected(s=>{const n=[...s];n.splice(i,1);return n;})} style={{background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:14,padding:'0 4px',flexShrink:0}}>×</button>}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 选题面板 */}
+                {qSelectOpen&&<>
+                  <div style={{fontSize:11,color:'#64748b',marginBottom:8,marginTop:4}}>从事件分析题库选择（点击加入）：</div>
+                  <div style={{maxHeight:200,overflowY:'auto',border:'1px solid #1b3255',borderRadius:8,marginBottom:10}}>
+                    {summaryQs.length===0
+                      ? <div style={{padding:'14px',textAlign:'center',color:'#475569',fontSize:12}}>暂无事件概述题，请先上传事件分析报告</div>
+                      : summaryQs.map(q=>{
+                          const idx = qSelected.indexOf(q.id);
+                          const sel = idx !== -1;
+                          return (
+                            <div key={q.id} onClick={()=>{
+                              if(sel){setQSelected(s=>s.filter(id=>id!==q.id));}
+                              else if(qSelected.length<3){setQSelected(s=>[...s,q.id]);}
+                            }} style={{display:'flex',gap:8,alignItems:'flex-start',padding:'9px 12px',borderBottom:'1px solid rgba(27,50,85,0.4)',cursor:sel||qSelected.length>=3?'default':'pointer',background:sel?'rgba(59,130,246,0.1)':'none',opacity:!sel&&qSelected.length>=3?0.4:1}}>
+                              <div style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel?'#3b82f6':'#475569'}`,background:sel?'#3b82f6':'none',flexShrink:0,marginTop:2,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                                {sel&&<span style={{color:'white',fontSize:9}}>✓</span>}
+                              </div>
+                              <div style={{flex:1}}>
+                                <div style={{fontSize:12,color:'white',lineHeight:1.4}}>{q.text.slice(0,50)}{q.text.length>50?'…':''}</div>
+                                <div style={{fontSize:10,color:'#475569',marginTop:2}}>{q.bank_name}</div>
+                              </div>
+                            </div>
+                          );
+                        })
+                    }
+                  </div>
+                  <div style={{display:'flex',gap:8,marginBottom:8}}>
+                    {['today','shift'].map(s=><button key={s} onClick={()=>setPinScope(s)} style={{flex:1,padding:'7px',borderRadius:6,border:`1px solid ${pinScope===s?'#3b82f6':'#1b3255'}`,background:pinScope===s?'rgba(59,130,246,0.15)':'none',color:pinScope===s?'#60a5fa':'#94a3b8',cursor:'pointer',fontSize:12}}>{s==='today'?'今天生效':'本套班生效'}</button>)}
+                  </div>
+                  <div style={{display:'flex',gap:8}}>
+                    <button disabled={qSelected.length===0} onClick={async()=>{
+                      const r=await apiJson('/api/admin/pinned-questions',{method:'PUT',headers:hdrs(),body:JSON.stringify({ids:qSelected,scope:pinScope,bank_fallback_id:1})}).catch(()=>null);
+                      if(r?.ok){apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(d=>{setQPinned(d);});setQSelectOpen(false);}
+                      else alert('设置失败');
+                    }} style={{flex:2,background:'#1b3a6e',border:'none',color:'white',borderRadius:7,padding:'10px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:qSelected.length===0?0.4:1}}>确认启用（{qSelected.length}/3）</button>
+                    <button onClick={()=>{setQSelectOpen(false);setQSelected(qPinned.ids||[]);}} style={{flex:1,background:'none',border:'1px solid #1b3255',color:'#64748b',borderRadius:7,padding:'10px',fontSize:12,cursor:'pointer'}}>取消</button>
+                  </div>
+                </>}
+              </div>
+            );
+          })()}
+
+          {/* ══ 板块2：人工出题 ══ */}
           <div className="card">
-            <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:12,fontWeight:600}}>✍️ 手动添加题目</div>
-            <div style={{display:'flex',flexDirection:'column',gap:8}}>
-              <select value={addQ.bank_id} onChange={e=>setAddQ(q=>({...q,bank_id:e.target.value}))} style={{background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}>
-                <option value="">选择题库</option>
-                {banks.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-              <textarea value={addQ.text} onChange={e=>setAddQ(q=>({...q,text:e.target.value}))} placeholder="题目内容（必填）" rows={2} style={{background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'8px 10px',fontSize:13,resize:'vertical'}}/>
-              <textarea value={addQ.reference} onChange={e=>setAddQ(q=>({...q,reference:e.target.value}))} placeholder="参考答案 / 各步骤用分号分隔（必填）" rows={3} style={{background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'8px 10px',fontSize:13,resize:'vertical'}}/>
-              <input value={addQ.keywords} onChange={e=>setAddQ(q=>({...q,keywords:e.target.value}))} placeholder="关键词（逗号分隔，可选）" style={{background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'8px 10px',fontSize:13}}/>
-              <div style={{display:'flex',gap:8}}>
-                <select value={addQ.category} onChange={e=>setAddQ(q=>({...q,category:e.target.value}))} style={{flex:1,background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}>
-                  {['业务知识','应急处置','设备操作','规章制度','安全管理'].map(c=><option key={c}>{c}</option>)}
+            <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600,marginBottom:12}}>✍️ 人工出题</div>
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                <div style={{fontSize:11,color:'#94a3b8',fontWeight:600}}>题目</div>
+                <select value={addQ.bank_id} onChange={e=>setAddQ(q=>({...q,bank_id:e.target.value}))} style={{background:'#0d1117',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}>
+                  <option value="">选择题库</option>
+                  {banks.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
                 </select>
-                <select value={addQ.difficulty} onChange={e=>setAddQ(q=>({...q,difficulty:e.target.value}))} style={{flex:1,background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}>
-                  {['简单','中等','困难'].map(d=><option key={d}>{d}</option>)}
+                <select value={addQ.category} onChange={e=>setAddQ(q=>({...q,category:e.target.value}))} style={{background:'#0d1117',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}>
+                  {['安全事件','应急处置','业务知识','设备操作','规章制度'].map(c=><option key={c}>{c}</option>)}
                 </select>
+                <textarea value={addQ.text} onChange={e=>setAddQ(q=>({...q,text:e.target.value}))} placeholder="输入题目内容…" rows={3} style={{background:'#0d1117',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'8px 10px',fontSize:13,resize:'vertical'}}/>
               </div>
-              <button disabled={addQLoading||!addQ.text.trim()||!addQ.reference.trim()||!addQ.bank_id} onClick={async()=>{setAddQLoading(true);const r=await apiJson('/api/questions',{method:'POST',headers:hdrs(),body:JSON.stringify({...addQ,bank_id:parseInt(addQ.bank_id)})}).catch(()=>null);setAddQLoading(false);if(r?.id){alert('添加成功');setAddQ(q=>({...q,text:'',reference:'',keywords:''}));apiJson('/api/banks',{headers:hdrs()}).then(setBanks);}else alert('添加失败');}} style={{background:'#1b3a6e',border:'none',color:'white',borderRadius:7,padding:'10px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:addQLoading?0.6:1}}>{addQLoading?'提交中…':'添加题目'}</button>
+              <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                <div style={{fontSize:11,color:'#94a3b8',fontWeight:600}}>答题要点</div>
+                {(addQ.reference?addQ.reference.split(';').filter((_,i,a)=>i<a.length||true):['','']).map((pt,i,arr)=>(
+                  <div key={i} style={{display:'flex',gap:6,alignItems:'center'}}>
+                    <span style={{fontSize:11,color:'#475569',width:16,flexShrink:0,textAlign:'right'}}>{i+1}.</span>
+                    <input value={pt} onChange={e=>{const pts=addQ.reference?addQ.reference.split(';'):[];while(pts.length<=i)pts.push('');pts[i]=e.target.value;setAddQ(q=>({...q,reference:pts.join(';')}));}} placeholder={`要点 ${i+1}`} style={{flex:1,background:'#0d1117',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}/>
+                    {i>0&&<button onClick={()=>{const pts=addQ.reference.split(';');pts.splice(i,1);setAddQ(q=>({...q,reference:pts.join(';')}));}} style={{background:'none',border:'none',color:'#475569',cursor:'pointer',fontSize:16,padding:'0 4px'}}>×</button>}
+                  </div>
+                ))}
+                <button onClick={()=>setAddQ(q=>({...q,reference:(q.reference?q.reference+';':'')}))} style={{background:'none',border:'1px dashed #1b3255',color:'#475569',borderRadius:6,padding:'6px',fontSize:12,cursor:'pointer'}}>+ 添加要点</button>
+                <button disabled={aiLoading||!addQ.text.trim()} onClick={async()=>{
+                  setAiLoading(true);
+                  const r=await apiJson('/api/admin/questions/ai-generate',{method:'POST',headers:hdrs(),body:JSON.stringify({content:addQ.text,count:1})}).catch(()=>null);
+                  setAiLoading(false);
+                  if(r?.ok&&r.questions?.[0]?.reference){setAddQ(q=>({...q,reference:r.questions[0].reference}));alert('AI已生成答题要点');}
+                  else alert('AI生成失败');
+                }} style={{background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',border:'none',color:'white',borderRadius:7,padding:'9px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:aiLoading?0.6:1}}>{aiLoading?'AI分析中…':'🤖 AI生成答题要点'}</button>
+                <button disabled={addQLoading||!addQ.text.trim()||!addQ.reference.trim()||!addQ.bank_id} onClick={async()=>{
+                  setAddQLoading(true);
+                  const r=await apiJson('/api/questions',{method:'POST',headers:hdrs(),body:JSON.stringify({...addQ,bank_id:parseInt(addQ.bank_id)})}).catch(()=>null);
+                  setAddQLoading(false);
+                  if(r?.id){alert('添加成功');setAddQ(q=>({...q,text:'',reference:'',keywords:''}));apiJson('/api/banks',{headers:hdrs()}).then(setBanks);}
+                  else alert('添加失败');
+                }} style={{background:'#1b3a6e',border:'none',color:'white',borderRadius:7,padding:'9px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:addQLoading?0.6:1}}>{addQLoading?'提交中…':'保存题目'}</button>
+              </div>
             </div>
           </div>
 
-          {/* ── AI 生成题目 ── */}
-          <div className="card">
-            <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:12,fontWeight:600}}>🤖 AI 智能生成题目</div>
-            <div style={{display:'flex',flexDirection:'column',gap:8}}>
-              <select value={aiBankId} onChange={e=>setAiBankId(e.target.value)} style={{background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}>
-                <option value="">选择保存到题库</option>
-                {banks.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-              <textarea value={aiContent} onChange={e=>setAiContent(e.target.value)} placeholder="粘贴事件分析报告、规章文本或任意培训材料，AI将自动提取题目" rows={5} style={{background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'8px 10px',fontSize:13,resize:'vertical'}}/>
-              <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                <span style={{fontSize:12,color:'#94a3b8',flexShrink:0}}>生成题数</span>
-                {[2,3,5,8].map(n=><button key={n} onClick={()=>setAiCount(n)} style={{padding:'4px 12px',borderRadius:6,border:`1px solid ${aiCount===n?'#3b82f6':'#1b3255'}`,background:aiCount===n?'rgba(59,130,246,0.15)':'none',color:aiCount===n?'#60a5fa':'#94a3b8',cursor:'pointer',fontSize:13}}>{n}</button>)}
+          {/* ══ 板块3：题库 ══ */}
+          {(()=>{
+            const emergencyBank = banks.find(b=>b.id===1);
+            const incidentBanks = banks.filter(b=>b.id!==1&&(b.name.includes('事件')||b.name.includes('事故')||b.name.includes('分析')||b.name.includes('报告')));
+            const internalBanks = banks.filter(b=>b.id!==1&&!b.name.includes('事件')&&!b.name.includes('事故')&&!b.name.includes('分析')&&!b.name.includes('报告'));
+            const BankRow = ({b,showTag})=>(
+              <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',padding:'9px 12px',borderBottom:'1px solid rgba(27,50,85,0.4)'}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,color:'white',fontWeight:600,marginBottom:2,lineHeight:1.4}}>{b.name}</div>
+                  <div style={{fontSize:11,color:'#475569'}}>{b.q_count||0} 题</div>
+                </div>
+                {showTag&&<span style={{fontSize:10,color:'#22c55e',background:'rgba(34,197,94,0.1)',border:'1px solid rgba(34,197,94,0.3)',borderRadius:4,padding:'2px 7px',flexShrink:0,marginLeft:8}}>固定使用</span>}
               </div>
-              {aiResult&&<div style={{background:'rgba(34,197,94,0.08)',border:'1px solid rgba(34,197,94,0.3)',borderRadius:8,padding:'10px 12px'}}>
-                <div style={{fontSize:12,color:'#22c55e',marginBottom:6}}>已生成 {aiResult.questions?.length} 题{aiResult.ids?.length>0?'，并已保存到题库':''}</div>
-                {aiResult.questions?.map((q,i)=><div key={i} style={{fontSize:12,color:'#94a3b8',padding:'4px 0',borderTop:'1px solid rgba(27,50,85,0.5)'}}><span style={{color:'white'}}>{i+1}. {q.text}</span></div>)}
-              </div>}
-              <button disabled={aiLoading||!aiContent.trim()} onClick={async()=>{setAiLoading(true);setAiResult(null);const r=await apiJson('/api/admin/questions/ai-generate',{method:'POST',headers:hdrs(),body:JSON.stringify({content:aiContent,count:aiCount,bank_id:aiBankId?parseInt(aiBankId):undefined})}).catch(()=>null);setAiLoading(false);if(r?.ok){setAiResult(r);if(r.ids?.length>0)apiJson('/api/banks',{headers:hdrs()}).then(setBanks);}else alert(r?.error||'AI生成失败');}} style={{background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',border:'none',color:'white',borderRadius:7,padding:'10px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:aiLoading?0.6:1}}>{aiLoading?'AI分析中…':'AI生成题目'}</button>
+            );
+            const Section = ({label,icon,items,fixed})=>{
+              const [open,setOpen]=useState(true);
+              if(!items||items.length===0)return null;
+              return (
+                <div style={{marginBottom:10,border:'1px solid #1b3255',borderRadius:8,overflow:'hidden'}}>
+                  <div onClick={()=>!fixed&&setOpen(o=>!o)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 12px',background:'#0d1e35',cursor:fixed?'default':'pointer'}}>
+                    <span style={{fontSize:12,fontWeight:700,color:'#94a3b8'}}>{icon} {label} <span style={{color:'#475569',fontWeight:400,fontSize:11}}>· {items.length}个</span></span>
+                    {!fixed&&<span style={{color:'#475569',fontSize:11}}>{open?'▲':'▼'}</span>}
+                  </div>
+                  {open&&items.map((b,i)=><BankRow key={i} b={b} showTag={fixed}/>)}
+                </div>
+              );
+            };
+            return (
+              <div className="card">
+                <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600,marginBottom:12}}>📚 题库</div>
+                <div style={{fontSize:11,color:'#475569',marginBottom:10,padding:'7px 10px',background:'rgba(59,130,246,0.06)',borderRadius:6,border:'1px solid rgba(59,130,246,0.15)'}}>
+                  💡 应急随机三题固定从<span style={{color:'#60a5fa'}}>应急故障处置题库</span>随机抽取；手动选题从<span style={{color:'#60a5fa'}}>事件分析报告</span>题库中选择
+                </div>
+                {emergencyBank&&<Section label="应急故障处置" icon="🚨" items={[emergencyBank]} fixed={true}/>}
+                <Section label="事件分析报告" icon="📋" items={incidentBanks}/>
+                {internalBanks.length>0&&<Section label="其他题库" icon="📖" items={internalBanks}/>}
+              </div>
+            );
+          })()}
+
+          {/* ══ 板块4：上传文件 ══ */}
+          <div className="card">
+            <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600,marginBottom:12}}>📥 上传题库文件</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              <BankImportCard pwd={pwd} onImported={()=>apiJson('/api/banks',{headers:hdrs()}).then(setBanks).catch(()=>{})}/>
+              <DocParseCard pwd={pwd} banks={banks} onImported={()=>apiJson('/api/banks',{headers:hdrs()}).then(setBanks).catch(()=>{})}/>
             </div>
           </div>
 
-          {/* ── 手动选题 ── */}
-          <div className="card">
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-              <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600}}>📌 手动选题</div>
-              {qPinned.scope!=='none'&&<span style={{fontSize:10,color:'#22c55e',background:'rgba(34,197,94,0.12)',border:'1px solid rgba(34,197,94,0.3)',borderRadius:4,padding:'2px 8px'}}>已启用·{qPinned.ids?.length}题·{qPinned.scope==='today'?'今日':'本套班'}</span>}
-            </div>
-            <div style={{fontSize:12,color:'#94a3b8',marginBottom:10,lineHeight:1.6}}>指定本次答题题目。不足3题时自动用所选题库补充。</div>
-            <div style={{display:'flex',gap:8,marginBottom:8}}>
-              <input value={qSearch} onChange={e=>{setQSearch(e.target.value);apiJson(`/api/admin/questions/all?search=${encodeURIComponent(e.target.value)}`,{headers:hdrs()}).then(setQAll).catch(()=>{});}} placeholder="搜索题目关键词…" style={{flex:1,background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}/>
-              <button onClick={()=>setQSelectOpen(o=>!o)} style={{background:'none',border:'1px solid #1b3255',color:'#3b82f6',borderRadius:6,padding:'6px 12px',cursor:'pointer',fontSize:12}}>{qSelectOpen?'收起':'展开搜索'}</button>
-            </div>
-            {qSelectOpen&&<div style={{maxHeight:240,overflowY:'auto',marginBottom:8,border:'1px solid #1b3255',borderRadius:8}}>
-              {qAll.length===0&&<div style={{textAlign:'center',color:'#475569',padding:'16px 0',fontSize:13}}>输入关键词搜索题目</div>}
-              {qAll.map(q=>{const sel=qSelected.includes(q.id);return(<div key={q.id} onClick={()=>setQSelected(s=>sel?s.filter(id=>id!==q.id):[...s,q.id])} style={{display:'flex',gap:8,alignItems:'flex-start',padding:'8px 12px',borderBottom:'1px solid rgba(27,50,85,0.5)',cursor:'pointer',background:sel?'rgba(59,130,246,0.1)':'none'}}>
-                <div style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel?'#3b82f6':'#475569'}`,background:sel?'#3b82f6':'none',flexShrink:0,marginTop:1}}>{sel&&<span style={{color:'white',fontSize:10,lineHeight:'14px',display:'block',textAlign:'center'}}>✓</span>}</div>
-                <div style={{flex:1}}><div style={{fontSize:12,color:'white',lineHeight:1.4}}>{q.text}</div><div style={{fontSize:10,color:'#64748b',marginTop:2}}>{q.bank_name} · {q.category}</div></div>
-              </div>);})}
-            </div>}
-            {qSelected.length>0&&<div style={{marginBottom:8,padding:'8px 10px',background:'rgba(59,130,246,0.08)',border:'1px solid rgba(59,130,246,0.2)',borderRadius:8}}>
-              <div style={{fontSize:11,color:'#60a5fa',marginBottom:5}}>已选 {qSelected.length} 题{qSelected.length<3?`（不足3题将从备用题库补全至3题）`:''}</div>
-              {qSelected.length<3&&<select value={pinFallback} onChange={e=>setPinFallback(e.target.value)} style={{width:'100%',background:'#0d1e35',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'6px 10px',fontSize:12,marginBottom:5}}>
-                <option value="">选择补题题库（应急故障处理）</option>
-                {banks.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>}
-            </div>}
-            <div style={{display:'flex',gap:8,marginBottom:8}}>
-              {['today','shift'].map(s=><button key={s} onClick={()=>setPinScope(s)} style={{flex:1,padding:'7px',borderRadius:6,border:`1px solid ${pinScope===s?'#3b82f6':'#1b3255'}`,background:pinScope===s?'rgba(59,130,246,0.15)':'none',color:pinScope===s?'#60a5fa':'#94a3b8',cursor:'pointer',fontSize:12}}>{s==='today'?'今天生效':'本套班生效'}</button>)}
-            </div>
-            <div style={{display:'flex',gap:8}}>
-              <button disabled={qSelected.length===0} onClick={async()=>{const r=await apiJson('/api/admin/pinned-questions',{method:'PUT',headers:hdrs(),body:JSON.stringify({ids:qSelected,scope:pinScope,bank_fallback_id:pinFallback?parseInt(pinFallback):null})}).catch(()=>null);if(r?.ok){alert(`已设置 ${qSelected.length} 道指定题目（${pinScope==='today'?'今天':'本套班'}生效）`);apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(setQPinned);}else alert('设置失败');}} style={{flex:2,background:'#1b3a6e',border:'none',color:'white',borderRadius:7,padding:'10px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:qSelected.length===0?0.4:1}}>确认启用选题</button>
-              <button onClick={async()=>{const r=await apiJson('/api/admin/pinned-questions',{method:'PUT',headers:hdrs(),body:JSON.stringify({ids:[],scope:'none',bank_fallback_id:null})}).catch(()=>null);if(r?.ok){setQPinned({ids:[],scope:'none',bank_fallback_id:null});setQSelected([]);alert('已取消手动选题，恢复随机出题');}}} style={{flex:1,background:'none',border:'1px solid rgba(239,68,68,0.3)',color:'#ef4444',borderRadius:7,padding:'10px',fontSize:12,cursor:'pointer'}}>取消选题</button>
-            </div>
-          </div>
         </>}
 
         {tab==='settings'&&<>

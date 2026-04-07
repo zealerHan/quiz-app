@@ -13,6 +13,8 @@ const ExcelJS = require('exceljs');
 const crypto = require('crypto');
 const os = require('os');
 const QRCode = require('qrcode');
+const mammoth = require('mammoth');
+const { execFile } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -122,6 +124,7 @@ try { db.exec('ALTER TABLE staff ADD COLUMN phone_tail TEXT'); } catch(e) {}
 try { db.exec('ALTER TABLE staff ADD COLUMN is_tester INTEGER DEFAULT 0'); } catch(e) {}
 try { db.exec('ALTER TABLE staff ADD COLUMN is_cp INTEGER DEFAULT 0'); } catch(e) {}
 try { db.exec('ALTER TABLE staff ADD COLUMN avatar TEXT'); } catch(e) {}
+try { db.exec('ALTER TABLE sessions ADD COLUMN is_deleted INTEGER DEFAULT 0'); } catch(e) {}
 db.exec(`CREATE TABLE IF NOT EXISTS admin_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   action TEXT NOT NULL,
@@ -176,9 +179,11 @@ function getShiftInfo(date) {
   // 本轮白班开始日
   const cycleStart = new Date(local);
   cycleStart.setDate(cycleStart.getDate() - phase);
-  const startStr = cycleStart.toISOString().slice(0,10);
+  // 使用本地时间格式化日期，避免 UTC 偏移导致 cycle_id 差一天（北京时间00:00-08:00时段）
+  const fmtLocal = dt => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
   const endDate = new Date(cycleStart); endDate.setDate(endDate.getDate()+2);
-  const endStr = endDate.toISOString().slice(0,10);
+  const startStr = fmtLocal(cycleStart);
+  const endStr = fmtLocal(endDate);
   const m1 = cycleStart.getMonth()+1, d1 = cycleStart.getDate();
   const m2 = endDate.getMonth()+1, d2 = endDate.getDate();
   const label = `${m1}月${d1}日—${m2}月${d2}日`;
@@ -338,7 +343,8 @@ app.get('/api/questions', (req, res) => {
   } else if (bankId) {
     activeBankId = parseInt(bankId);
   } else {
-    const activeBank = db.prepare('SELECT id FROM question_banks WHERE is_active=1 LIMIT 1').get();
+    const activeBank = db.prepare('SELECT id FROM question_banks WHERE is_default=1 LIMIT 1').get()
+                    || db.prepare('SELECT id FROM question_banks WHERE is_active=1 LIMIT 1').get();
     activeBankId = activeBank?.id || 1;
   }
 
@@ -427,17 +433,37 @@ app.post('/api/session/start', (req, res) => {
 });
 
 // AI scoring (DashScope Qwen or keyword fallback)
-async function scoreWithQwen(question, reference, answer) {
-  const KEY = process.env.DASHSCOPE_API_KEY;
-  if (!KEY || !answer?.trim()) return null;
-  try {
-    const resp = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${KEY}` },
-      body: JSON.stringify({
-        model: 'qwen-plus',
-        messages: [{ role: 'user', content:
-          `你是武汉地铁乘务培训考核专家，评估乘务员的故障处理口述答题。只返回JSON，不含任何其他内容。
+function buildScoringPrompt(question, reference, answer, category) {
+  const isIncident = category && (category.includes('安全') || category.includes('事件') || category.includes('事故') || category.includes('分析'));
+  const ansText = answer || '（未作答）';
+
+  if (isIncident) {
+    return `你是武汉地铁乘务安全培训考核专家，评估乘务员对安全事件的复述掌握情况。只返回JSON，不含任何其他内容。
+
+【题目】${question}
+
+【标准事件要点】（每个分号分隔的是一个独立要点，无顺序要求，覆盖即得分）
+${reference}
+
+【乘务员口述】（来自语音识别，可能含口语化表达、停顿词、同音字错误）
+${ansText}
+
+【评分说明】
+- 这是事件复述题，不要求严格顺序，覆盖要点即得分
+- 【时间要求极宽松】：无论题目或参考答案中是否出现具体时间，考生只需说出"日期"或"大概事件阶段"（如"动车时""退行过程中"）即可，精确到分钟/秒不是考核要求，绝对不能因为时间不精确扣分
+- 参考答案中若含有"HH:MM:SS"格式时间戳，评分时完全忽略这些时间戳，不将其列入missing_points
+- "嗯""呃""然后""就是""那个"等停顿词忽略不计
+- 同音字/近音字按语义理解（如"阳螺"≈"阳逻"，"B拐1"≈"B01"，"U零二"≈"U02"）
+- 意思相近表达视为正确（如"越过信号机"和"冒进信号机"等同，"挤岔"和"道岔挤岔报警"等同）
+- 核心要点：事件地点、涉及车辆、关键违规/失误行为、事故后果，这些重点考查
+- 能说清事件主要经过（起因→过程→结果）即可合格，遗漏所有细节才算缺失
+
+只返回如下JSON，不要加任何解释或markdown：
+{"score":0-100,"level":"优秀|合格|需加强","summary":"一句话总体评价","correct_points":["已正确复述的要点"],"missing_points":["完全未提及的关键要点（仅列主要的，不超过3条）"],"order_errors":[],"suggestion":"具体改进建议","encouragement":"鼓励语"}`;
+  }
+
+  // 默认：操作流程题（应急处置等），严格顺序
+  return `你是武汉地铁乘务培训考核专家，评估乘务员的故障处理口述答题。只返回JSON，不含任何其他内容。
 
 【题目】${question}
 
@@ -445,7 +471,7 @@ async function scoreWithQwen(question, reference, answer) {
 ${reference}
 
 【乘务员口述】（来自语音识别，可能含口语化表达、停顿词、同音字错误）
-${answer||'（未作答）'}
+${ansText}
 
 【评分说明】
 - "然后""就是""那个""嗯"等停顿词忽略不计
@@ -455,7 +481,19 @@ ${answer||'（未作答）'}
 - 步骤顺序严格评判，颠倒不得分；含糊但方向正确给一半分
 
 只返回如下JSON，不要加任何解释或markdown：
-{"score":0-100,"level":"优秀|合格|需加强","summary":"一句话总体评价","correct_points":["已正确说出的步骤"],"missing_points":["完全遗漏的步骤"],"order_errors":["顺序颠倒说明，没有则空数组"],"suggestion":"具体改进建议","encouragement":"鼓励语"}` }],
+{"score":0-100,"level":"优秀|合格|需加强","summary":"一句话总体评价","correct_points":["已正确说出的步骤"],"missing_points":["完全遗漏的步骤"],"order_errors":["顺序颠倒说明，没有则空数组"],"suggestion":"具体改进建议","encouragement":"鼓励语"}`;
+}
+
+async function scoreWithQwen(question, reference, answer, category) {
+  const KEY = process.env.DASHSCOPE_API_KEY;
+  if (!KEY || !answer?.trim()) return null;
+  try {
+    const resp = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${KEY}` },
+      body: JSON.stringify({
+        model: 'qwen-plus',
+        messages: [{ role: 'user', content: buildScoringPrompt(question, reference, answer, category) }],
         max_tokens: 800,
         temperature: 0.1
       })
@@ -493,7 +531,7 @@ app.post('/api/score', async (req, res) => {
   const { questionId, answer } = req.body;
   const q = db.prepare('SELECT * FROM questions WHERE id=?').get(questionId);
   if (!q) return res.status(404).json({ error: '题目不存在' });
-  let result = await scoreWithQwen(q.text, q.reference, answer);
+  let result = await scoreWithQwen(q.text, q.reference, answer, q.category);
   if (!result) result = scoreKeyword(q.reference, q.keywords, answer);
   else result.score_method = 'ai';
   result.transcript = answer || "";
@@ -559,7 +597,7 @@ app.get('/api/leaderboard/cycle', (req, res) => {
     WHERE s.id IN (
       SELECT MIN(id) FROM sessions
       WHERE cycle_id=? AND completed=1 AND COALESCE(hidden,0)=0
-      AND COALESCE(is_practice,0)=0
+      AND COALESCE(is_practice,0)=0 AND COALESCE(is_deleted,0)=0
       AND staff_id NOT IN (SELECT id FROM staff WHERE is_exempt=1)
       GROUP BY staff_id
     )
@@ -580,7 +618,7 @@ app.get('/api/leaderboard/today', (req, res) => {
     WHERE s.id IN (
       SELECT MIN(id) FROM sessions
       WHERE date(created_at)=date('now','localtime') AND completed=1 AND COALESCE(hidden,0)=0
-      AND COALESCE(is_practice,0)=0
+      AND COALESCE(is_practice,0)=0 AND COALESCE(is_deleted,0)=0
       GROUP BY staff_id
     )
     ORDER BY s.total_points DESC LIMIT 30
@@ -596,6 +634,7 @@ app.get('/api/leaderboard/monthly', (req, res) => {
              ROUND(AVG(total_points), 0) as cycle_pts
       FROM sessions
       WHERE completed=1 AND COALESCE(hidden,0)=0 AND COALESCE(is_practice,0)=0
+      AND COALESCE(is_deleted,0)=0
       AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')
       AND staff_id NOT IN (SELECT id FROM staff WHERE is_exempt=1)
       GROUP BY staff_id, cycle_id
@@ -620,6 +659,7 @@ function getSessionsWithAnswers(staffId, whereExtra, params) {
            c.label as cycle_label
     FROM sessions s LEFT JOIN cycles c ON c.id=s.cycle_id
     WHERE s.completed=1 AND COALESCE(s.is_practice,0)=0 AND COALESCE(s.hidden,0)=0
+    AND COALESCE(s.is_deleted,0)=0
     AND s.staff_id=? ${whereExtra}
     ORDER BY s.id ASC LIMIT 10
   `).all(staffId, ...params);
@@ -653,6 +693,7 @@ app.get('/api/leaderboard/alltime', (req, res) => {
              ROUND(AVG(total_points), 0) as cycle_pts
       FROM sessions
       WHERE completed=1 AND COALESCE(hidden,0)=0 AND COALESCE(is_practice,0)=0
+      AND COALESCE(is_deleted,0)=0
       AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')
       AND staff_id NOT IN (SELECT id FROM staff WHERE is_exempt=1)
       GROUP BY staff_id, cycle_id
@@ -733,23 +774,25 @@ app.get('/api/admin/overview', adminAuth, (req, res) => {
     SELECT COUNT(DISTINCT s.staff_id) as c FROM sessions s
     JOIN staff st ON st.id = s.staff_id
     WHERE date(s.created_at)=date('now','localtime') AND s.completed=1 AND COALESCE(s.is_practice,0)=0
-      AND st.is_exempt=0 AND COALESCE(st.is_cp,0)=0
+      AND COALESCE(s.is_deleted,0)=0 AND st.is_exempt=0 AND COALESCE(st.is_cp,0)=0
   `).get().c;
   const totalStaff = db.prepare("SELECT COUNT(*) as c FROM staff WHERE is_exempt=0 AND COALESCE(is_cp,0)=0").get().c;
   const catAvg = db.prepare("SELECT category, ROUND(AVG(score),0) as avg FROM answers GROUP BY category ORDER BY avg").all();
   const topWeak = catAvg.slice(0,2);
   const cycleStats = cycle ? db.prepare(`
     SELECT staff_id, staff_name, SUM(total_points) as pts, ROUND(AVG(total_score),1) as avg, COUNT(*) as sessions
-    FROM sessions WHERE cycle_id=? AND completed=1 AND COALESCE(hidden,0)=0 GROUP BY staff_id ORDER BY pts DESC
+    FROM sessions WHERE cycle_id=? AND completed=1 AND COALESCE(hidden,0)=0 AND COALESCE(is_deleted,0)=0 GROUP BY staff_id ORDER BY pts DESC
   `).all(cycle.id) : [];
   const incompleteList = db.prepare(`
     SELECT COALESCE(s.real_name, s.name) as name,
-           COALESCE(s.is_tester,0) as is_tester
+           COALESCE(s.is_tester,0) as is_tester,
+           COALESCE(s.is_cp,0) as is_cp,
+           COALESCE(s.is_exempt,0) as is_exempt
     FROM staff s
     WHERE s.is_exempt=0 AND COALESCE(s.is_cp,0)=0
       AND s.id NOT IN (
         SELECT DISTINCT staff_id FROM sessions
-        WHERE date(created_at)=date('now','localtime') AND completed=1 AND COALESCE(is_practice,0)=0
+        WHERE date(created_at)=date('now','localtime') AND completed=1 AND COALESCE(is_practice,0)=0 AND COALESCE(is_deleted,0)=0
       )
     ORDER BY s.name
   `).all();
@@ -766,7 +809,7 @@ app.get('/api/admin/weak-questions', adminAuth, (req, res) => {
            ROUND(AVG(a.score), 0) as avg_score
     FROM answers a
     JOIN sessions s ON s.id = a.session_id
-    WHERE s.cycle_id = ? AND s.completed = 1 AND COALESCE(s.is_practice, 0) = 0
+    WHERE s.cycle_id = ? AND s.completed = 1 AND COALESCE(s.is_practice, 0) = 0 AND COALESCE(s.is_deleted, 0) = 0
     GROUP BY a.question_text
     HAVING total >= 2
     ORDER BY (CAST(wrong AS REAL) / total) DESC, avg_score ASC
@@ -777,7 +820,7 @@ app.get('/api/admin/weak-questions', adminAuth, (req, res) => {
     FROM answers a
     JOIN sessions s ON s.id = a.session_id
     LEFT JOIN staff st ON st.id = a.staff_id
-    WHERE s.cycle_id = ? AND s.completed = 1 AND COALESCE(s.is_practice, 0) = 0
+    WHERE s.cycle_id = ? AND s.completed = 1 AND COALESCE(s.is_practice, 0) = 0 AND COALESCE(s.is_deleted, 0) = 0
       AND a.question_text = ? AND a.score < 67
   `);
   res.json(rows.map(r => ({
@@ -789,14 +832,14 @@ app.get('/api/admin/weak-questions', adminAuth, (req, res) => {
 
 app.get('/api/admin/members', adminAuth, (req, res) => {
   const members = db.prepare(`
-    SELECT s.id, s.real_name, s.phone_tail, s.is_exempt, s.is_tester,
+    SELECT s.id, s.real_name, s.phone_tail, s.is_exempt, s.is_tester, COALESCE(s.is_cp,0) as is_cp,
            COUNT(DISTINCT date(ss.created_at)) as answer_days,
            ROUND(AVG(ss.total_score),1) as avg_score,
            MAX(ss.total_score) as best_score,
            SUM(ss.total_points) as total_points,
            MAX(ss.created_at) as last_at
     FROM staff s
-    LEFT JOIN sessions ss ON ss.staff_id=s.id AND ss.completed=1
+    LEFT JOIN sessions ss ON ss.staff_id=s.id AND ss.completed=1 AND COALESCE(ss.is_deleted,0)=0
     GROUP BY s.id ORDER BY total_points DESC NULLS LAST
   `).all();
   res.json(members);
@@ -870,7 +913,7 @@ app.get('/api/monitor/today', (req, res) => {
     LEFT JOIN staff st ON st.id = s.staff_id
     WHERE date(s.created_at)=date('now','localtime')
       AND s.completed=1 AND COALESCE(s.is_practice,0)=0
-      AND COALESCE(s.hidden,0)=0
+      AND COALESCE(s.hidden,0)=0 AND COALESCE(s.is_deleted,0)=0
     ORDER BY s.created_at ASC
   `).all();
 
@@ -906,7 +949,7 @@ app.get('/api/monitor/today/text', (req, res) => {
     LEFT JOIN staff st ON st.id = s.staff_id
     WHERE date(s.created_at)=date('now','localtime')
       AND s.completed=1 AND COALESCE(s.is_practice,0)=0
-      AND COALESCE(s.hidden,0)=0
+      AND COALESCE(s.hidden,0)=0 AND COALESCE(s.is_deleted,0)=0
     ORDER BY s.created_at ASC
   `).all();
 
@@ -948,7 +991,7 @@ app.get('/api/monitor/push', (req, res) => {
     LEFT JOIN staff st ON st.id = s.staff_id
     WHERE date(s.created_at)=date('now','localtime')
       AND s.completed=1 AND COALESCE(s.is_practice,0)=0
-      AND COALESCE(s.hidden,0)=0
+      AND COALESCE(s.hidden,0)=0 AND COALESCE(s.is_deleted,0)=0
     ORDER BY s.created_at ASC
   `).all();
 
@@ -991,8 +1034,8 @@ app.get('/api/monitor/push', (req, res) => {
 
 // ─── Batch: delete today's sessions ────────────────────────────────────────
 app.delete('/api/admin/sessions/today', adminAuth, (req, res) => {
-  const info = db.prepare("DELETE FROM sessions WHERE date(created_at)=date('now','localtime')").run();
-  logAdmin('清除今日数据', `删除 ${info.changes} 条答题记录`);
+  const info = db.prepare("UPDATE sessions SET is_deleted=1 WHERE date(created_at)=date('now','localtime')").run();
+  logAdmin('清除今日数据', `软删除 ${info.changes} 条答题记录`);
   res.json({ ok: true, deleted: info.changes });
 });
 
@@ -1022,8 +1065,7 @@ app.put('/api/admin/sessions/:id/hide', adminAuth, (req, res) => {
 });
 app.delete('/api/admin/sessions/:id', adminAuth, (req, res) => {
   const sess = db.prepare('SELECT staff_name FROM sessions WHERE id=?').get(req.params.id);
-  db.prepare('DELETE FROM answers WHERE session_id=?').run(req.params.id);
-  db.prepare('DELETE FROM sessions WHERE id=?').run(req.params.id);
+  db.prepare('UPDATE sessions SET is_deleted=1 WHERE id=?').run(req.params.id);
   logAdmin('删除成绩', `session_id=${req.params.id} ${sess?.staff_name||''}`);
   res.json({ ok: true });
 });
@@ -1044,8 +1086,7 @@ app.delete('/api/admin/sessions/staff/:staffId', adminAuth, (req, res) => {
   const staffName = db.prepare('SELECT real_name FROM staff WHERE id=?').get(staffId)?.real_name || staffId;
   db.transaction(() => {
     sessionIds.forEach(id => {
-      db.prepare('DELETE FROM answers WHERE session_id=?').run(id);
-      db.prepare('DELETE FROM sessions WHERE id=?').run(id);
+      db.prepare('UPDATE sessions SET is_deleted=1 WHERE id=?').run(id);
     });
   })();
   logAdmin('删除人员套班成绩', `${staffName}(${staffId}) cycle=${cycle_id||'今日'} 共${sessionIds.length}条`);
@@ -1096,11 +1137,45 @@ app.post('/api/admin/questions/ai-generate', adminAuth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: 'AI生成失败: ' + e.message }); }
 });
 
+// ─── 批量保存题目（智能出题预览确认后调用）────────────────────────────────
+app.post('/api/admin/questions/batch-save', adminAuth, (req, res) => {
+  const { questions, bank_id, bank_name } = req.body;
+  if (!Array.isArray(questions) || questions.length === 0)
+    return res.status(400).json({ error: '题目列表为空' });
+  let targetBankId = parseInt(bank_id) || null;
+  if (bank_name?.trim()) {
+    const r = db.prepare('INSERT INTO question_banks (name, q_type, default_count) VALUES (?,?,?)').run(bank_name.trim(), '简答', 3);
+    targetBankId = r.lastInsertRowid;
+    logAdmin('新建题库', bank_name.trim());
+  }
+  if (!targetBankId) return res.status(400).json({ error: '请指定题库' });
+  const stmt = db.prepare('INSERT INTO questions (bank_id,text,reference,keywords,category) VALUES (?,?,?,?,?)');
+  const ids = [];
+  db.transaction(() => {
+    questions.forEach(q => {
+      const r = stmt.run(targetBankId, q.text, q.reference, q.keywords || '', q.category || '业务知识');
+      ids.push(r.lastInsertRowid);
+    });
+  })();
+  logAdmin('批量保存题目', `题库ID=${targetBankId} 保存${ids.length}题`);
+  res.json({ ok: true, count: ids.length, ids, bankId: targetBankId });
+});
+
 // ─── 手动选题（管理员指定本次答题题目）───────────────────────────────────
 app.get('/api/admin/pinned-questions', adminAuth, (req, res) => {
   const val = getSetting('pinned_questions');
-  if (!val) return res.json({ ids: [], scope: 'none', bank_fallback_id: null });
-  try { res.json(JSON.parse(val)); } catch { res.json({ ids: [], scope: 'none', bank_fallback_id: null }); }
+  if (!val) return res.json({ ids: [], scope: 'none', bank_fallback_id: null, questions: [] });
+  try {
+    const pinned = JSON.parse(val);
+    if (pinned.ids?.length > 0) {
+      const placeholders = pinned.ids.map(() => '?').join(',');
+      const qs = db.prepare(`SELECT id, text, category FROM questions WHERE id IN (${placeholders})`).all(...pinned.ids);
+      pinned.questions = pinned.ids.map(id => qs.find(q => q.id === id)).filter(Boolean);
+    } else {
+      pinned.questions = [];
+    }
+    res.json(pinned);
+  } catch { res.json({ ids: [], scope: 'none', bank_fallback_id: null, questions: [] }); }
 });
 app.put('/api/admin/pinned-questions', adminAuth, (req, res) => {
   const { ids, scope, bank_fallback_id } = req.body;
@@ -1164,6 +1239,181 @@ app.post('/api/admin/banks/import', adminAuth, upload.single('file'), async (req
   res.json({ ok: true, count, bankId: targetBankId });
 });
 
+// ─── 智能出题：Word/PDF/图片 → AI识别 → 生成题目 ────────────────────────────
+async function callQwenText(KEY, prompt, maxTokens = 3000) {
+  const resp = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${KEY}` },
+    body: JSON.stringify({
+      model: 'qwen-plus',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: maxTokens,
+      temperature: 0.3
+    })
+  });
+  const data = await resp.json();
+  return (data.choices?.[0]?.message?.content || '').replace(/```json|```/g, '').trim();
+}
+
+async function callQwenVision(KEY, imageBase64, mimeType, prompt) {
+  const resp = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${KEY}` },
+    body: JSON.stringify({
+      model: 'qwen-vl-plus',
+      messages: [{ role: 'user', content: [
+        { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+        { type: 'text', text: prompt }
+      ]}],
+      max_tokens: 3000,
+      temperature: 0.3
+    })
+  });
+  const data = await resp.json();
+  return (data.choices?.[0]?.message?.content || '').replace(/```json|```/g, '').trim();
+}
+
+function isIncidentReport(text) {
+  // 强信号：必须有其中之一
+  const strongSignals = ['事件经过', '事故经过', '事件分析', '事故分析', '不安全行为', '安全事件报告', '事故报告', '责任认定', '脱轨', '冒进', '越过信号机', '越红灯'];
+  const hasStrong = strongSignals.some(k => text.includes(k));
+  if (!hasStrong) return false;
+  // 弱信号：需至少3个
+  const weakSignals = ['整改', '反思', '原因分析', '存在问题', '教训', '违规', '责任', '措施', '时间', '地点'];
+  const weakCount = weakSignals.filter(k => text.includes(k)).length;
+  return weakCount >= 3;
+}
+
+function buildIncidentPrompt(text) {
+  return `你是武汉地铁乘务安全培训专家。以下是一份地铁安全事件/事故分析报告。请生成 1 道考核题目。
+
+【题目格式】
+根据报告内容，提炼出该事件的简短名称（格式：线路/地点+事件类型，如"1号线越信号事件"、"三金潭车辆段脱轨事件"），生成如下题目：
+"请简要概述[事件简短名称]，口述事件简要经过、乘务员存在问题、整改措施及反思。"
+
+【答案要点要求】
+按以下顺序，每条用分号分隔：
+1. 简要经过：日期（年月日）+ 线路/地点 + 车号（不写人名）+ 一句话概括发生了什么（不要写精确时分秒，只写日期即可）
+2. 乘务员存在的问题：从报告提取违规操作/失误行为，逐条列出（每条一个分号，不要包含具体时间戳）
+3. 整改措施及反思：从报告整改/反思部分提取，逐条列出（每条一个分号）
+
+【重要】答案要点中不要出现任何"HH:MM:SS"格式的精确时间，时间信息只需保留到日期或事件阶段（如"动车时"、"退行中"）
+
+只返回JSON数组（只有1个元素），格式：
+[{"text":"题目内容","reference":"要点1;要点2;要点3","keywords":"关键词1,关键词2","category":"安全事件"}]
+
+报告内容：
+${text.slice(0, 4000)}`;
+}
+
+function buildGeneralPrompt(text, count) {
+  return `你是武汉地铁乘务培训专家，根据以下文本内容生成 ${count} 道业务考核题目。每道题必须是简答题（口述操作步骤或要点）。只返回JSON数组，格式：[{"text":"题目内容","reference":"参考答案，各步骤用分号分隔","keywords":"关键词1,关键词2","category":"分类名称"}]
+
+文本内容：
+${text.slice(0, 4000)}`;
+}
+
+app.post('/api/admin/banks/parse-doc', adminAuth, upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: '请上传文件' });
+  const KEY = process.env.DASHSCOPE_API_KEY;
+  if (!KEY) return res.status(503).json({ error: '未配置DASHSCOPE_API_KEY' });
+
+  const { bank_id, bank_name, count = 5 } = req.body;
+  const ext = (req.file.originalname || '').toLowerCase();
+  const mime = req.file.mimetype || '';
+  const isImage = mime.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp)$/.test(ext);
+
+  try {
+    let extractedText = '';
+    let rawJson = '';
+
+    if (isImage) {
+      // 图片：直接用视觉模型识别内容并出题
+      const base64 = req.file.buffer.toString('base64');
+      const imgMime = mime.startsWith('image/') ? mime : 'image/jpeg';
+      const imgPrompt = `你是武汉地铁乘务安全培训专家。请识别图片中的文字内容，判断是否为安全事件/事故分析报告。
+
+如果是安全事件报告，只生成1道题：
+- 题目格式："请简要概述[线路/地点+事件类型]，口述事件简要经过、乘务员存在问题、整改措施及反思。"
+- 答案要点按顺序用分号分隔：①简要经过（日期年月日+线路/地点+车号+一句话概括）②乘务员存在的问题（逐条）③整改措施及反思（逐条）
+- docType填"incident"。
+
+如果是普通培训材料，生成 ${count} 道业务操作考核题目，docType填"general"。
+
+只返回JSON数组，格式：[{"text":"题目","reference":"参考答案（各要点用分号分隔）","keywords":"关键词1,关键词2","category":"分类名称","docType":"incident或general"}]`;
+      rawJson = await callQwenVision(KEY, base64, imgMime, imgPrompt);
+    } else if (ext.endsWith('.docx')) {
+      const result = await mammoth.extractRawText({ buffer: req.file.buffer });
+      extractedText = result.value;
+    } else if (ext.endsWith('.pdf')) {
+      // 用本地 python3 + PyMuPDF 提取PDF文字（更可靠，支持中文）
+      const tmpFile = path.join(os.tmpdir(), `quiz_pdf_${Date.now()}.pdf`);
+      fs.writeFileSync(tmpFile, req.file.buffer);
+      try {
+        extractedText = await new Promise((resolve, reject) => {
+          execFile('python3', ['-c', `
+import fitz, sys
+doc = fitz.open(sys.argv[1])
+print(''.join(page.get_text() for page in doc))
+`, tmpFile], { timeout: 30000, maxBuffer: 5 * 1024 * 1024 }, (err, stdout, stderr) => {
+            fs.unlink(tmpFile, () => {});
+            if (err) reject(new Error(stderr || err.message));
+            else resolve(stdout);
+          });
+        });
+      } catch (e) {
+        fs.unlink(tmpFile, () => {});
+        throw e;
+      }
+    } else {
+      return res.status(400).json({ error: '不支持的文件格式，请上传 Word(.docx)、PDF、或图片' });
+    }
+
+    if (!isImage) {
+      if (!extractedText?.trim()) return res.status(400).json({ error: '文件内容为空或无法提取文本' });
+      const isIncident = isIncidentReport(extractedText);
+      const prompt = isIncident
+        ? buildIncidentPrompt(extractedText, parseInt(count))
+        : buildGeneralPrompt(extractedText, parseInt(count));
+      rawJson = await callQwenText(KEY, prompt);
+    }
+
+    let questions;
+    try { questions = JSON.parse(rawJson); }
+    catch { return res.status(500).json({ error: 'AI返回格式异常，请重试', raw: rawJson.slice(0, 200) }); }
+
+    if (!Array.isArray(questions) || questions.length === 0)
+      return res.status(500).json({ error: 'AI未生成有效题目' });
+
+    // 判断文档类型（用于前端提示）
+    const docType = questions[0]?.docType || (isIncidentReport(extractedText || '') ? 'incident' : 'general');
+    questions.forEach(q => delete q.docType);
+
+    // 若指定了题库，直接保存
+    let savedIds = [];
+    let targetBankId = parseInt(bank_id) || null;
+    if (bank_name?.trim()) {
+      const r = db.prepare('INSERT INTO question_banks (name, q_type, default_count) VALUES (?,?,?)').run(bank_name.trim(), '简答', 3);
+      targetBankId = r.lastInsertRowid;
+      logAdmin('新建题库', bank_name.trim());
+    }
+    if (targetBankId) {
+      const stmt = db.prepare('INSERT INTO questions (bank_id,text,reference,keywords,category) VALUES (?,?,?,?,?)');
+      db.transaction(() => {
+        questions.forEach(q => {
+          const r = stmt.run(targetBankId, q.text, q.reference, q.keywords || '', q.category || '业务知识');
+          savedIds.push(r.lastInsertRowid);
+        });
+      })();
+      logAdmin('智能出题保存', `题库ID=${targetBankId} 生成${questions.length}题 docType=${docType}`);
+    }
+
+    res.json({ ok: true, questions, docType, ids: savedIds });
+  } catch (e) {
+    res.status(500).json({ error: '处理失败: ' + e.message });
+  }
+});
+
 // ─── Alltime leaderboard full list (admin) ─────────────────────────────────
 app.get('/api/admin/leaderboard/cycle', adminAuth, (req, res) => {
   const cycle = getCurrentCycle();
@@ -1172,7 +1422,7 @@ app.get('/api/admin/leaderboard/cycle', adminAuth, (req, res) => {
     SELECT s.id, s.staff_id, s.staff_name, s.total_score, s.total_points, s.q_count, s.created_at, s.hidden, s.tab_switch_count,
            COALESCE(st.is_tester,0) as is_tester, COALESCE(st.is_cp,0) as is_cp, COALESCE(st.is_exempt,0) as is_exempt
     FROM sessions s LEFT JOIN staff st ON st.id=s.staff_id
-    WHERE s.cycle_id=? AND s.completed=1 ORDER BY s.total_points DESC, s.created_at DESC
+    WHERE s.cycle_id=? AND s.completed=1 AND COALESCE(s.is_deleted,0)=0 ORDER BY s.total_points DESC, s.created_at DESC
   `).all(cycle.id);
   res.json({ cycle, rows });
 });
@@ -1181,13 +1431,23 @@ app.get('/api/admin/leaderboard/alltime', adminAuth, (req, res) => {
     SELECT s.id, s.staff_id, s.staff_name, s.total_score, s.total_points, s.q_count, s.created_at, s.hidden, s.tab_switch_count,
            COALESCE(st.is_tester,0) as is_tester, COALESCE(st.is_cp,0) as is_cp, COALESCE(st.is_exempt,0) as is_exempt
     FROM sessions s LEFT JOIN staff st ON st.id=s.staff_id
-    WHERE s.completed=1 ORDER BY s.total_points DESC, s.created_at DESC LIMIT 100
+    WHERE s.completed=1 AND COALESCE(s.is_deleted,0)=0 ORDER BY s.total_points DESC, s.created_at DESC LIMIT 100
   `).all();
   res.json(rows);
 });
 
 // ─── Excel Export ──────────────────────────────────────────────────────────
+app.get('/api/export/months', adminAuth, (req, res) => {
+  const rows = db.prepare(`
+    SELECT DISTINCT strftime('%Y-%m', created_at) as month
+    FROM sessions WHERE completed=1
+    ORDER BY month DESC
+  `).all();
+  res.json(rows.map(r => r.month));
+});
+
 app.get('/api/export', adminAuth, async (req, res) => {
+  const month = req.query.month; // 格式 YYYY-MM，不传则导出全部
   const wb = new ExcelJS.Workbook();
   wb.creator = '武汉地铁5号线乘务工班组';
 
@@ -1203,7 +1463,9 @@ app.get('/api/export', adminAuth, async (req, res) => {
   const hStyle = { fill:{type:'pattern',pattern:'solid',fgColor:{argb:'FF1B3A6E'}}, font:{color:{argb:'FFFFFFFF'},bold:true,size:11}, alignment:{vertical:'middle',horizontal:'center',wrapText:true} };
   ws1.getRow(1).eachCell(c=>Object.assign(c,hStyle)); ws1.getRow(1).height=26;
 
-  const answers = db.prepare("SELECT a.*,s.staff_name FROM answers a JOIN sessions s ON s.id=a.session_id ORDER BY a.created_at DESC").all();
+  const answers = month
+    ? db.prepare("SELECT a.*,s.staff_name FROM answers a JOIN sessions s ON s.id=a.session_id WHERE strftime('%Y-%m',a.created_at)=? ORDER BY a.created_at DESC").all(month)
+    : db.prepare("SELECT a.*,s.staff_name FROM answers a JOIN sessions s ON s.id=a.session_id ORDER BY a.created_at DESC").all();
   answers.forEach((a,i)=>{
     let miss=a.missing_points; try{miss=JSON.parse(a.missing_points).join('；');}catch{}
     const row = ws1.addRow({...a,missing:miss});
@@ -1217,7 +1479,9 @@ app.get('/api/export', adminAuth, async (req, res) => {
   const ws2 = wb.addWorksheet('人员汇总');
   ws2.columns=[{header:'姓名',key:'name',width:8},{header:'工号',key:'id',width:10},{header:'答题天数',key:'days',width:10},{header:'总积分',key:'pts',width:10},{header:'平均分',key:'avg',width:10},{header:'最近答题',key:'last',width:18}];
   ws2.getRow(1).eachCell(c=>Object.assign(c,hStyle)); ws2.getRow(1).height=26;
-  const members = db.prepare("SELECT s.id,s.name,COUNT(DISTINCT date(ss.created_at)) as days,SUM(ss.total_points) as pts,ROUND(AVG(ss.total_score),1) as avg,MAX(ss.created_at) as last FROM staff s LEFT JOIN sessions ss ON ss.staff_id=s.id AND ss.completed=1 GROUP BY s.id ORDER BY pts DESC NULLS LAST").all();
+  const members = month
+    ? db.prepare("SELECT s.id,s.name,COUNT(DISTINCT date(ss.created_at)) as days,SUM(ss.total_points) as pts,ROUND(AVG(ss.total_score),1) as avg,MAX(ss.created_at) as last FROM staff s LEFT JOIN sessions ss ON ss.staff_id=s.id AND ss.completed=1 AND COALESCE(ss.is_deleted,0)=0 AND strftime('%Y-%m',ss.created_at)=? GROUP BY s.id ORDER BY pts DESC NULLS LAST").all(month)
+    : db.prepare("SELECT s.id,s.name,COUNT(DISTINCT date(ss.created_at)) as days,SUM(ss.total_points) as pts,ROUND(AVG(ss.total_score),1) as avg,MAX(ss.created_at) as last FROM staff s LEFT JOIN sessions ss ON ss.staff_id=s.id AND ss.completed=1 AND COALESCE(ss.is_deleted,0)=0 GROUP BY s.id ORDER BY pts DESC NULLS LAST").all();
   members.forEach(m=>{ const r=ws2.addRow({...m}); r.height=24; r.eachCell(c=>{c.alignment={vertical:'middle',horizontal:'center'}}); });
 
   // Sheet3: 积分排行
@@ -1230,9 +1494,10 @@ app.get('/api/export', adminAuth, async (req, res) => {
     lb.forEach((r,i)=>{ const row=ws3.addRow({rank:i+1,...r}); row.height=24; row.eachCell(c=>{c.alignment={vertical:'middle',horizontal:'center'}}); if(i<3)row.getCell('rank').fill={type:'pattern',pattern:'solid',fgColor:{argb:i===0?'FFFFD700':i===1?'FFC0C0C0':'FFCD7F32'}}; });
   }
 
-  const date = new Date().toISOString().slice(0,10);
+  const label = month || new Date().toISOString().slice(0,7);
+  const encodedLabel = encodeURIComponent(`答题记录_${label}`);
   res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition',`attachment; filename*=UTF-8''%E7%AD%94%E9%A2%98%E8%AE%B0%E5%BD%95_${date}.xlsx`);
+  res.setHeader('Content-Disposition',`attachment; filename*=UTF-8''${encodedLabel}.xlsx`);
   await wb.xlsx.write(res); res.end();
 });
 
@@ -1505,8 +1770,8 @@ wss.on('connection', async (clientWs) => {
           enable_intermediate_result: true,
           enable_punctuation_prediction: true,
           enable_inverse_text_normalization: true,
-          speech_noise_threshold: 0.5,
-          max_sentence_silence: 500,
+          speech_noise_threshold: 0.7,
+          max_sentence_silence: 800,
         }
       }));
     });
@@ -1637,7 +1902,7 @@ wssXunfei.on('connection', (clientWs, req) => {
     // 发送第一帧参数
     xfWs.send(JSON.stringify({
       common: {app_id: appId},
-      business: {language:'zh_cn', domain:'iat', accent:'mandarin', dwa:'wpgs', vad_eos:1500,ptt:0,nunum:1},
+      business: {language:'zh_cn', domain:'iat', accent:'mandarin', dwa:'wpgs', vad_eos:4000,ptt:0,nunum:1},
       data: {status:0, format:'audio/L16;rate=16000', encoding:'raw', audio:''}
     }));
     started = true;
