@@ -1441,7 +1441,9 @@ app.get('/api/admin/leaderboard/cycle', adminAuth, (req, res) => {
     SELECT s.id, s.staff_id, s.staff_name, s.total_score, s.total_points, s.q_count, s.created_at, s.hidden, s.tab_switch_count,
            COALESCE(st.is_tester,0) as is_tester, COALESCE(st.is_cp,0) as is_cp, COALESCE(st.is_exempt,0) as is_exempt
     FROM sessions s LEFT JOIN staff st ON st.id=s.staff_id
-    WHERE s.cycle_id=? AND s.completed=1 AND COALESCE(s.is_deleted,0)=0 ORDER BY s.total_points DESC, s.created_at DESC
+    WHERE s.cycle_id=? AND s.completed=1 AND s.q_count>=3
+      AND COALESCE(s.is_deleted,0)=0 AND COALESCE(s.is_practice,0)=0
+    ORDER BY s.total_points DESC, s.created_at DESC
   `).all(cycle.id);
   res.json({ cycle, rows });
 });
@@ -1450,7 +1452,9 @@ app.get('/api/admin/leaderboard/alltime', adminAuth, (req, res) => {
     SELECT s.id, s.staff_id, s.staff_name, s.total_score, s.total_points, s.q_count, s.created_at, s.hidden, s.tab_switch_count,
            COALESCE(st.is_tester,0) as is_tester, COALESCE(st.is_cp,0) as is_cp, COALESCE(st.is_exempt,0) as is_exempt
     FROM sessions s LEFT JOIN staff st ON st.id=s.staff_id
-    WHERE s.completed=1 AND COALESCE(s.is_deleted,0)=0 ORDER BY s.total_points DESC, s.created_at DESC LIMIT 100
+    WHERE s.completed=1 AND s.q_count>=3
+      AND COALESCE(s.is_deleted,0)=0 AND COALESCE(s.is_practice,0)=0
+    ORDER BY s.total_points DESC, s.created_at DESC LIMIT 100
   `).all();
   res.json(rows);
 });
