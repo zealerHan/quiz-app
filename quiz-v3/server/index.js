@@ -948,8 +948,10 @@ app.get('/api/monitor/today/text', (req, res) => {
     FROM sessions s
     LEFT JOIN staff st ON st.id = s.staff_id
     WHERE date(s.created_at)=date('now','localtime')
-      AND s.completed=1 AND COALESCE(s.is_practice,0)=0
+      AND s.completed=1 AND s.q_count>=3
+      AND COALESCE(s.is_practice,0)=0
       AND COALESCE(s.hidden,0)=0 AND COALESCE(s.is_deleted,0)=0
+      AND s.staff_id NOT IN (SELECT id FROM staff WHERE is_exempt=1)
     ORDER BY s.created_at ASC
   `).all();
 
@@ -958,24 +960,41 @@ app.get('/api/monitor/today/text', (req, res) => {
   const reached = count >= threshold;
   const missing = Math.max(0, threshold - count);
 
-  if (count === 0) { res.type('text').send('🚨 今日暂无人完成答题'); return; }
+  // 未完成人员
+  const completedIds = completed.map(r => r.staff_id);
+  const pendingRows = db.prepare(`
+    SELECT id, COALESCE(real_name, name) as name
+    FROM staff
+    WHERE is_exempt=0 AND COALESCE(is_cp,0)=0
+    ORDER BY id
+  `).all().filter(s => !completedIds.includes(s.id));
+  const total = completedIds.length + pendingRows.length;
 
   const lines = [];
-  lines.push(reached
-    ? `✅ 今日达标，完成 ${count}/${threshold} 人`
-    : `⚠️ 今日完成 ${count}/${threshold} 人，还差 ${missing} 人`);
+  const today = new Date().toLocaleDateString('zh-CN', {month:'numeric',day:'numeric'});
+  lines.push(`📋 ${today} 答题完成情况（${count}/${total}人）`);
+  lines.push('');
 
-  for (const r of completed) {
-    const ses = db.prepare(`SELECT id, total_points, total_score, tab_switch_count FROM sessions WHERE staff_id=? AND date(created_at)=date('now','localtime') AND completed=1 AND COALESCE(is_practice,0)=0 ORDER BY id ASC LIMIT 1`).get(r.staff_id);
-    if (!ses) { lines.push(`• ${r.name}`); continue; }
-    const sw = ses.tab_switch_count > 0 ? ` 切屏×${ses.tab_switch_count}` : '';
-    lines.push(`• ${r.name} ${ses.total_score}分（+${ses.total_points}积分）${sw}`);
-    const answers = db.prepare('SELECT question_text, score FROM answers WHERE session_id=? ORDER BY id ASC').all(ses.id);
-    for (const a of answers) {
-      const q = a.question_text.length > 12 ? a.question_text.slice(0, 12) + '…' : a.question_text;
-      lines.push(`  ${q} ${a.score}分`);
+  if (count === 0) {
+    lines.push('✅ 已完成（0人）');
+  } else {
+    lines.push(`✅ 已完成（${count}人）`);
+    for (const r of completed) {
+      const ses = db.prepare(`SELECT id, total_points, total_score, tab_switch_count FROM sessions WHERE staff_id=? AND date(created_at)=date('now','localtime') AND completed=1 AND COALESCE(is_practice,0)=0 AND q_count>=3 ORDER BY id ASC LIMIT 1`).get(r.staff_id);
+      if (!ses) continue;
+      const sw = ses.tab_switch_count > 0 ? ` 切屏×${ses.tab_switch_count}` : '';
+      lines.push(`• ${r.name} ${ses.total_score}分 +${ses.total_points}积分${sw}`);
     }
   }
+
+  lines.push('');
+  lines.push(`❌ 未完成（${pendingRows.length}人）`);
+  if (pendingRows.length === 0) {
+    lines.push('• 全员完成！');
+  } else {
+    lines.push(pendingRows.map(r => r.name).join('、'));
+  }
+
   res.type('text').send(lines.join('\n'));
 });
 
