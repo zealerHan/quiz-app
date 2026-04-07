@@ -2225,6 +2225,7 @@ function AdminScreen({ onBack }) {
   const [pinScope,setPinScope]=useState('today');
   const [pinFallback,setPinFallback]=useState('');
   const [qSelectOpen,setQSelectOpen]=useState(false);
+  const [qSelectBank,setQSelectBank]=useState('incident'); // 'incident' | 'emergency'
   const ah=useMemo?undefined:adminHeaders(pwd); // will pass inline
   const hdrs=(extra={})=>({...adminHeaders(pwd),'Content-Type':'application/json',...extra});
 
@@ -2540,43 +2541,61 @@ function AdminScreen({ onBack }) {
                 </div>
 
                 {/* 选题面板 */}
-                {qSelectOpen&&<>
-                  <div style={{fontSize:11,color:'#64748b',marginBottom:8,marginTop:4}}>从事件分析题库选择（点击加入）：</div>
-                  <div style={{maxHeight:200,overflowY:'auto',border:'1px solid #1b3255',borderRadius:8,marginBottom:10}}>
-                    {summaryQs.length===0
-                      ? <div style={{padding:'14px',textAlign:'center',color:'#475569',fontSize:12}}>暂无事件概述题，请先上传事件分析报告</div>
-                      : summaryQs.map(q=>{
-                          const idx = qSelected.indexOf(q.id);
-                          const sel = idx !== -1;
-                          return (
-                            <div key={q.id} onClick={()=>{
-                              if(sel){setQSelected(s=>s.filter(id=>id!==q.id));}
-                              else if(qSelected.length<3){setQSelected(s=>[...s,q.id]);}
-                            }} style={{display:'flex',gap:8,alignItems:'flex-start',padding:'9px 12px',borderBottom:'1px solid rgba(27,50,85,0.4)',cursor:sel||qSelected.length>=3?'default':'pointer',background:sel?'rgba(59,130,246,0.1)':'none',opacity:!sel&&qSelected.length>=3?0.4:1}}>
-                              <div style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel?'#3b82f6':'#475569'}`,background:sel?'#3b82f6':'none',flexShrink:0,marginTop:2,display:'flex',alignItems:'center',justifyContent:'center'}}>
-                                {sel&&<span style={{color:'white',fontSize:9}}>✓</span>}
-                              </div>
-                              <div style={{flex:1}}>
-                                <div style={{fontSize:12,color:'white',lineHeight:1.4}}>{q.text.slice(0,50)}{q.text.length>50?'…':''}</div>
-                                <div style={{fontSize:10,color:'#475569',marginTop:2}}>{q.bank_name}</div>
-                              </div>
-                            </div>
-                          );
-                        })
-                    }
-                  </div>
-                  <div style={{display:'flex',gap:8,marginBottom:8}}>
-                    {['today','shift'].map(s=><button key={s} onClick={()=>setPinScope(s)} style={{flex:1,padding:'7px',borderRadius:6,border:`1px solid ${pinScope===s?'#3b82f6':'#1b3255'}`,background:pinScope===s?'rgba(59,130,246,0.15)':'none',color:pinScope===s?'#60a5fa':'#94a3b8',cursor:'pointer',fontSize:12}}>{s==='today'?'今天生效':'本套班生效'}</button>)}
-                  </div>
-                  <div style={{display:'flex',gap:8}}>
-                    <button disabled={qSelected.length===0} onClick={async()=>{
-                      const r=await apiJson('/api/admin/pinned-questions',{method:'PUT',headers:hdrs(),body:JSON.stringify({ids:qSelected,scope:pinScope,bank_fallback_id:1})}).catch(()=>null);
-                      if(r?.ok){apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(d=>{setQPinned(d);});setQSelectOpen(false);}
-                      else alert('设置失败');
-                    }} style={{flex:2,background:'#1b3a6e',border:'none',color:'white',borderRadius:7,padding:'10px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:qSelected.length===0?0.4:1}}>确认启用（{qSelected.length}/3）</button>
-                    <button onClick={()=>{setQSelectOpen(false);setQSelected(qPinned.ids||[]);}} style={{flex:1,background:'none',border:'1px solid #1b3255',color:'#64748b',borderRadius:7,padding:'10px',fontSize:12,cursor:'pointer'}}>取消</button>
-                  </div>
-                </>}
+                {qSelectOpen&&(()=>{
+                  const emergencyQs = qAll.filter(q => q.bank_id === 1);
+                  const displayQs = qSelectBank==='emergency' ? emergencyQs : summaryQs;
+                  const emptyMsg = qSelectBank==='emergency' ? '应急故障处置题库暂无题目' : '暂无事件概述题，请先上传事件分析报告';
+                  return (
+                    <>
+                      {/* 题库切换 tab */}
+                      <div style={{display:'flex',gap:6,marginBottom:8,marginTop:4}}>
+                        {[['incident','📋 安全事件'],['emergency','🚨 应急故障处置']].map(([key,label])=>(
+                          <button key={key} onClick={()=>setQSelectBank(key)} style={{flex:1,padding:'6px 8px',borderRadius:6,border:`1px solid ${qSelectBank===key?'#3b82f6':'#1b3255'}`,background:qSelectBank===key?'rgba(59,130,246,0.15)':'none',color:qSelectBank===key?'#60a5fa':'#64748b',cursor:'pointer',fontSize:11,fontWeight:600}}>
+                            {label}{qSelectBank===key&&<span style={{marginLeft:4,color:'#94a3b8',fontWeight:400}}>({displayQs.length})</span>}
+                          </button>
+                        ))}
+                      </div>
+                      {/* 题目列表 */}
+                      <div style={{maxHeight:200,overflowY:'auto',border:'1px solid #1b3255',borderRadius:8,marginBottom:10}}>
+                        {displayQs.length===0
+                          ? <div style={{padding:'14px',textAlign:'center',color:'#475569',fontSize:12}}>{emptyMsg}</div>
+                          : displayQs.map(q=>{
+                              const sel = qSelected.includes(q.id);
+                              const full = !sel && qSelected.length >= 3;
+                              return (
+                                <div key={q.id} onClick={()=>{
+                                  if(sel){setQSelected(s=>s.filter(id=>id!==q.id));}
+                                  else if(!full){setQSelected(s=>[...s,q.id]);}
+                                }} style={{display:'flex',gap:8,alignItems:'flex-start',padding:'9px 12px',borderBottom:'1px solid rgba(27,50,85,0.4)',cursor:full?'not-allowed':'pointer',background:sel?'rgba(59,130,246,0.1)':'none',opacity:full?0.4:1}}>
+                                  <div style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel?'#3b82f6':'#475569'}`,background:sel?'#3b82f6':'none',flexShrink:0,marginTop:2,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                                    {sel&&<span style={{color:'white',fontSize:9}}>✓</span>}
+                                  </div>
+                                  <div style={{flex:1}}>
+                                    <div style={{fontSize:12,color:'white',lineHeight:1.4}}>{q.text.slice(0,50)}{q.text.length>50?'…':''}</div>
+                                    <div style={{fontSize:10,color:'#475569',marginTop:2}}>{q.bank_name}</div>
+                                  </div>
+                                </div>
+                              );
+                            })
+                        }
+                      </div>
+                      {/* 已选计数提示 */}
+                      {qSelected.length>0&&<div style={{fontSize:11,color:'#60a5fa',marginBottom:8}}>已选 {qSelected.length}/3 题{qSelected.length<3?'，可继续从任意题库补充':''}</div>}
+                      {/* 生效范围 */}
+                      <div style={{display:'flex',gap:8,marginBottom:8}}>
+                        {['today','shift'].map(s=><button key={s} onClick={()=>setPinScope(s)} style={{flex:1,padding:'7px',borderRadius:6,border:`1px solid ${pinScope===s?'#3b82f6':'#1b3255'}`,background:pinScope===s?'rgba(59,130,246,0.15)':'none',color:pinScope===s?'#60a5fa':'#94a3b8',cursor:'pointer',fontSize:12}}>{s==='today'?'今天生效':'本套班生效'}</button>)}
+                      </div>
+                      <div style={{display:'flex',gap:8}}>
+                        <button disabled={qSelected.length===0} onClick={async()=>{
+                          const r=await apiJson('/api/admin/pinned-questions',{method:'PUT',headers:hdrs(),body:JSON.stringify({ids:qSelected,scope:pinScope,bank_fallback_id:1})}).catch(()=>null);
+                          if(r?.ok){apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(d=>{setQPinned(d);});setQSelectOpen(false);}
+                          else alert('设置失败');
+                        }} style={{flex:2,background:'#1b3a6e',border:'none',color:'white',borderRadius:7,padding:'10px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:qSelected.length===0?0.4:1}}>确认启用（{qSelected.length}/3）</button>
+                        <button onClick={()=>{setQSelectOpen(false);setQSelected(qPinned.ids||[]);}} style={{flex:1,background:'none',border:'1px solid #1b3255',color:'#64748b',borderRadius:7,padding:'10px',fontSize:12,cursor:'pointer'}}>取消</button>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             );
           })()}
@@ -2655,7 +2674,7 @@ function AdminScreen({ onBack }) {
               <div className="card">
                 <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600,marginBottom:12}}>📚 题库</div>
                 <div style={{fontSize:11,color:'#475569',marginBottom:10,padding:'7px 10px',background:'rgba(59,130,246,0.06)',borderRadius:6,border:'1px solid rgba(59,130,246,0.15)'}}>
-                  💡 应急随机三题固定从<span style={{color:'#60a5fa'}}>应急故障处置题库</span>随机抽取；手动选题从<span style={{color:'#60a5fa'}}>事件分析报告</span>题库中选择
+                  💡 应急随机三题固定从<span style={{color:'#60a5fa'}}>应急故障处置题库</span>随机抽取；手动选题支持从<span style={{color:'#60a5fa'}}>安全事件</span>或<span style={{color:'#60a5fa'}}>应急故障处置</span>题库混选
                 </div>
                 {emergencyBank&&<Section label="应急故障处置" icon="🚨" items={[emergencyBank]} fixed={true}/>}
                 <Section label="事件分析报告" icon="📋" items={incidentBanks}/>
