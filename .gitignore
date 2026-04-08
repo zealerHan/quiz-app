@@ -1,5 +1,10 @@
 node_modules/
-quiz-v3/.env
-quiz-v3/data/
+.env
+app/data/
+app/quiz.db
+app/quiz.err
+app/quiz.log
+app/server/quiz.db
+app/logs/
 *.log
 .DS_Store
