@@ -107,7 +107,7 @@ function LoginScreen({ onLogin, onAdmin }) {
       const d = await r.json();
       if(!r.ok){ setErr(d.error||"登录失败"); return; }
       localStorage.setItem(LOGIN_STORAGE_KEY, JSON.stringify({staffId:id.trim(),phoneTail:phone.trim()}));
-      onLogin({staffId:d.staffId, name:d.realName||d.staffId, isExempt:!!d.isExempt, isTester:!!d.isTester});
+      onLogin({staffId:d.staffId, name:d.realName||d.staffId, isExempt:!!d.isExempt, isTester:!!d.isTester, isInstructor:!!d.isInstructor});
     }catch(e){ setErr("连接服务器失败"); }
     finally{setLoading(false);}
   };
@@ -558,7 +558,13 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
       </div>
     </div>
   );
-  if (!q) return null;
+  if (!q) return (
+    <div style={{position:"relative",width:"100%",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,background:"#080a0c"}}>
+      <div style={{fontSize:30}}>⚠</div>
+      <div style={{color:"#ef4444",marginTop:8,fontSize:14}}>题库暂无题目，请联系管理员</div>
+      <button onClick={onBack} style={{marginTop:16,padding:"10px 28px",borderRadius:8,border:"1px solid rgba(255,255,255,0.2)",background:"none",color:"white",fontSize:14,cursor:"pointer"}}>返回</button>
+    </div>
+  );
 
   const pct = (qi / questions.length) * 100;
 
@@ -844,14 +850,16 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
 
 // ─── 答题历史 ────────────────────────────────────────────────────────────────
 function HistoryScreen({ user, onBack }) {
-  const [records,setRecords]=useState([]);
+  const [sessions,setSessions]=useState([]);
   const [loading,setLoading]=useState(true);
+  const [expanded,setExpanded]=useState({});
   useEffect(()=>{
-    apiJson(`/api/me/${user.staffId}/answers`).then(d=>{
-      setRecords(d||[]);
+    apiJson(`/api/me/${user.staffId}/sessions`).then(d=>{
+      setSessions(d||[]);
       setLoading(false);
     }).catch(()=>setLoading(false));
   },[]);
+  const toggle=(id)=>setExpanded(e=>({...e,[id]:!e[id]}));
   return (
     <div className="screen" style={{padding:'16px'}}>
       <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
@@ -859,18 +867,46 @@ function HistoryScreen({ user, onBack }) {
         <span style={{fontSize:15,fontWeight:700,color:'white'}}>我的答题历史</span>
       </div>
       {loading&&<div style={{color:'#64748b',textAlign:'center',marginTop:40}}>加载中…</div>}
-      {!loading&&records.length===0&&<div style={{color:'#475569',textAlign:'center',marginTop:40,fontSize:13}}>暂无答题记录</div>}
-      {records.map((r,i)=>(
-        <div key={i} className="card" style={{marginBottom:10,padding:'12px 14px'}}>
-          <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
-            <span style={{fontSize:12,color:'#64748b'}}>{r.created_at?new Date(r.created_at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'--'}</span>
-            <span style={{fontWeight:700,color:r.score>=80?'#22c55e':r.score>=60?'#f59e0b':'#ef4444',fontSize:14}}>{r.score??'--'} 分</span>
+      {!loading&&sessions.length===0&&<div style={{color:'#475569',textAlign:'center',marginTop:40,fontSize:13}}>暂无答题记录</div>}
+      {sessions.map((s)=>{
+        const avg=Math.round(s.total_score||0);
+        const scoreCol=avg>=85?'#22c55e':avg>=60?'#f59e0b':'#ef4444';
+        const perQ=Math.round(100/(s.q_count||3));
+        const isOpen=!!expanded[s.id];
+        return(
+          <div key={s.id} className="card" style={{marginBottom:8,padding:0,overflow:'hidden'}}>
+            <div onClick={()=>toggle(s.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',cursor:'pointer'}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:12,color:'#64748b'}}>
+                  {s.created_at?s.created_at.slice(5,10)+' '+s.created_at.slice(11,16):'--'}
+                  {s.cycle_label&&<span style={{marginLeft:6,color:'#475569'}}>{s.cycle_label}</span>}
+                  {s.is_practice?<span style={{marginLeft:6,fontSize:10,color:'#f59e0b'}}>练习</span>:null}
+                </div>
+                <div style={{fontSize:11,color:'#475569',marginTop:2}}>{s.q_count||0}题</div>
+              </div>
+              <span style={{fontSize:20,fontWeight:800,color:scoreCol,flexShrink:0}}>{avg}<span style={{fontSize:10,fontWeight:400,color:'rgba(255,255,255,0.35)'}}>分</span></span>
+              <span style={{fontSize:14,color:'#475569',flexShrink:0,transform:isOpen?'rotate(180deg)':'none',transition:'transform 0.2s'}}>⌄</span>
+            </div>
+            {isOpen&&(
+              <div style={{borderTop:'1px solid rgba(27,50,85,0.6)',padding:'8px 14px 12px'}}>
+                {s.answers?.map((a,ai)=>{
+                  const pts=Math.round(a.score/(s.q_count||3));
+                  const ac=a.score>=99?'#22c55e':a.score>=67?'#f59e0b':'#ef4444';
+                  return(
+                    <div key={ai} style={{paddingTop:ai>0?10:4,borderTop:ai>0?'1px solid rgba(27,50,85,0.4)':'none'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+                        <span style={{fontSize:11,color:'#94a3b8',flex:1,lineHeight:1.4}}>{ai+1}. {a.question_text}</span>
+                        <span style={{fontSize:13,fontWeight:700,color:ac,flexShrink:0,marginLeft:8}}>{pts}<span style={{fontSize:10,color:'rgba(255,255,255,0.3)',fontWeight:400}}>/{perQ}</span></span>
+                      </div>
+                      <div style={{fontSize:11,color:'#64748b',lineHeight:1.5,paddingLeft:10}}>↳ {a.answer_text||'（无作答）'}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
-          <div style={{fontSize:13,color:'#cbd5e1',marginBottom:4,lineHeight:1.5}}>{r.question_text||'（无题目记录）'}</div>
-          <div style={{fontSize:11,color:'#475569',marginBottom:r.level?4:0}}>答：{r.answer_text||'--'}</div>
-          {r.level&&<Badge label={r.level} color={r.level==='优秀'?'#22c55e':r.level==='合格'?'#f59e0b':'#ef4444'}/>}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -948,6 +984,8 @@ function HomeScreen({ user, nav }) {
   const [isInterrupted, setIsInterrupted] = useState(false);
   const [makeupGrant, setMakeupGrant] = useState(null); // null or {expiresAt}
   const [makeupPrompted, setMakeupPrompted] = useState(false);
+  const [workshopStatus, setWorkshopStatus] = useState(null); // [{plan_id, shift_date, plan_type, relevant, checked_in, instructor_confirmed}]
+  const [yearPlanItems, setYearPlanItems] = useState(null); // [{item, trainType}] 本月年度计划项点
 
   useEffect(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -990,9 +1028,15 @@ function HomeScreen({ user, nav }) {
 
     fetch('/api/admin/members', { headers: { 'x-admin-password': 'admin888' } })
       .then(r => r.json()).then(members => {
-        const nonExempt = members.filter(m => !m.is_exempt);
-        setPeriodTotal(nonExempt.length);
-        setPeriodDone(nonExempt.filter(m => m.answer_days >= 1).length);
+        const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+        const regular = members.filter(m => !m.is_exempt && !m.is_cp && !m.is_leader);
+        setPeriodTotal(regular.length);
+        // last_at is UTC ISO string; convert to CST date for comparison
+        setPeriodDone(regular.filter(m => {
+          if (!m.last_at) return false;
+          const d = new Date(m.last_at);
+          return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }) === todayStr;
+        }).length);
       }).catch(() => {});
 
     apiJson('/api/banks').then(banks => {
@@ -1001,12 +1045,26 @@ function HomeScreen({ user, nav }) {
 
     fetch('/api/admin/pinned-questions', { headers: { 'x-admin-password': 'admin888' } })
       .then(r => r.json()).then(p => {
-        const todayStr = new Date().toISOString().slice(0, 10);
-        const active = p.ids?.length > 0 && (
+        const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+        const hasContent = (p.ids?.length > 0) || (p.mode === 'random' && (p.bank_id || p.bank_ids?.length > 0)) || p.mode === 'emergency';
+        const active = hasContent && (
           (p.scope === 'today' && p.created_date === todayStr) || p.scope === 'shift'
         );
         setPinnedInfo(active ? p : null);
       }).catch(() => {});
+
+    // 车间任务状态
+    const curMonth = new Date().toISOString().slice(0, 7);
+    apiJson(`/api/workshop/my-status?month=${curMonth}&staff_id=${user.staffId}`).then(st => {
+      setWorkshopStatus(st || []);
+    }).catch(() => {});
+    // 年度培训计划本月项点
+    const curYr = new Date().getFullYear();
+    const curMo = new Date().getMonth() + 1;
+    apiJson(`/api/admin/training-year-plan?year=${curYr}`).then(d => {
+      const mo = Array.isArray(d) ? d.find(r => r.month === curMo) : null;
+      setYearPlanItems(mo?.sessions || []);
+    }).catch(() => setYearPlanItems([]));
 
     // 补答授权查询（每30秒轮询一次）
     const checkMakeup = () => {
@@ -1027,13 +1085,13 @@ function HomeScreen({ user, nav }) {
     const startD = new Date(now); startD.setDate(startD.getDate() - phaseDay);
     const endD = new Date(startD); endD.setDate(endD.getDate() + 2);
     const fmt = d => `${d.getMonth()+1}月${d.getDate()}日`;
-    return `${fmt(startD)} — ${fmt(endD)} 09:30 截止`;
+    return `${fmt(startD)} — ${fmt(endD)}`;
   };
 
   const getMonthRange = () => {
     const now = new Date();
     const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    return `${now.getMonth()+1}月1日 — ${now.getMonth()+1}月${last.getDate()}日`;
+    return `${now.getMonth()+1}月1日—${now.getMonth()+1}月${last.getDate()}日`;
   };
 
   const rankIcon = i => ['🥇','🥈','🥉'][i] || (i+1);
@@ -1078,20 +1136,36 @@ function HomeScreen({ user, nav }) {
 
       {/* ── 顶部欢迎 ── */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'18px 16px 6px' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          {me?.staff?.avatar
-            ? <img src={me.staff.avatar} style={{width:38,height:38,borderRadius:'50%',objectFit:'cover',border:'2px solid rgba(200,168,75,.5)',flexShrink:0}}/>
-            : <div style={{width:38,height:38,borderRadius:'50%',background:'linear-gradient(135deg,var(--blue),#0ea5e9)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,fontWeight:700,color:'white',flexShrink:0}}>{(user.name||user.staffId)?.[0]}</div>
-          }
-          <div style={{ fontSize:16, fontWeight:700, color:'var(--text)' }}>
-            你好，<span style={{ color:'var(--gold)' }}>{user.name || user.staffId}</span>
-            {isExempt && <span style={{ marginLeft:6, fontSize:10, color:'var(--muted)', fontWeight:400, verticalAlign:'middle' }}>班组长</span>}
-          </div>
+        <div style={{ fontSize:16, fontWeight:700, color:'var(--text)' }}>
+          你好，<span style={{ color:'var(--gold)' }}>{user.name || user.staffId}</span>
+          {isExempt && <span style={{ marginLeft:6, fontSize:10, color:'var(--muted)', fontWeight:400, verticalAlign:'middle' }}>班组长</span>}
         </div>
-        <div style={{
-          background:'rgba(200,168,75,.12)', border:'1px solid rgba(200,168,75,.35)',
-          borderRadius:20, padding:'4px 13px', fontSize:11, color:'var(--gold)', fontWeight:700
-        }}>本期 {periodDone}/{periodTotal} 已完成</div>
+        {/* 右侧：两排状态 */}
+        {(() => {
+          const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+          const nextOp = (workshopStatus || []).find(s =>
+            s.relevant && s.plan_type !== '轮空' && s.shift_date >= today &&
+            !(s.plan_type === '中旬会' ? s.checked_in : s.instructor_confirmed)
+          );
+          const dateShort = d => { const x=new Date(d+'T00:00:00'); return `${x.getMonth()+1}月${x.getDate()}日`; };
+          return (
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
+              {/* 行1：本轮班答题 */}
+              <div style={{ background:'rgba(200,168,75,.12)', border:'1px solid rgba(200,168,75,.35)', borderRadius:20, padding:'3px 11px', fontSize:11, color:'var(--gold)', fontWeight:700, whiteSpace:'nowrap' }}>
+                本轮班答题 {isExempt ? '免答' : taskDone ? '✅' : `${periodDone}/${periodTotal} 已完成`}
+              </div>
+              {/* 行2：下次回段/场 */}
+              <div style={{ fontSize:10, color:'var(--muted)', whiteSpace:'nowrap' }}>
+                {nextOp
+                  ? nextOp.plan_type === '中旬会'
+                    ? <span style={{color:'var(--gold)',fontWeight:600}}>下次回 {nextOp.location||'工人村'} 中旬会 {dateShort(nextOp.shift_date)}</span>
+                    : <span>下次{nextOp.location||'回段/场'} <span style={{color:'var(--gold)',fontWeight:600}}>{dateShort(nextOp.shift_date)}</span></span>
+                  : <span>本月无待完成实操</span>
+                }
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* ══ 板块一：任务中心 ══ */}
@@ -1101,26 +1175,45 @@ function HomeScreen({ user, nav }) {
 
           {/* 左：班组任务 */}
           <div style={{ flex:1, padding:'12px 14px', display:'flex', flexDirection:'column', gap:8 }}>
-            <div>
+            <div style={{display:'flex',alignItems:'baseline',gap:5,flexWrap:'wrap'}}>
               <div style={{ fontSize:12, fontWeight:700, color:'var(--text)' }}>班组任务</div>
-              <div style={{ fontSize:9, color:'var(--muted)', marginTop:2 }}>{getShiftDeadline()}</div>
+              <div style={{ fontSize:9, color:'var(--muted)' }}>{getShiftDeadline()}</div>
             </div>
             <div style={{
               flex:1, background:'#081828', border:'1px solid var(--border)',
               borderRadius:8, padding:'9px 10px', fontSize:11, color:'var(--text)', lineHeight:1.6, minHeight:48
             }}>
-              {pinnedInfo && pinnedInfo.questions?.length > 0
+              {pinnedInfo
                 ? (() => {
+                    const cnt = pinnedInfo.count || 3;
+                    const pts = Math.round(100 / cnt);
+                    if (pinnedInfo.mode === 'random' || pinnedInfo.mode === 'emergency') {
+                      let bankLabel;
+                      if (pinnedInfo.mode === 'emergency') bankLabel = '应急题库';
+                      else if (pinnedInfo.bank_names?.length > 0) bankLabel = pinnedInfo.bank_names.join(' + ');
+                      else bankLabel = pinnedInfo.bank_name || '指定题库';
+                      return (
+                        <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                          <div style={{color:'#22c55e',fontWeight:700,fontSize:10}}>📌 今日指定题目</div>
+                          <div style={{color:'#e2e8f0',fontSize:12,fontWeight:600,lineHeight:1.5}}>
+                            {bankLabel} 随机{cnt}题，每题{pts}分
+                          </div>
+                        </div>
+                      );
+                    }
+                    // 手动选题：按分类汇总
                     const catMap = {};
-                    pinnedInfo.questions.forEach(q => {
+                    (pinnedInfo.questions || []).forEach(q => {
                       const c = q.category || '业务知识';
                       catMap[c] = (catMap[c] || 0) + 1;
                     });
                     const summary = Object.entries(catMap).map(([c, n]) => `${n}个${c}`).join('，');
+                    const manualCnt = pinnedInfo.questions?.length || cnt;
+                    const manualPts = Math.round(100 / manualCnt);
                     return (
                       <div style={{display:'flex',flexDirection:'column',gap:4}}>
                         <div style={{color:'#22c55e',fontWeight:700,fontSize:10}}>📌 今日指定题目</div>
-                        <div style={{color:'#e2e8f0',fontSize:12,fontWeight:600,lineHeight:1.5}}>{summary}</div>
+                        <div style={{color:'#e2e8f0',fontSize:12,fontWeight:600,lineHeight:1.5}}>{summary}，每题{manualPts}分</div>
                       </div>
                     );
                   })()
@@ -1150,22 +1243,53 @@ function HomeScreen({ user, nav }) {
 
           <HalfDivider />
 
-          {/* 右：车间任务 */}
-          <div style={{ flex:1, padding:'12px 14px', display:'flex', flexDirection:'column', gap:8 }}>
-            <div>
-              <div style={{ fontSize:12, fontWeight:700, color:'var(--text)' }}>车间任务</div>
-              <div style={{ fontSize:9, color:'var(--muted)', marginTop:2 }}>{getMonthRange()}</div>
-            </div>
-            <div style={{
-              flex:1, background:'#081828', border:'1px solid var(--border)',
-              borderRadius:8, padding:'9px 10px', fontSize:10, color:'var(--muted)', lineHeight:1.8, minHeight:48
-            }}>月度实操巩固练习</div>
-            <button onClick={() => alert('待开发，敬请期待')} style={{
-              width:'100%', padding:'9px', borderRadius:8,
-              border:'1px dashed rgba(100,116,139,.4)', background:'transparent',
-              color:'var(--muted)', fontSize:11, fontFamily:'var(--font)', cursor:'pointer'
-            }}>开始提前巩固</button>
-          </div>
+          {/* 右：月度任务 */}
+          {(() => {
+            const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+            const itemDone = (itemName) => (workshopStatus || []).some(s =>
+              s.relevant &&
+              (s.completed_items || []).includes(itemName) &&
+              (s.plan_type === '中旬会' ? s.checked_in : s.instructor_confirmed)
+            );
+            const myRelevant = (workshopStatus || []).filter(s => s.relevant && s.plan_type !== '轮空');
+            const upcoming = myRelevant.filter(s => s.shift_date >= today && !(s.plan_type === '中旬会' ? s.checked_in : s.instructor_confirmed));
+            const next = upcoming[0] || null;
+            const allItemsDone = yearPlanItems && yearPlanItems.length > 0 && yearPlanItems.every(it => itemDone(it.item));
+            return (
+              <div style={{ flex:1, padding:'12px 14px', display:'flex', flexDirection:'column', gap:8 }}>
+                <div style={{display:'flex',alignItems:'baseline',gap:5,flexWrap:'wrap'}}>
+                  <div style={{ fontSize:12, fontWeight:700, color:'var(--text)' }}>月度任务</div>
+                  <div style={{ fontSize:9, color:'var(--muted)' }}>{getMonthRange()}</div>
+                </div>
+                <div style={{
+                  flex:1, background:'#081828', border:'1px solid var(--border)',
+                  borderRadius:8, padding:'9px 10px', fontSize:10, lineHeight:1.9, minHeight:48,
+                  display:'flex', flexDirection:'column', gap:3
+                }}>
+                  {yearPlanItems === null ? (
+                    <span style={{color:'var(--muted)'}}>加载中…</span>
+                  ) : yearPlanItems.length === 0 ? (
+                    <span style={{color:'var(--muted)'}}>本月暂无培训项点</span>
+                  ) : yearPlanItems.map((it,i) => {
+                    const done = itemDone(it.item);
+                    return (
+                      <div key={i} style={{display:'flex',alignItems:'center',gap:4}}>
+                        <span style={{fontSize:10,flexShrink:0}}>{done?'✅':'❌'}</span>
+                        <span style={{color: done?'#86efac':'#94a3b8',fontSize:10,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{it.item}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {allItemsDone ? (
+                  <button disabled style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid rgba(34,197,94,.4)', background:'rgba(34,197,94,.08)', color:'var(--green)', fontSize:11, fontWeight:700, fontFamily:'var(--font)' }}>☑ 本月已全部完成</button>
+                ) : (
+                  <button onClick={()=>nav('workshop')} style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#7c3400,#f97316)', color:'white', fontSize:11, fontWeight:700, fontFamily:'var(--font)' }}>
+                    进入日程，进行签到 →
+                  </button>
+                )}
+              </div>
+            );
+          })()}
 
         </div>
       </SectionCard>
@@ -1260,7 +1384,7 @@ function HomeScreen({ user, nav }) {
                 {s.answers?.map((a,ai)=>(
                   <div key={ai} style={{padding:'6px 0',borderTop:'1px solid rgba(27,50,85,0.5)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
                     <span style={{fontSize:11,color:'rgba(255,255,255,0.7)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
-                    <span style={{fontSize:12,fontWeight:700,flexShrink:0,color:a.score>=99?'#22c55e':a.score>=67?'#f59e0b':'#ef4444'}}>{Math.round(a.score*33/100)}</span>
+                    <span style={{fontSize:12,fontWeight:700,flexShrink:0,color:a.score>=99?'#22c55e':a.score>=67?'#f59e0b':'#ef4444'}}>{Math.round(a.score/(s.answers.length||3))}</span>
                   </div>
                 ))}
               </div>
@@ -1285,11 +1409,8 @@ function HomeScreen({ user, nav }) {
               }} style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 0', borderBottom: i < lbCycleFull.length-1 ? '1px solid rgba(27,50,85,.7)' : 'none', cursor:'pointer' }}>
                 <span style={{ width:18, fontSize: i < 3 ? 13 : 11, textAlign:'center', flexShrink:0,
                   color: ['#ffd700','#b0b8c8','#cd7f32'][i] || 'var(--muted)' }}>{rankIcon(i)}</span>
-                {r.avatar
-                  ? <img src={r.avatar} style={{width:20,height:20,borderRadius:'50%',objectFit:'cover',flexShrink:0}}/>
-                  : <div style={{width:20,height:20,borderRadius:'50%',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:700,color:'white',flexShrink:0}}>{r.staff_name?.[0]}</div>
-                }
                 <span style={{ flex:1, fontSize:11, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.staff_name}</span>
+                {r.is_instructor?<span style={{fontSize:9,padding:'1px 5px',borderRadius:8,background:'rgba(99,102,241,0.15)',border:'1px solid rgba(99,102,241,0.4)',color:'#a5b4fc',flexShrink:0,marginRight:2}}>教员</span>:null}
                 <span style={{ fontSize:11, fontWeight:700, color:'var(--gold)', flexShrink:0 }}>{r.total_points}</span>
               </div>
             ))}
@@ -1311,11 +1432,8 @@ function HomeScreen({ user, nav }) {
               }} style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 0', borderBottom: i < lbTotalFull.length-1 ? '1px solid rgba(27,50,85,.7)' : 'none', cursor:'pointer' }}>
                 <span style={{ width:18, fontSize: i < 3 ? 13 : 11, textAlign:'center', flexShrink:0,
                   color: ['#ffd700','#b0b8c8','#cd7f32'][i] || 'var(--muted)' }}>{rankIcon(i)}</span>
-                {r.avatar
-                  ? <img src={r.avatar} style={{width:20,height:20,borderRadius:'50%',objectFit:'cover',flexShrink:0}}/>
-                  : <div style={{width:20,height:20,borderRadius:'50%',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:700,color:'white',flexShrink:0}}>{r.staff_name?.[0]}</div>
-                }
                 <span style={{ flex:1, fontSize:11, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.staff_name}</span>
+                {r.is_instructor?<span style={{fontSize:9,padding:'1px 5px',borderRadius:8,background:'rgba(99,102,241,0.15)',border:'1px solid rgba(99,102,241,0.4)',color:'#a5b4fc',flexShrink:0,marginRight:2}}>教员</span>:null}
                 <span style={{ fontSize:11, fontWeight:700, color:'var(--gold)', flexShrink:0 }}>{r.total_points}</span>
               </div>
             ))}
@@ -1367,7 +1485,7 @@ function ResultScreen({ user, results, points, onHome, mode='normal', onContinue
           <div key={i} style={{background:'#0f2642',border:'1px solid #1b3255',borderRadius:10,padding:'12px 14px',marginBottom:8}}>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
               <span style={{fontSize:11,color:'#64748b'}}>第{r.qNum}题 · {r.category}</span>
-              <div style={{display:'flex',gap:6,alignItems:'center'}}><Badge label={r.level} color={r.level==='优秀'?'#22c55e':r.level==='合格'?'#f59e0b':'#ef4444'}/><span style={{fontWeight:700,color:r.score>=99?'#22c55e':r.score>=67?'#f59e0b':'#ef4444'}}>{Math.round(r.score*33/100)}<span style={{fontSize:10,color:'rgba(255,255,255,0.4)',fontWeight:400}}>/33分</span></span></div>
+              <div style={{display:'flex',gap:6,alignItems:'center'}}><Badge label={r.level} color={r.level==='优秀'?'#22c55e':r.level==='合格'?'#f59e0b':'#ef4444'}/><span style={{fontWeight:700,color:r.score>=99?'#22c55e':r.score>=67?'#f59e0b':'#ef4444'}}>{Math.round(r.score/results.length)}<span style={{fontSize:10,color:'rgba(255,255,255,0.4)',fontWeight:400}}>/{Math.round(100/results.length)}分</span></span></div>
             </div>
             <div style={{fontSize:12,color:'#94a3b8'}}>{r.questionText}</div>
             {r.missing_points?.length>0&&<div style={{fontSize:11,color:'#ef4444',marginTop:5}}>遗漏：{r.missing_points.join('、')}</div>}
@@ -1551,7 +1669,7 @@ function LeaderboardScreen({ user, onBack }) {
                 {s.answers?.map((a,ai)=>(
                   <div key={ai} style={{padding:'6px 0',borderTop:'1px solid rgba(27,50,85,0.5)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
                     <span style={{fontSize:11,color:'rgba(255,255,255,0.7)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
-                    <span style={{fontSize:12,fontWeight:700,flexShrink:0,color:a.score>=99?'#22c55e':a.score>=67?'#f59e0b':'#ef4444'}}>{Math.round(a.score*33/100)}</span>
+                    <span style={{fontSize:12,fontWeight:700,flexShrink:0,color:a.score>=99?'#22c55e':a.score>=67?'#f59e0b':'#ef4444'}}>{Math.round(a.score/(s.answers.length||3))}</span>
                   </div>
                 ))}
               </div>
@@ -1830,13 +1948,13 @@ function ProfileScreen({ user, onBack }) {
 function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember, memberDetail, loadMemberDetail }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showBatch, setShowBatch] = useState(false);
-  const [addForm, setAddForm] = useState({id:'', real_name:'', phone_tail:'', is_exempt:false, is_tester:false, is_cp:false});
+  const [addForm, setAddForm] = useState({id:'', real_name:'', phone_tail:'', is_exempt:false, is_tester:false, is_cp:false, is_leader:false, is_instructor:false});
   const [addErr, setAddErr] = useState('');
   const [batchText, setBatchText] = useState('');
   const [batchErr, setBatchErr] = useState('');
   const [delConfirm, setDelConfirm] = useState(null);
   const [editId,setEditId]=useState(null);
-  const [editForm,setEditForm]=useState({real_name:'',phone_tail:'',is_exempt:false,is_tester:false,is_cp:false});
+  const [editForm,setEditForm]=useState({real_name:'',phone_tail:'',is_exempt:false,is_tester:false,is_cp:false,is_leader:false,is_instructor:false});
   const [editErr,setEditErr]=useState('');
   const [batchSelected,setBatchSelected]=useState(new Set());
   const [batchMode,setBatchMode]=useState(false);
@@ -1857,14 +1975,14 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
 
   const openEdit = (m) => {
     setEditId(m.id);
-    setEditForm({real_name:m.real_name||'',phone_tail:m.phone_tail||'',is_exempt:!!m.is_exempt,is_tester:!!m.is_tester,is_cp:!!m.is_cp});
+    setEditForm({real_name:m.real_name||'',phone_tail:m.phone_tail||'',is_exempt:!!m.is_exempt,is_tester:!!m.is_tester,is_cp:!!m.is_cp,is_leader:!!m.is_leader,is_instructor:!!m.is_instructor});
     setEditErr('');
   };
   const saveEdit = async () => {
     setEditErr('');
     if (!editForm.real_name.trim()) { setEditErr('姓名不能为空'); return; }
     if (editForm.phone_tail && !/^\d{4}$/.test(editForm.phone_tail)) { setEditErr('手机尾号须为4位数字'); return; }
-    const r = await fetch('/api/staff/'+editId, {method:'PUT', headers:hdrs(), body: JSON.stringify({real_name:editForm.real_name.trim(), phone_tail:editForm.phone_tail.trim(), is_exempt:editForm.is_exempt, is_tester:!!editForm.is_tester, is_cp:!!editForm.is_cp})});
+    const r = await fetch('/api/staff/'+editId, {method:'PUT', headers:hdrs(), body: JSON.stringify({real_name:editForm.real_name.trim(), phone_tail:editForm.phone_tail.trim(), is_exempt:editForm.is_exempt, is_tester:!!editForm.is_tester, is_cp:!!editForm.is_cp, is_leader:!!editForm.is_leader, is_instructor:!!editForm.is_instructor})});
     const d = await r.json();
     if (d.ok) { setEditId(null); onRefresh(); }
     else setEditErr(d.error || '保存失败');
@@ -1874,9 +1992,9 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
     const id = addForm.id.trim().replace(/^Y/i,'');
     if (!id || !addForm.real_name.trim()) { setAddErr('工号和姓名不能为空'); return; }
     if (addForm.phone_tail && !/^\d{4}$/.test(addForm.phone_tail)) { setAddErr('手机尾号须为4位数字'); return; }
-    const r = await fetch('/api/staff', {method:'POST', headers:hdrs(), body: JSON.stringify({id, real_name: addForm.real_name.trim(), phone_tail: addForm.phone_tail.trim(), is_exempt: addForm.is_exempt, is_tester: !!addForm.is_tester, is_cp: !!addForm.is_cp})});
+    const r = await fetch('/api/staff', {method:'POST', headers:hdrs(), body: JSON.stringify({id, real_name: addForm.real_name.trim(), phone_tail: addForm.phone_tail.trim(), is_exempt: addForm.is_exempt, is_tester: !!addForm.is_tester, is_cp: !!addForm.is_cp, is_leader: !!addForm.is_leader, is_instructor: !!addForm.is_instructor})});
     const d = await r.json();
-    if (d.ok) { setShowAdd(false); setAddForm({id:'',real_name:'',phone_tail:'',is_exempt:false,is_tester:false,is_cp:false}); onRefresh(); }
+    if (d.ok) { setShowAdd(false); setAddForm({id:'',real_name:'',phone_tail:'',is_exempt:false,is_tester:false,is_cp:false,is_leader:false,is_instructor:false}); onRefresh(); }
     else setAddErr(d.error || '添加失败');
   };
 
@@ -1898,13 +2016,30 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
   const delStaff = async (id) => {
     await fetch('/api/staff/'+id, {method:'DELETE', headers:hdrs()});
     setDelConfirm(null);
+    setEditId(null);
     onRefresh();
   };
 
   return (
     <div>
+      {/* 班组长固定行 */}
+      {(()=>{
+        const leaders=members.filter(m=>!!m.is_leader).sort((a,b)=>String(a.id).localeCompare(String(b.id)));
+        if(!leaders.length) return null;
+        return (
+          <div style={{display:'flex',alignItems:'center',gap:6,padding:'8px 12px 6px',flexWrap:'wrap'}}>
+            <span style={{fontSize:10,color:'#64748b',flexShrink:0,marginRight:2}}>班组长</span>
+            {leaders.map(m=>(
+              <div key={m.id} onClick={()=>openEdit(m)} style={{display:'flex',flexDirection:'column',gap:1,padding:'5px 12px',background:'rgba(245,158,11,0.08)',border:'1px solid rgba(245,158,11,0.38)',borderRadius:6,cursor:'pointer',minWidth:56}}>
+                <div style={{fontSize:12,fontWeight:700,color:'#fbbf24',whiteSpace:'nowrap'}}>{m.real_name||'（未设）'}</div>
+                <div style={{fontSize:9,color:'#92724a'}}>班组长</div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
       {/* 批量操作栏 */}
-      <div style={{display:'flex',alignItems:'center',gap:6,padding:'8px 12px',marginBottom:4,flexWrap:'wrap'}}>
+      <div style={{display:'flex',alignItems:'center',gap:6,padding:'4px 12px',marginBottom:4,flexWrap:'wrap'}}>
         <button onClick={()=>{setBatchMode(m=>!m);clearSelect();}} style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:`1px solid ${batchMode?'#3b82f6':'#1b3255'}`,background:batchMode?'rgba(59,130,246,0.15)':'none',color:batchMode?'#3b82f6':'#64748b',cursor:'pointer'}}>
           {batchMode?'退出批量':'批量编辑'}
         </button>
@@ -1920,113 +2055,98 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
           </div>
         </>}
       </div>
-      {/* 人员列表 */}
-      <div className="card" style={{padding:'6px 0', marginBottom:10}}>
-        {members.length === 0 && <div style={{padding:'20px',textAlign:'center',color:'#475569',fontSize:13}}>暂无人员，请添加</div>}
-        {(()=>{const nameCnt={};members.forEach(m=>{nameCnt[m.real_name]=(nameCnt[m.real_name]||0)+1;});const dups=new Set(Object.keys(nameCnt).filter(n=>nameCnt[n]>1));if(dups.size>0&&!window._dupAlerted){window._dupAlerted=true;alert('⚠️ 发现重复姓名：'+[...dups].join('、')+'，请检查人员数据！');}return null;})()}
+      {/* 人员列表 - 四列卡片网格 */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'5px 6px',marginBottom:10}}>
+        {members.length===0&&<div style={{gridColumn:'1/-1',padding:'20px',textAlign:'center',color:'#475569',fontSize:13}}>暂无人员，请添加</div>}
         {(()=>{
-          // Group: normal → 车峰 → 测试 → 免答; within group sort by id DESC (larger id first)
-          const sortGrp = arr => [...arr].sort((a,b)=>String(b.id).localeCompare(String(a.id)));
-          const normal = sortGrp(members.filter(m=>!m.is_exempt&&!m.is_tester&&!m.is_cp));
-          const cp = sortGrp(members.filter(m=>m.is_cp&&!m.is_exempt));
-          const tester = sortGrp(members.filter(m=>m.is_tester&&!m.is_exempt));
-          const exempt = sortGrp(members.filter(m=>m.is_exempt));
-          return [...normal,...cp,...tester,...exempt];
-        })().map((m,i)=>{const isDup=members.filter(x=>x.real_name===m.real_name).length>1; return (
-          <div key={i}>
-            <div style={{display:'flex',alignItems:'center',gap:10,padding:'11px 14px',cursor:'pointer',background:batchSelected.has(m.id)?'rgba(59,130,246,0.08)':selectedMember===m.id?'rgba(59,130,246,0.06)':'none'}}
-              onClick={()=>batchMode?toggleSelect(m.id):(selectedMember===m.id?setSelectedMember(null):loadMemberDetail(m.id))}>
-              {batchMode&&<input type="checkbox" checked={batchSelected.has(m.id)} onChange={()=>toggleSelect(m.id)} onClick={e=>e.stopPropagation()} style={{width:15,height:15,flexShrink:0,accentColor:'#3b82f6'}}/>}
-              <div style={{fontSize:11,color:'#475569',width:18,textAlign:'right',flexShrink:0}}>{i+1}</div>
-              <div style={{width:36,height:36,borderRadius:18,background:isDup?'linear-gradient(135deg,#7c2d12,#ef4444)':'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,color:'white',fontSize:14,flexShrink:0}}>
-                {(m.real_name||'?')[0]}
+          const sg=arr=>[...arr].sort((a,b)=>String(b.id).localeCompare(String(a.id)));
+          // 排序：无身份 → 教员 → 免答 → 其他（车峰/测试），班组长已单独置顶
+          const pure=sg(members.filter(m=>!m.is_leader&&!m.is_instructor&&!m.is_exempt&&!m.is_cp&&!m.is_tester));
+          const instr=sg(members.filter(m=>!!m.is_instructor&&!m.is_leader));
+          const exempt=sg(members.filter(m=>!!m.is_exempt&&!m.is_leader&&!m.is_instructor));
+          const others=sg(members.filter(m=>!m.is_leader&&!m.is_instructor&&!m.is_exempt&&(!!m.is_cp||!!m.is_tester)));
+          return [...pure,...instr,...exempt,...others];
+        })().map(m=>{
+          const isDup=members.filter(x=>x.real_name===m.real_name).length>1;
+          let nameCol,bg,border;
+          if(m.is_instructor){nameCol='#60a5fa';bg='rgba(59,130,246,0.07)';border='rgba(59,130,246,0.28)';}
+          else if(m.is_exempt){nameCol='#94a3b8';bg='rgba(100,116,139,0.07)';border='rgba(100,116,139,0.28)';}
+          else if(m.is_cp){nameCol='#f97316';bg='rgba(249,115,22,0.07)';border='rgba(249,115,22,0.28)';}
+          else if(m.is_tester){nameCol='#c084fc';bg='rgba(168,85,247,0.07)';border='rgba(168,85,247,0.25)';}
+          else{nameCol='#e2e8f0';bg='rgba(10,25,41,0.8)';border='rgba(27,50,85,0.8)';}
+          if(isDup) nameCol='#fca5a5';
+          if(batchSelected.has(m.id)){bg='rgba(59,130,246,0.15)';border='rgba(59,130,246,0.55)';}
+          return (
+            <div key={m.id} onClick={()=>batchMode?toggleSelect(m.id):openEdit(m)}
+              style={{display:'flex',flexDirection:'column',gap:2,padding:'6px 8px',background:bg,border:`1px solid ${border}`,borderRadius:6,minWidth:0,cursor:'pointer',position:'relative'}}>
+              {batchMode&&<input type="checkbox" checked={batchSelected.has(m.id)} onChange={()=>toggleSelect(m.id)} onClick={e=>e.stopPropagation()} style={{position:'absolute',top:5,right:5,width:13,height:13,accentColor:'#3b82f6'}}/>}
+              <div style={{fontSize:12,fontWeight:700,color:nameCol,lineHeight:1.3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',paddingRight:batchMode?16:0}}>
+                {m.real_name||'（未设）'}
               </div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:13,fontWeight:600,color:'white',display:'flex',alignItems:'center',gap:6}}>
-                  {m.real_name||'（未设姓名）'}{isDup&&<span style={{fontSize:10,color:'#ef4444',marginLeft:4,background:'rgba(239,68,68,0.1)',padding:'1px 5px',borderRadius:4}}>重复</span>}
-                  {m.is_exempt?<Badge label="免答" color="#64748b"/>:null}
-                  {m.is_tester?<Badge label="测试" color="#a855f7"/>:null}
-                  {m.is_cp?<Badge label="车峰" color="#eab308"/>:null}
-                </div>
-                <div style={{fontSize:11,color:'#64748b',marginTop:2,display:'flex',gap:8}}>
-                  <span>Y{m.id}</span>
-                  <span style={{color:'#1b3255'}}>·</span>
-                  <span>{m.phone_tail ? '尾号 '+m.phone_tail : '未录手机'}</span>
-                </div>
+              <div style={{fontSize:10,color:'#64748b',display:'flex',gap:3,flexWrap:'wrap',alignItems:'center'}}>
+                {!!m.is_instructor&&<Badge label="教员" color="#3b82f6"/>}
+                {!!m.is_leader&&<Badge label="组长" color="#f59e0b"/>}
+                {!!m.is_exempt&&!m.is_leader&&<Badge label="免答" color="#64748b"/>}
+                {!!m.is_tester&&<Badge label="测" color="#a855f7"/>}
+                {!!m.is_cp&&<Badge label="峰" color="#eab308"/>}
               </div>
-              <div style={{textAlign:'right',flexShrink:0}}>
-                <div style={{fontWeight:700,color:'white',fontSize:13}}>{m.total_points||0}<span style={{fontSize:10,color:'#475569',fontWeight:400}}> 分</span></div>
-                <div style={{fontSize:11,color:'#64748b'}}>均{m.avg_score||'--'}</div>
-              </div>
-              <button onClick={e=>{e.stopPropagation();openEdit(m);}}
-                style={{background:'none',border:'1px solid rgba(59,130,246,0.4)',color:'#3b82f6',borderRadius:6,padding:'3px 8px',fontSize:11,cursor:'pointer',flexShrink:0,marginRight:4}}>编辑</button>
-              <button onClick={e=>{e.stopPropagation();setDelConfirm(m.id);}}
-                style={{background:'none',border:'1px solid rgba(239,68,68,0.3)',color:'#ef4444',borderRadius:6,padding:'3px 8px',fontSize:11,cursor:'pointer',flexShrink:0}}>删</button>
             </div>
-            {selectedMember===m.id&&memberDetail&&(
-              <div style={{padding:'12px 16px',background:'rgba(15,38,66,0.6)',borderTop:'1px solid #1b3255'}}>
-                {(!memberDetail.sessions?.length)&&<div style={{color:'#475569',fontSize:12}}>暂无答题数据</div>}
-                {memberDetail.sessions?.length>0&&(
-                  <div style={{marginTop:10}}>
-                    <div style={{fontSize:11,color:'#475569',letterSpacing:1,marginBottom:6}}>最近答题记录</div>
-                    {memberDetail.sessions.map((s,j)=>(
-                      <div key={j} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:j<memberDetail.sessions.length-1?'1px solid rgba(27,50,85,0.6)':'none'}}>
-                        <span style={{fontSize:11,color:'#475569',flexShrink:0}}>{s.created_at?.slice(5,16)}</span>
-                        <span style={{fontSize:11,color:'#94a3b8',flex:1}}>{s.q_count}题</span>
-                        <span style={{fontSize:12,fontWeight:700,color:'#c8a84b'}}>{s.total_points}分</span>
-                        <span style={{fontSize:11,color:'#64748b'}}>均{s.total_score?.toFixed?.(0)??'--'}</span>
-                        {s.tab_switch_count>0&&<span style={{fontSize:10,color:'#ef4444',background:'rgba(239,68,68,0.12)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            {delConfirm===m.id&&(
-              <div style={{padding:'10px 14px',background:'rgba(239,68,68,0.08)',borderTop:'1px solid rgba(239,68,68,0.2)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-                <span style={{fontSize:12,color:'#fca5a5'}}>确认删除 {m.real_name}？</span>
-                <div style={{display:'flex',gap:8}}>
-                  <button onClick={()=>setDelConfirm(null)} style={{background:'none',border:'1px solid #1b3255',color:'#94a3b8',borderRadius:6,padding:'4px 10px',fontSize:12,cursor:'pointer'}}>取消</button>
-                  <button onClick={()=>delStaff(m.id)} style={{background:'#ef4444',border:'none',color:'white',borderRadius:6,padding:'4px 10px',fontSize:12,cursor:'pointer'}}>确认删除</button>
+          );
+        })}
+      </div>
+      {/* 编辑人员 Modal */}
+      {editId&&(()=>{
+        const m=members.find(x=>x.id===editId);
+        if(!m) return null;
+        return (
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>{setEditId(null);setDelConfirm(null);}}>
+            <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:380}} onClick={e=>e.stopPropagation()}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+                <div style={{fontWeight:600,color:'#e2e8f0',fontSize:15}}>编辑人员</div>
+                <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                  {delConfirm===m.id?(
+                    <>
+                      <span style={{fontSize:11,color:'#fca5a5'}}>确认删除？</span>
+                      <button onClick={()=>setDelConfirm(null)} style={{fontSize:11,padding:'3px 8px',borderRadius:5,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',cursor:'pointer',fontFamily:'inherit'}}>取消</button>
+                      <button onClick={()=>delStaff(m.id)} style={{fontSize:11,padding:'3px 8px',borderRadius:5,border:'none',background:'#ef4444',color:'white',cursor:'pointer',fontFamily:'inherit'}}>删除</button>
+                    </>
+                  ):(
+                    <button onClick={()=>setDelConfirm(m.id)} style={{fontSize:11,padding:'3px 8px',borderRadius:5,border:'1px solid rgba(239,68,68,0.4)',background:'transparent',color:'#ef4444',cursor:'pointer',fontFamily:'inherit'}}>删除此人</button>
+                  )}
+                  <button onClick={()=>{setEditId(null);setDelConfirm(null);}} style={{fontSize:20,lineHeight:1,padding:'0 4px',border:'none',background:'transparent',color:'#64748b',cursor:'pointer'}}>×</button>
                 </div>
               </div>
-            )}
-            {editId===m.id&&(
-              <div style={{padding:'12px 14px',background:'rgba(30,58,95,0.4)',borderTop:'1px solid #1b3255'}}>
-                <div style={{fontSize:11,color:'#64748b',marginBottom:10,fontWeight:600}}>编辑人员</div>
-                {[['姓名','real_name','请输入姓名'],['手机后4位','phone_tail','如：1234']].map(([lbl,key,ph])=>(
-                  <div key={key} style={{marginBottom:8}}>
-                    <label style={{display:'block',fontSize:11,color:'#64748b',marginBottom:3}}>{lbl}</label>
-                    <input value={editForm[key]} onChange={e=>setEditForm(f=>({...f,[key]:e.target.value}))}
-                      placeholder={ph} maxLength={key==='phone_tail'?4:20}
-                      style={{width:'100%',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:6,padding:'7px 10px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none'}}/>
+              {[['姓名','real_name','请输入姓名'],['手机后4位','phone_tail','如：1234']].map(([lbl,key,ph])=>(
+                <div key={key} style={{marginBottom:8}}>
+                  <label style={{display:'block',fontSize:11,color:'#64748b',marginBottom:3}}>{lbl}</label>
+                  <input value={editForm[key]} onChange={e=>setEditForm(f=>({...f,[key]:e.target.value}))}
+                    placeholder={ph} maxLength={key==='phone_tail'?4:20}
+                    style={{width:'100%',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:6,padding:'7px 10px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none',boxSizing:'border-box'}}/>
+                </div>
+              ))}
+              <div style={{display:'flex',flexDirection:'column',gap:7,marginBottom:10}}>
+                {[
+                  ['ld_'+m.id,'is_leader','班组长（最高权限，免答题，免月度任务）','#f59e0b'],
+                  ['inst_'+m.id,'is_instructor','教员（可编辑培训计划）','#3b82f6'],
+                  ['ex_'+m.id,'is_exempt','免答（仅免每套班答题）','#94a3b8'],
+                  ['ts_'+m.id,'is_tester','测试员（积分标注测试）','#c084fc'],
+                  ['cp_'+m.id,'is_cp','车峰（不计入答题统计）','#eab308']
+                ].map(([id,key,label,color])=>(
+                  <div key={key} style={{display:'flex',alignItems:'center',gap:8}}>
+                    <input type="checkbox" id={id} checked={!!editForm[key]} onChange={e=>setEditForm(f=>({...f,[key]:e.target.checked}))} style={{width:15,height:15,accentColor:'#3b82f6'}}/>
+                    <label htmlFor={id} style={{fontSize:12,color,cursor:'pointer'}}>{label}</label>
                   </div>
                 ))}
-                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-                  <input type="checkbox" id={"edit_exempt_"+m.id} checked={editForm.is_exempt} onChange={e=>setEditForm(f=>({...f,is_exempt:e.target.checked}))} style={{width:15,height:15}}/>
-                  <label htmlFor={"edit_exempt_"+m.id} style={{fontSize:12,color:'#94a3b8',cursor:'pointer'}}>班组长/免答</label>
-                </div>
-                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-                  <input type="checkbox" id={"edit_tester_"+m.id} checked={!!editForm.is_tester} onChange={e=>setEditForm(f=>({...f,is_tester:e.target.checked}))} style={{width:15,height:15}}/>
-                  <label htmlFor={"edit_tester_"+m.id} style={{fontSize:12,color:'#94a3b8',cursor:'pointer'}}>测试员（积分标注测试）</label>
-                </div>
-                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-                  <input type="checkbox" id={"edit_cp_"+m.id} checked={!!editForm.is_cp} onChange={e=>setEditForm(f=>({...f,is_cp:e.target.checked}))} style={{width:15,height:15,accentColor:'#eab308'}}/>
-                  <label htmlFor={"edit_cp_"+m.id} style={{fontSize:12,color:'#eab308',cursor:'pointer'}}>车峰（不计入今日未完成列表）</label>
-                </div>
-                {editErr&&<div style={{color:'#ef4444',fontSize:12,marginBottom:6}}>⚠ {editErr}</div>}
-                <div style={{display:'flex',gap:8}}>
-                  <button onClick={()=>setEditId(null)} style={{flex:1,padding:'7px',borderRadius:6,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>取消</button>
-                  <button onClick={saveEdit} style={{flex:2,padding:'7px',borderRadius:6,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'white',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer'}}>保存</button>
-                </div>
               </div>
-            )}
-            {i<members.length-1&&<div style={{height:1,background:'rgba(27,50,85,.5)',margin:'0 14px'}}/>}
+              {editErr&&<div style={{color:'#ef4444',fontSize:12,marginBottom:6}}>⚠ {editErr}</div>}
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={()=>{setEditId(null);setDelConfirm(null);}} style={{flex:1,padding:'9px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
+                <button onClick={saveEdit} style={{flex:2,padding:'9px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>保存</button>
+              </div>
+            </div>
           </div>
-                );
-        })}
-
-      </div>
+        );
+      })()}
 
       {/* 添加按钮行 */}
       <div style={{display:'flex',gap:8,marginBottom:12}}>
@@ -2054,18 +2174,18 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
                 style={{width:'100%',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:7,padding:'9px 12px',color:'white',fontSize:14,fontFamily:'inherit',outline:'none'}}/>
             </div>
           ))}
-          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-            <input type="checkbox" id="exempt" checked={addForm.is_exempt} onChange={e=>setAddForm(f=>({...f,is_exempt:e.target.checked}))} style={{width:16,height:16}}/>
-            <label htmlFor="exempt" style={{fontSize:12,color:'#94a3b8',cursor:'pointer'}}>班组长/免答</label>
-          </div>
-          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-            <input type="checkbox" id="tester" checked={!!addForm.is_tester} onChange={e=>setAddForm(f=>({...f,is_tester:e.target.checked}))} style={{width:16,height:16}}/>
-            <label htmlFor="tester" style={{fontSize:12,color:'#94a3b8',cursor:'pointer'}}>测试员（积分标注测试）</label>
-          </div>
-          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
-            <input type="checkbox" id="add_cp" checked={!!addForm.is_cp} onChange={e=>setAddForm(f=>({...f,is_cp:e.target.checked}))} style={{width:16,height:16,accentColor:'#eab308'}}/>
-            <label htmlFor="add_cp" style={{fontSize:12,color:'#eab308',cursor:'pointer'}}>车峰（不计入今日未完成列表）</label>
-          </div>
+          {[
+            ['add_ld','is_leader','班组长（最高权限，免答题，免月度任务）','#f59e0b'],
+            ['add_inst','is_instructor','教员（可编辑培训计划）','#3b82f6'],
+            ['exempt','is_exempt','免答（仅免每套班答题）','#94a3b8'],
+            ['tester','is_tester','测试员（积分标注测试）','#c084fc'],
+            ['add_cp','is_cp','车峰（不计入答题统计）','#eab308'],
+          ].map(([id,key,label,color])=>(
+            <div key={key} style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+              <input type="checkbox" id={id} checked={!!addForm[key]} onChange={e=>setAddForm(f=>({...f,[key]:e.target.checked}))} style={{width:16,height:16}}/>
+              <label htmlFor={id} style={{fontSize:12,color,cursor:'pointer'}}>{label}</label>
+            </div>
+          ))}
           {addErr&&<div style={{color:'#ef4444',fontSize:12,marginBottom:8}}>⚠ {addErr}</div>}
           <div style={{display:'flex',gap:8}}>
             <button onClick={()=>setShowAdd(false)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
@@ -2073,6 +2193,9 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
           </div>
         </div>
       )}
+
+      {/* 培训小组管理 */}
+      <TrainingGroupsSection pwd={pwd} staff={members} />
 
       {/* 批量导入 */}
       {showBatch&&(
@@ -2091,6 +2214,320 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
           <div style={{display:'flex',gap:8,marginTop:10}}>
             <button onClick={()=>{setShowBatch(false);setBatchText('');}} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
             <button onClick={batchImport} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#22c55e88,#22c55e)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>导入 {batchText.trim().split('\n').filter(Boolean).length} 人</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── TrainingGroupsSection ────────────────────────────────────────────────
+function TrainingGroupsSection({ pwd, staff }) {
+  const [groups, setGroups] = useState([]);
+  const [fixedGlobal, setFixedGlobal] = useState([]); // 全局固定人员 staff_ids
+  const [showAddGroup, setShowAddGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [editingGroup, setEditingGroup] = useState(null);
+  const [editingMembers, setEditingMembers] = useState(null); // group id
+  const [selectedMembers, setSelectedMembers] = useState(new Set());
+  const [assigningStaff, setAssigningStaff] = useState(null); // {id,name}
+  const [showFixedEditor, setShowFixedEditor] = useState(false);
+  const [pendingFixed, setPendingFixed] = useState(new Set());
+
+  const hdrs = () => ({ 'x-admin-password': pwd, 'Content-Type': 'application/json' });
+
+  const load = async () => {
+    const [g, f] = await Promise.all([
+      apiJson('/api/admin/training-groups', { headers: hdrs() }).catch(() => []),
+      apiJson('/api/admin/training-fixed-members', { headers: hdrs() }).catch(() => []),
+    ]);
+    if (Array.isArray(g)) setGroups(g);
+    if (Array.isArray(f)) setFixedGlobal(f);
+  };
+  useEffect(() => { if (pwd) load(); }, [pwd]);
+
+  const addGroup = async () => {
+    if (!newGroupName.trim()) return;
+    await api('/api/admin/training-groups', { method: 'POST', headers: hdrs(), body: JSON.stringify({ name: newGroupName.trim() }) });
+    setNewGroupName(''); setShowAddGroup(false); load();
+  };
+
+  const deleteGroup = async (id) => {
+    if (!window.confirm('确认删除该小组？')) return;
+    await api(`/api/admin/training-groups/${id}`, { method: 'DELETE', headers: hdrs() });
+    load();
+  };
+
+  const saveGroupEdit = async () => {
+    const { id, name, instructor_id } = editingGroup;
+    if (!name.trim()) return;
+    await api(`/api/admin/training-groups/${id}`, { method: 'PUT', headers: hdrs(), body: JSON.stringify({ name: name.trim(), instructor_id: instructor_id || null }) });
+    setEditingGroup(null); load();
+  };
+
+  const openMemberEdit = (g) => {
+    setEditingMembers(g.id);
+    setSelectedMembers(new Set(g.members.map(m => m.id)));
+  };
+
+  const toggleMember = (staffId) => {
+    setSelectedMembers(prev => {
+      const s = new Set(prev);
+      s.has(staffId) ? s.delete(staffId) : s.add(staffId);
+      return s;
+    });
+  };
+
+  const saveMembers = async () => {
+    const members = [...selectedMembers].map(sid => ({ staff_id: sid, is_fixed: 0 }));
+    await api(`/api/admin/training-groups/${editingMembers}/members`, { method: 'PUT', headers: hdrs(), body: JSON.stringify({ members }) });
+    setEditingMembers(null); load();
+  };
+
+  const openFixedEditor = () => {
+    setPendingFixed(new Set(fixedGlobal));
+    setShowFixedEditor(true);
+  };
+
+  const saveFixed = async () => {
+    await api('/api/admin/training-fixed-members', { method: 'PUT', headers: hdrs(), body: JSON.stringify({ staff_ids: [...pendingFixed] }) });
+    setShowFixedEditor(false); load();
+  };
+
+  const addToGroup = async (groupId) => {
+    const g = groups.find(x => x.id === groupId);
+    if (!g) return;
+    const existing = g.members.map(m => ({ staff_id: m.id, is_fixed: 0 }));
+    if (existing.some(m => m.staff_id === assigningStaff.id)) { setAssigningStaff(null); return; }
+    await api(`/api/admin/training-groups/${groupId}/members`, { method: 'PUT', headers: hdrs(), body: JSON.stringify({ members: [...existing, { staff_id: assigningStaff.id, is_fixed: 0 }] }) });
+    setAssigningStaff(null); load();
+  };
+
+  const allStaff = (staff || []).filter(s => !s.is_cp);
+  const fixedSet = new Set(fixedGlobal);
+  const instructorIds = new Set(groups.map(g => g.instructor_id).filter(Boolean));
+  const allGroupMemberIds = new Set(groups.flatMap(g => g.members.map(m => m.id)));
+  // 未分配：不在任何小组、不是固定人员、不是教员
+  const unassigned = allStaff.filter(s => !allGroupMemberIds.has(s.id) && !fixedSet.has(s.id) && !instructorIds.has(s.id));
+
+  const staffName = (id) => {
+    const s = (staff || []).find(x => x.id === id);
+    return s ? (s.real_name || s.name) : id;
+  };
+
+  return (
+    <div style={{marginTop:28,borderTop:'1px solid #1b3255',paddingTop:20}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+        <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600}}>培训小组管理</div>
+        <div style={{display:'flex',gap:6}}>
+          <button onClick={openFixedEditor}
+            style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:'1px solid rgba(234,179,8,0.5)',background:fixedGlobal.length?'rgba(234,179,8,0.1)':'transparent',color:'#fbbf24',cursor:'pointer',fontFamily:'inherit'}}>
+            固定人员{fixedGlobal.length>0?`（${fixedGlobal.length}）`:''}
+          </button>
+          <button onClick={()=>setShowAddGroup(true)} style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:'1px solid #3b82f6',background:'transparent',color:'#3b82f6',cursor:'pointer',fontFamily:'inherit'}}>＋ 新建小组</button>
+        </div>
+      </div>
+
+      {showAddGroup && (
+        <div className="card" style={{marginBottom:10}}>
+          <div style={{fontSize:11,color:'#64748b',marginBottom:8,fontWeight:600}}>新建小组</div>
+          <input value={newGroupName} onChange={e=>setNewGroupName(e.target.value)} placeholder="如：第一小组" style={{width:'100%',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:7,padding:'8px 12px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none',boxSizing:'border-box'}} />
+          <div style={{display:'flex',gap:8,marginTop:8}}>
+            <button onClick={()=>{setShowAddGroup(false);setNewGroupName('');}} style={{flex:1,padding:'8px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
+            <button onClick={addGroup} style={{flex:2,padding:'8px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>确认</button>
+          </div>
+        </div>
+      )}
+
+      {groups.map(g => (
+        <div key={g.id} className="card" style={{marginBottom:10}}>
+          {editingGroup?.id === g.id ? (
+            <div>
+              <div style={{fontSize:11,color:'#64748b',marginBottom:5}}>小组名称</div>
+              <input value={editingGroup.name} onChange={e=>setEditingGroup({...editingGroup,name:e.target.value})} style={{width:'100%',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:7,padding:'7px 10px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none',marginBottom:8,boxSizing:'border-box'}} />
+              <div style={{fontSize:11,color:'#64748b',marginBottom:5}}>负责教员</div>
+              <select value={editingGroup.instructor_id||''} onChange={e=>setEditingGroup({...editingGroup,instructor_id:e.target.value||null})} style={{width:'100%',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:7,padding:'7px 10px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none',marginBottom:10}}>
+                <option value="">— 暂无 —</option>
+                {(staff||[]).map(s=><option key={s.id} value={s.id}>{s.real_name||s.name}（{s.id}）</option>)}
+              </select>
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={()=>setEditingGroup(null)} style={{flex:1,padding:'7px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>取消</button>
+                <button onClick={saveGroupEdit} style={{flex:2,padding:'7px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'white',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer'}}>保存</button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:600,color:'#e2e8f0',fontSize:14,marginBottom:3}}>{g.name}</div>
+                  <div style={{fontSize:11,color:'#64748b',marginBottom:6}}>
+                    教员：<span style={{color:'#94a3b8'}}>{g.instructor_id ? staffName(g.instructor_id) : '未指定'}</span>
+                  </div>
+                  {/* 成员标签 */}
+                  <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
+                    {g.members.length === 0 && fixedGlobal.length === 0
+                      ? <span style={{fontSize:11,color:'#475569'}}>暂无成员</span>
+                      : <>
+                          {/* 普通成员：过滤掉已是固定人员的（避免重复显示）*/}
+                          {g.members.filter(m=>!fixedSet.has(m.id)).map(m => (
+                            <span key={m.id} style={{fontSize:11,padding:'2px 7px',borderRadius:5,background:'rgba(59,130,246,0.12)',border:'1px solid rgba(59,130,246,0.3)',color:'#93c5fd'}}>
+                              {m.real_name||m.name}
+                            </span>
+                          ))}
+                          {/* 固定人员：始终显示在末尾，无需过滤 */}
+                          {fixedGlobal.map(sid=>(
+                            <span key={'fx_'+sid} style={{fontSize:11,padding:'2px 7px',borderRadius:5,background:'rgba(234,179,8,0.12)',border:'1px solid rgba(234,179,8,0.4)',color:'#fbbf24',display:'flex',alignItems:'center',gap:3}}>
+                              <span style={{fontSize:9,fontWeight:700}}>固</span>{staffName(sid)}
+                            </span>
+                          ))}
+                        </>
+                    }
+                  </div>
+                  <div style={{fontSize:10,color:'#475569',marginTop:5}}>
+                    {(()=>{
+                      const normalCnt = g.members.filter(m=>!fixedSet.has(m.id)).length;
+                      const hasInstructor = !!g.instructor_id;
+                      const total = (hasInstructor?1:0) + normalCnt;
+                      return <>
+                        {hasInstructor?'1个教员 + ':''}本组{normalCnt}人 = {total}人
+                        {fixedGlobal.length>0&&<span style={{color:'#78716c'}}> （未加固定{fixedGlobal.length}人）</span>}
+                      </>;
+                    })()}
+                  </div>
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:5,marginLeft:10,flexShrink:0}}>
+                  <button onClick={()=>openMemberEdit(g)} style={{fontSize:11,padding:'4px 8px',borderRadius:6,border:'1px solid #475569',background:'transparent',color:'#94a3b8',cursor:'pointer',fontFamily:'inherit'}}>编辑成员</button>
+                  <button onClick={()=>setEditingGroup({id:g.id,name:g.name,instructor_id:g.instructor_id})} style={{fontSize:11,padding:'4px 8px',borderRadius:6,border:'1px solid #475569',background:'transparent',color:'#94a3b8',cursor:'pointer',fontFamily:'inherit'}}>编辑小组</button>
+                  <button onClick={()=>deleteGroup(g.id)} style={{fontSize:11,padding:'4px 8px',borderRadius:6,border:'1px solid #7f1d1d',background:'transparent',color:'#ef4444',cursor:'pointer',fontFamily:'inherit'}}>删除</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {groups.length === 0 && !showAddGroup && (
+        <div style={{textAlign:'center',color:'#475569',fontSize:13,padding:'20px 0'}}>暂无培训小组，点击右上角新建</div>
+      )}
+
+      {/* 未分配人员 */}
+      {groups.length > 0 && (
+        <div style={{marginTop:14}}>
+          <div style={{fontSize:11,color:'#64748b',fontWeight:600,marginBottom:7}}>
+            未分配人员（{unassigned.length}人）
+            <span style={{fontSize:10,color:'#475569',fontWeight:400,marginLeft:6}}>点击分配到小组</span>
+          </div>
+          {unassigned.length === 0
+            ? <div style={{fontSize:12,color:'#22c55e'}}>全员已分配</div>
+            : <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+                {unassigned.map(s => (
+                  <div key={s.id} onClick={()=>setAssigningStaff({id:s.id,name:s.real_name||s.name})}
+                    style={{fontSize:12,padding:'5px 10px',borderRadius:7,border:'1px dashed #475569',color:'#94a3b8',cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>
+                    <span style={{color:'#475569',fontSize:13}}>＋</span>{s.real_name||s.name}
+                    {!!s.is_exempt&&<span style={{fontSize:9,padding:'0 3px',borderRadius:3,background:'rgba(100,116,139,0.2)',color:'#64748b'}}>免</span>}
+                  </div>
+                ))}
+              </div>
+          }
+        </div>
+      )}
+
+      {/* 编辑小组成员弹窗 */}
+      {editingMembers !== null && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>setEditingMembers(null)}>
+          <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:420,maxHeight:'82vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4,flexShrink:0}}>
+              <div style={{fontWeight:600,color:'#e2e8f0',fontSize:15}}>
+                编辑成员 — {groups.find(g=>g.id===editingMembers)?.name}
+              </div>
+              <button onClick={()=>setEditingMembers(null)} style={{fontSize:20,lineHeight:1,padding:'0 4px',border:'none',background:'transparent',color:'#64748b',cursor:'pointer'}}>×</button>
+            </div>
+            <div style={{fontSize:11,color:'#475569',marginBottom:10,flexShrink:0}}>
+              已选 <span style={{color:'#3b82f6'}}>{selectedMembers.size}</span> 人（固定人员自动显示，无需勾选）
+            </div>
+            <div style={{overflow:'auto',flex:1}}>
+              {allStaff.filter(s=>!fixedSet.has(s.id)).map(s => {
+                const checked = selectedMembers.has(s.id);
+                return (
+                  <div key={s.id} onClick={()=>toggleMember(s.id)}
+                    style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',borderRadius:7,marginBottom:4,cursor:'pointer',
+                      background:checked?'#1e3a5f':'transparent',border:'1px solid '+(checked?'#3b82f6':'#1b3255')}}>
+                    <div style={{width:16,height:16,borderRadius:3,border:'2px solid '+(checked?'#3b82f6':'#475569'),background:checked?'#3b82f6':'transparent',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'white',flexShrink:0}}>
+                      {checked?'✓':''}
+                    </div>
+                    <span style={{fontSize:13,color:checked?'#e2e8f0':'#64748b',flex:1}}>{s.real_name||s.name}</span>
+                    <span style={{fontSize:10,color:'#475569'}}>{s.id}</span>
+                    {!!s.is_exempt&&<span style={{fontSize:9,padding:'1px 4px',borderRadius:3,background:'rgba(100,116,139,0.2)',color:'#64748b'}}>免答</span>}
+                  </div>
+                );
+              })}
+              {fixedGlobal.length > 0 && (
+                <div style={{marginTop:8,paddingTop:8,borderTop:'1px solid rgba(234,179,8,0.2)'}}>
+                  <div style={{fontSize:10,color:'#78716c',marginBottom:6}}>固定人员（自动显示在所有小组末尾）</div>
+                  {fixedGlobal.map(sid=>(
+                    <div key={sid} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 10px',borderRadius:7,marginBottom:3,background:'rgba(234,179,8,0.06)',border:'1px solid rgba(234,179,8,0.2)'}}>
+                      <span style={{fontSize:10,color:'#fbbf24',fontWeight:700}}>固</span>
+                      <span style={{fontSize:13,color:'#78716c',flex:1}}>{staffName(sid)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{display:'flex',gap:8,marginTop:12,flexShrink:0}}>
+              <button onClick={()=>setEditingMembers(null)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
+              <button onClick={saveMembers} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>保存（{selectedMembers.size}人）</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 固定人员编辑弹窗 */}
+      {showFixedEditor && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>setShowFixedEditor(false)}>
+          <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:400,maxHeight:'80vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4,flexShrink:0}}>
+              <div style={{fontWeight:600,color:'#e2e8f0',fontSize:15}}>固定培训人员</div>
+              <button onClick={()=>setShowFixedEditor(false)} style={{fontSize:20,lineHeight:1,padding:'0 4px',border:'none',background:'transparent',color:'#64748b',cursor:'pointer'}}>×</button>
+            </div>
+            <div style={{fontSize:11,color:'#64748b',marginBottom:12,flexShrink:0}}>勾选后将自动显示在所有小组末尾，无需逐个小组添加</div>
+            <div style={{overflow:'auto',flex:1}}>
+              {allStaff.map(s => {
+                const checked = pendingFixed.has(s.id);
+                return (
+                  <div key={s.id} onClick={()=>setPendingFixed(prev=>{const ns=new Set(prev);ns.has(s.id)?ns.delete(s.id):ns.add(s.id);return ns;})}
+                    style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',borderRadius:7,marginBottom:4,cursor:'pointer',
+                      background:checked?'rgba(234,179,8,0.1)':'transparent',border:'1px solid '+(checked?'rgba(234,179,8,0.5)':'#1b3255')}}>
+                    <div style={{width:16,height:16,borderRadius:3,border:'2px solid '+(checked?'#fbbf24':'#475569'),background:checked?'#fbbf24':'transparent',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'#0f2744',flexShrink:0,fontWeight:700}}>
+                      {checked?'✓':''}
+                    </div>
+                    <span style={{fontSize:13,color:checked?'#fbbf24':'#64748b',flex:1}}>{s.real_name||s.name}</span>
+                    <span style={{fontSize:10,color:'#475569'}}>{s.id}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{display:'flex',gap:8,marginTop:12,flexShrink:0}}>
+              <button onClick={()=>setShowFixedEditor(false)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
+              <button onClick={saveFixed} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#422006,#d97706)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>保存（{pendingFixed.size}人）</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 分配到小组弹窗 */}
+      {assigningStaff && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>setAssigningStaff(null)}>
+          <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:360}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontWeight:600,color:'#e2e8f0',fontSize:14,marginBottom:4}}>将 {assigningStaff.name} 加入小组</div>
+            <div style={{fontSize:11,color:'#64748b',marginBottom:14}}>选择要加入的小组</div>
+            {groups.map(g => (
+              <div key={g.id} onClick={()=>addToGroup(g.id)}
+                style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'11px 14px',borderRadius:8,border:'1px solid #1b3255',marginBottom:7,cursor:'pointer',background:'#0a1929'}}>
+                <span style={{fontSize:13,color:'#e2e8f0'}}>{g.name}</span>
+                <span style={{fontSize:11,color:'#64748b'}}>{g.members.length}人</span>
+              </div>
+            ))}
+            <button onClick={()=>setAssigningStaff(null)} style={{width:'100%',padding:'9px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:13,cursor:'pointer',marginTop:4}}>取消</button>
           </div>
         </div>
       )}
@@ -2239,9 +2676,1785 @@ function DocParseCard({ pwd, banks, onImported }) {
   );
 }
 
+// ─── WorkshopScreen ───────────────────────────────────────────────────────────
+function WorkshopScreen({ user, onBack }) {
+  const now = new Date();
+  const defaultMonth = now.toISOString().slice(0, 7);
+  const todayStr = now.toISOString().slice(0, 10);
+  const [month, setMonth] = useState(defaultMonth);
+  const [plan, setPlan] = useState(null);
+  const [myStatus, setMyStatus] = useState([]);
+  const [loading, setLoading] = useState(true);
+  // 权限：教员或管理员均可编辑
+  const [adminPwd, setAdminPwd] = useState('');
+  const [showAdminInput, setShowAdminInput] = useState(false);
+  const [pwdInput, setPwdInput] = useState('');
+  // 日程卡显示模式：false=只展示相关卡，true=全部展开+可编辑
+  const [wsEditMode, setWsEditMode] = useState(false);
+  // 非相关卡单独展开集合
+  const [expandedCards, setExpandedCards] = useState(new Set());
+  // 行内展开字段：{planId, field} 当前正在展开选择的字段
+  const [activeField, setActiveField] = useState(null);
+  // 轮空确认弹窗
+  const [lunKongConfirm, setLunKongConfirm] = useState(null); // {planId, prevType, noteInput}
+  // 成员操作弹窗
+  const [memberModal, setMemberModal] = useState(null);
+  // {planId, staffId, staffName, isAdded, step:'main'|'swap'|'postpone', candidates:[], target:null}
+  // 导出菜单
+  const [showWsExport, setShowWsExport] = useState(false);
+  const [wsExportMonths, setWsExportMonths] = useState([]);
+
+  // 照片相册
+  const [photoAlbum, setPhotoAlbum] = useState(null); // null | {photos:[],loading:false}
+  const [lightbox, setLightbox] = useState(null); // null | {photos:[],index:number}
+  const [albumWatermark, setAlbumWatermark] = useState(true);
+  const [albumLocation, setAlbumLocation] = useState('');
+  const [albumLocLoading, setAlbumLocLoading] = useState(false);
+  const [albumDate, setAlbumDate] = useState(() => new Date().toLocaleDateString('sv-SE', {timeZone:'Asia/Shanghai'}));
+  const albumFileRef = useRef(null);
+  const albumCameraRef = useRef(null);
+  // 后台上传队列
+  const [uploadQueue, setUploadQueue] = useState([]); // [{id, planId, filename, status:'uploading'|'done'|'error'}]
+  // 现场记录弹窗
+  const [photoModal, setPhotoModal] = useState(null);
+  // {planId, photos:[]}
+  // 确认点评弹窗
+  const [evalModal, setEvalModal] = useState(null);
+  // {planId, members:[], step:'pick'|'eval', target:{staffId,staffName}, comment:'', saving:false, evaluations:{}}
+  // 弹窗
+  const [showSettings, setShowSettings] = useState(false);
+  const [safetyInput, setSafetyInput] = useState('');
+  const [startGroupInput, setStartGroupInput] = useState('');
+  const [startLeaderInput, setStartLeaderInput] = useState('');
+  const [confirmingId, setConfirmingId] = useState(null);
+  const [zhxhExpanded, setZhxhExpanded] = useState(new Set()); // 中旬会展开全员名单的 plan id 集合
+
+  const isInstructor = !!(user?.isInstructor);
+  const hasEditPerm = !!(adminPwd || isInstructor); // 有权限（不管当前是否在编辑模式）
+  const canEdit = hasEditPerm && wsEditMode;         // 实际可编辑
+
+  const hdrs = () => {
+    const h = { 'Content-Type': 'application/json' };
+    if (adminPwd) h['x-admin-password'] = adminPwd;
+    if (isInstructor && !adminPwd) h['x-instructor-id'] = String(user.staffId);
+    return h;
+  };
+
+  const load = async (m) => {
+    setLoading(true);
+    const [d, st] = await Promise.all([
+      apiJson(`/api/workshop/training-plan?month=${m}`).catch(() => null),
+      user ? apiJson(`/api/workshop/my-status?month=${m}&staff_id=${user.staffId}`).catch(() => []) : Promise.resolve([]),
+    ]);
+    if (d) setPlan(d);
+    setMyStatus(st || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { load(month); }, [month]);
+
+  // 找到我所在的小组ID
+  const myGroupId = plan ? (() => {
+    for (const g of (plan.groups || [])) {
+      if (String(g.instructor_id) === String(user?.staffId)) return g.id;
+      if ((g.members || []).some(m => String(m.id) === String(user?.staffId))) return g.id;
+    }
+    return null;
+  })() : null;
+  const isFixedMember = plan ? (plan.fixedStaff || []).some(f => f.staff_id === user?.staffId) : false;
+  const isMyRow = (p) => {
+    if (!user) return false;
+    if (p.plan_type === '中旬会') return true;
+    if (isFixedMember && p.plan_type !== '轮空') return true;
+    const g = p.group;
+    // 该计划的教员（用 String 比较避免类型不一致）
+    if (g && g.instructor_id && String(g.instructor_id) === String(user.staffId)) return true;
+    // 该计划的小组成员
+    if (p.group_id && p.group_id === myGroupId) return true;
+    // 班组长
+    if (p.leader_name && p.leader_name === (user.name || '')) return true;
+    // 成员覆盖里被加入的情况
+    const overrides = p.memberOverrides || {};
+    if ((overrides.added || []).some(a => String(a.id||a.staff_id) === String(user.staffId))) return true;
+    return false;
+  };
+
+  // 教员确认（教员为某人确认）
+  const doConfirm = async (planId, staffId) => {
+    setConfirmingId(planId + '-' + staffId);
+    await api('/api/workshop/instructor-confirm', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ plan_id: planId, staff_id: staffId, confirmed_by: user?.staffId }) }).catch(()=>{});
+    load(month);
+    setConfirmingId(null);
+  };
+
+  const shiftMonth = (delta) => {
+    setActiveField(null);
+    setMonth(m => {
+      const d = new Date(m + '-01');
+      d.setMonth(d.getMonth() + delta);
+      return d.toISOString().slice(0, 7);
+    });
+  };
+
+  const confirmAdminPwd = () => {
+    setAdminPwd(pwdInput);
+    setPwdInput('');
+    setShowAdminInput(false);
+  };
+
+  // 确保有权限才提交：管理员密码 或 教员身份
+  const ensurePwd = () => {
+    if (adminPwd || isInstructor) return true;
+    setShowAdminInput(true);
+    return false;
+  };
+
+  const saveSettings = async () => {
+    if (!ensurePwd()) return;
+    await api('/api/admin/training-plan/settings', {
+      method: 'PUT', headers: hdrs(),
+      body: JSON.stringify({ month, safety_date: safetyInput || null, start_group_id: startGroupInput ? parseInt(startGroupInput) : null, start_leader_idx: startLeaderInput !== '' ? parseInt(startLeaderInput) : undefined })
+    });
+    setShowSettings(false);
+    load(month);
+  };
+
+  const regenerate = async () => {
+    if (!ensurePwd()) return;
+    if (!window.confirm(`重新生成 ${monthLabel(month)} 培训计划？已有修改会丢失。`)) return;
+    await api('/api/admin/training-plan/regenerate', { method: 'POST', headers: hdrs(), body: JSON.stringify({ month }) });
+    load(month);
+  };
+
+  // 通用保存单字段变更
+  const patchRow = async (planId, changes, logEntry) => {
+    if (!ensurePwd()) return;
+    setActiveField(null);
+    await api(`/api/admin/training-plan/${planId}`, {
+      method: 'PUT', headers: hdrs(),
+      body: JSON.stringify({ ...changes, log_entry: logEntry || undefined })
+    });
+    load(month);
+  };
+
+  // 客户端压缩图片：Canvas 缩放到 maxW，输出 JPEG blob
+  const compressImage = (file, maxW=800, quality=0.62) => new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, maxW / img.width);
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+
+  // 给图片打水印（Canvas），返回 Blob
+  const addWatermark = (file, locationText, customDate) => new Promise(resolve => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      // 水印文字：用选定日期 + 当前时间
+      const now = new Date();
+      const pad = n => String(n).padStart(2,'0');
+      const datePart = customDate
+        ? customDate.replace(/-/g, '.') // "2026-04-15" → "2026.04.15"
+        : `${now.getFullYear()}.${pad(now.getMonth()+1)}.${pad(now.getDate())}`;
+      const dateStr = `${datePart}，${pad(now.getHours())}:${pad(now.getMinutes())}`;
+      const locStr = `地点：${locationText||'未知地点'}`;
+      const lines = [dateStr, locStr];
+      const fontSize = Math.max(16, Math.round(canvas.width * 0.026));
+      ctx.font = `bold ${fontSize}px sans-serif`;
+      ctx.textBaseline = 'bottom';
+      const padding = Math.round(fontSize * 0.5);
+      const lineH = Math.round(fontSize * 1.4);
+      const maxW = lines.reduce((m,l)=>Math.max(m,ctx.measureText(l).width),0);
+      const boxW = maxW + padding * 2;
+      const boxH = lines.length * lineH + padding;
+      // 左下角
+      const x = padding;
+      const y = canvas.height - boxH - padding;
+      // 半透明背景（更透明）
+      ctx.fillStyle = 'rgba(0,0,0,0.32)';
+      ctx.beginPath();
+      ctx.roundRect(x - 2, y - 2, boxW + 4, boxH + 4, 6);
+      ctx.fill();
+      // 白色文字
+      lines.forEach((line, i) => {
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.fillText(line, x + padding, y + padding + (i + 1) * lineH);
+      });
+      canvas.toBlob(blob => resolve(blob), 'image/jpeg', 0.88);
+    };
+    img.onerror = () => resolve(file);
+    img.src = url;
+  });
+
+  // 相册拍照/导入上传
+  const albumUploadFile = async (file) => {
+    const targetDate = albumDate;
+    // 找选定日期的计划，找不到就找最近日期（允许后补）
+    let planId = null;
+    if (plan?.plans) {
+      const exact = plan.plans.find(p => p.shift_date === targetDate && p.plan_type !== '轮空');
+      if (exact) planId = exact.id;
+      if (!planId) {
+        // 找日期最接近的计划
+        const valid = plan.plans.filter(p=>p.plan_type!=='轮空').sort((a,b)=>
+          Math.abs(new Date(a.shift_date)-new Date(targetDate)) - Math.abs(new Date(b.shift_date)-new Date(targetDate))
+        );
+        if (valid.length) planId = valid[0].id;
+      }
+    }
+    if (!planId) { alert('未找到可关联的培训计划'); return; }
+    let uploadFile = file;
+    if (albumWatermark) {
+      const locText = albumLocation || locationRef.current || '未知地点';
+      // 先压缩再打水印，避免在原始大图上操作
+      const compressed = await compressImage(file);
+      const watermarked = await addWatermark(compressed, locText, targetDate);
+      uploadFile = new File([watermarked], file.name||'photo.jpg', {type:'image/jpeg'});
+      // 已经压缩过，直接上传（跳过 uploadPhoto 内部的二次压缩）
+      const qid = Date.now();
+      const name = uploadFile.name;
+      setUploadQueue(q => [...q, {id:qid, planId, filename:name, status:'uploading'}]);
+      (async () => {
+        try {
+          const fd = new FormData();
+          fd.append('photo', uploadFile, name);
+          const headers = {};
+          if (adminPwd) headers['x-admin-password'] = adminPwd;
+          if (isInstructor && !adminPwd) headers['x-instructor-id'] = String(user.staffId);
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 30000);
+          let r = null;
+          try {
+            const resp = await fetch(`/api/workshop/training-plan/${planId}/photos`, {method:'POST',headers,body:fd,signal:controller.signal});
+            r = await resp.json();
+          } finally { clearTimeout(timer); }
+          if (r?.ok) {
+            setUploadQueue(q => q.map(x => x.id===qid ? {...x,status:'done'} : x));
+            const photos = await apiJson('/api/workshop/photos').catch(()=>[]);
+            setPhotoAlbum(prev => prev ? {...prev, photos: Array.isArray(photos)?photos:[]} : prev);
+            setTimeout(() => setUploadQueue(q => q.filter(x => x.id!==qid)), 3000);
+          } else {
+            setUploadQueue(q => q.map(x => x.id===qid ? {...x,status:'error'} : x));
+          }
+        } catch(e) {
+          setUploadQueue(q => q.map(x => x.id===qid ? {...x,status:'error'} : x));
+        }
+      })();
+      return;
+    }
+    await uploadPhoto(uploadFile, planId);
+    // 刷新相册
+    const photos = await apiJson('/api/workshop/photos').catch(()=>[]);
+    setPhotoAlbum(prev => prev ? {...prev, photos: Array.isArray(photos)?photos:[]} : prev);
+  };
+
+  // 定位
+  const albumGeolocate = () => {
+    if (!navigator.geolocation) return;
+    setAlbumLocLoading(true);
+    navigator.geolocation.getCurrentPosition(pos => {
+      setAlbumLocLoading(false);
+      // 简单按经纬度判断两个地点
+      // 工人村车辆段：约 114.30, 30.52；青菱车场：约 114.20, 30.46（示意值，实际靠用户手动修正）
+      const {latitude: lat, longitude: lng} = pos.coords;
+      // 计算到两点的距离
+      const dist = (a,b,c,d) => Math.sqrt((a-c)**2+(b-d)**2);
+      const dGongren = dist(lat,lng,30.52,114.30);
+      const dQingling = dist(lat,lng,30.46,114.20);
+      setAlbumLocation(dGongren < dQingling ? '工人村车辆段' : '青菱车场');
+    }, () => setAlbumLocLoading(false), {timeout:8000});
+  };
+
+  const locationRef = useRef('');
+  useEffect(()=>{ locationRef.current = albumLocation; }, [albumLocation]);
+
+  // 后台上传（压缩后），不阻塞 UI，完成后刷新 photoModal
+  const uploadPhoto = async (file, planId) => {
+    const qid = Date.now();
+    const name = file.name || 'photo.jpg';
+    setUploadQueue(q => [...q, {id:qid, planId, filename:name, status:'uploading'}]);
+    // 异步在后台执行，不 await，让 UI 立即响应
+    (async () => {
+      try {
+        const blob = await compressImage(file);
+        const fd = new FormData();
+        fd.append('photo', blob, name.replace(/\.[^.]+$/, '.jpg'));
+        const headers = {};
+        if (adminPwd) headers['x-admin-password'] = adminPwd;
+        if (isInstructor && !adminPwd) headers['x-instructor-id'] = String(user.staffId);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 30000);
+        let r = null;
+        try {
+          const resp = await fetch(`/api/workshop/training-plan/${planId}/photos`, {method:'POST',headers,body:fd,signal:controller.signal});
+          r = await resp.json();
+        } finally {
+          clearTimeout(timer);
+        }
+        if (r?.ok) {
+          setUploadQueue(q => q.map(x => x.id===qid ? {...x,status:'done'} : x));
+          setPhotoModal(prev => {
+            if (prev?.planId === planId) {
+              apiJson(`/api/workshop/training-plan/${planId}/photos`).then(photos => {
+                setPhotoModal(p2 => p2?.planId===planId ? {...p2, photos:Array.isArray(photos)?photos:[]} : p2);
+              });
+            }
+            return prev;
+          });
+          setTimeout(() => setUploadQueue(q => q.filter(x => x.id!==qid)), 3000);
+        } else {
+          setUploadQueue(q => q.map(x => x.id===qid ? {...x,status:'error'} : x));
+        }
+      } catch(e) {
+        setUploadQueue(q => q.map(x => x.id===qid ? {...x,status:'error'} : x));
+      }
+    })();
+  };
+
+  // 切换类型，轮空需要确认+备注
+  const handleTypeChange = (p, newType) => {
+    if (newType === p.plan_type) { setActiveField(null); return; }
+    if (newType === '轮空') {
+      setLunKongConfirm({ planId: p.id, prevType: p.plan_type, noteInput: '' });
+      setActiveField(null);
+    } else {
+      const now = new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'});
+      patchRow(p.id, { plan_type: newType }, `${now} 培训方式改为"${newType}"`);
+    }
+  };
+
+  // 确认设为轮空
+  const confirmLunKong = async () => {
+    if (!lunKongConfirm) return;
+    const { planId, noteInput } = lunKongConfirm;
+    const now = new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'});
+    await patchRow(planId, { plan_type: '轮空', group_id: null, leader_name: null, notes: noteInput || null },
+      `${now} 设为轮空${noteInput ? `（${noteInput}）` : ''}`);
+    setLunKongConfirm(null);
+  };
+
+  const monthLabel = (m) => `${parseInt(m.split('-')[1])}月`;
+
+  const dateLabel = (dateStr) => {
+    const d = new Date(dateStr + 'T00:00:00');
+    const mo = d.getMonth() + 1, day = d.getDate();
+    const wd = ['日','一','二','三','四','五','六'][d.getDay()];
+    return `${mo}月${day}日（周${wd}）`;
+  };
+
+  const typeStyle = (t) => {
+    if (t === '轮空')  return { text:'#475569', bg:'rgba(71,85,105,0.1)',  border:'rgba(71,85,105,0.3)' };
+    if (t === '中旬会') return { text:'#f59e0b', bg:'rgba(245,158,11,0.1)', border:'rgba(245,158,11,0.35)' };
+    return { text:'#3b82f6', bg:'rgba(59,130,246,0.1)', border:'rgba(59,130,246,0.28)' };
+  };
+
+  // 我的相关培训 sessions（本月）
+  const myRelevant = myStatus.filter(s => s.relevant && s.plan_type !== '轮空');
+  const nextSession = myRelevant.find(s => {
+    if (s.shift_date < todayStr) return false;
+    if (s.plan_type === '中旬会') return !s.checked_in;
+    return !s.instructor_confirmed;
+  }) || null;
+
+  // 按地点归类（本月，location 直接从 myStatus 取）
+  const myQingling = myRelevant.filter(s => s.location === '青菱车场' && s.plan_type !== '中旬会');
+  const myGongren = myRelevant.filter(s => s.location === '工人村' && s.plan_type !== '中旬会');
+  const myZhongxun = myRelevant.filter(s => s.plan_type === '中旬会');
+
+  const dateShort = (d) => { const x = new Date(d + 'T00:00:00'); return `${x.getMonth()+1}月${x.getDate()}日`; };
+
+  return (
+    <div style={{minHeight:'100vh',background:'#07101f',fontFamily:'var(--font, system-ui)',color:'white',paddingBottom:50}}>
+      {/* 顶栏 */}
+      <div style={{display:'flex',alignItems:'center',gap:10,padding:'14px 16px',borderBottom:'1px solid #1b3255',position:'sticky',top:0,background:'#07101f',zIndex:10}}>
+        <button onClick={onBack} style={{background:'none',border:'none',color:'#94a3b8',fontSize:22,cursor:'pointer',lineHeight:1,padding:'0 4px'}}>←</button>
+        <div style={{flex:1,fontWeight:700,fontSize:15}}>月度任务</div>
+        <div style={{display:'flex',gap:5,alignItems:'center'}}>
+          <button onClick={()=>shiftMonth(-1)} style={{background:'none',border:'1px solid #1b3255',color:'#64748b',borderRadius:5,padding:'3px 8px',fontSize:13,cursor:'pointer'}}>‹</button>
+          <span style={{fontSize:13,color:'#94a3b8',minWidth:32,textAlign:'center'}}>{monthLabel(month)}</span>
+          <button onClick={()=>shiftMonth(1)} style={{background:'none',border:'1px solid #1b3255',color:'#64748b',borderRadius:5,padding:'3px 8px',fontSize:13,cursor:'pointer'}}>›</button>
+        </div>
+      </div>
+
+      <div style={{padding:'14px 14px',display:'flex',flexDirection:'column',gap:16}}>
+
+        {/* ══ 板块一：个人培训视图 ══ */}
+        <div style={{background:'#0a1929',border:'1px solid #1b3255',borderRadius:12,overflow:'hidden'}}>
+          {/* 问候标题 */}
+          <div style={{padding:'14px 16px 12px',borderBottom:'1px solid #1b3255'}}>
+            <div style={{fontSize:15,fontWeight:700,color:'#e2e8f0',marginBottom:10}}>{user?.name}，你好：</div>
+
+            {loading ? <div style={{fontSize:11,color:'#475569'}}>加载中…</div> : myRelevant.length === 0 ? (
+              <div style={{fontSize:11,color:'#475569'}}>本月暂无分配培训任务</div>
+            ) : (
+              <div style={{display:'flex',flexDirection:'column',gap:7}}>
+                {myRelevant.map(s => {
+                  const isPast = s.shift_date < todayStr;
+                  const isZhongxun = s.plan_type === '中旬会';
+                  const complete = isZhongxun ? s.checked_in : s.instructor_confirmed;
+                  const typeLabel = isZhongxun ? '中旬会' : `${s.location} 实操培训`;
+                  let statusNode;
+                  if (complete) {
+                    statusNode = <span style={{color:'#22c55e',fontWeight:600,fontSize:11}}>已完成 ✅</span>;
+                  } else if (isPast) {
+                    statusNode = <span style={{color:'#64748b',fontSize:11}}>未确认</span>;
+                  } else {
+                    statusNode = <span style={{color:'#f97316',fontSize:11}}>待确认</span>;
+                  }
+                  return (
+                    <div key={s.plan_id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+                      <span style={{fontSize:12,color: isPast&&complete?'#22c55e': isPast?'#475569':'#e2e8f0', fontWeight: isPast&&complete?600:400}}>
+                        {dateShort(s.shift_date)}，{typeLabel}
+                      </span>
+                      {statusNode}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* 下次实操培训 */}
+            {!loading && (() => {
+              const nextTraining = myRelevant.find(s => s.shift_date >= todayStr && s.plan_type !== '中旬会');
+              if (!nextTraining) return null;
+              return (
+                <div style={{marginTop:10,fontSize:11,color:'#64748b',borderTop:'1px solid #1b3255',paddingTop:8}}>
+                  下次实操培训时间：<span style={{color:'#93c5fd',fontWeight:600}}>{dateShort(nextTraining.shift_date)}</span>
+                  <span style={{color:'#64748b'}}> · {nextTraining.location}</span>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* 教员确认状态（针对最近一次待完成培训）*/}
+          {!loading && nextSession && nextSession.plan_type !== '中旬会' && (
+            <div style={{padding:'12px 16px',borderBottom:'1px solid #1b3255'}}>
+              <div style={{fontSize:10,color:'#64748b',marginBottom:8}}>
+                下次实操培训：
+                <span style={{color:'#e2e8f0',fontWeight:600}}>{dateShort(nextSession.shift_date)}</span>
+                <span style={{color:'#64748b'}}> · {nextSession.location}</span>
+              </div>
+              {nextSession.instructor_confirmed ? (
+                <div style={{padding:'10px',borderRadius:8,border:'1px solid rgba(34,197,94,0.35)',background:'rgba(34,197,94,0.07)',color:'#22c55e',fontSize:12,fontWeight:600,textAlign:'center'}}>
+                  ☑ 教员已确认完成
+                </div>
+              ) : isInstructor ? (
+                <button onClick={()=>doConfirm(nextSession.plan_id, user.staffId)} disabled={confirmingId!=null}
+                  style={{width:'100%',padding:'10px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#3b1f6e,#7c3aed)',color:'white',fontSize:12,fontWeight:700,fontFamily:'inherit',cursor:'pointer',opacity:confirmingId?0.6:1}}>
+                  已到现场
+                </button>
+              ) : (
+                <div style={{padding:'10px',borderRadius:8,border:'1px solid #1b3255',color:'#475569',fontSize:12,textAlign:'center'}}>
+                  等待教员确认
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ══ 板块二：实操前巩固 ══ */}
+        <div>
+          <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600,marginBottom:8}}>实操前巩固</div>
+          <div style={{background:'#0a1929',border:'1px solid #1b3255',borderRadius:10,padding:'14px'}}>
+            <div style={{fontSize:12,color:'#94a3b8',marginBottom:10,lineHeight:1.7}}>培训前先用语音答题巩固业务知识，提高实操质量。</div>
+            <button onClick={()=>onBack()} style={{
+              width:'100%',padding:'11px',borderRadius:9,border:'1px dashed rgba(100,116,139,0.5)',
+              background:'transparent',color:'#64748b',fontSize:12,fontFamily:'inherit',cursor:'pointer',fontWeight:600
+            }}>去答题预习 →</button>
+          </div>
+        </div>
+
+        {/* ══ 板块三：本月早班培训计划 ══ */}
+        <div>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+            <div style={{display:'flex',alignItems:'center',gap:6}}>
+              <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600}}>{monthLabel(month)} 早班培训计划</div>
+              {isInstructor && <span style={{fontSize:10,padding:'1px 6px',borderRadius:4,background:'rgba(59,130,246,0.15)',border:'1px solid rgba(59,130,246,0.3)',color:'#93c5fd'}}>教员</span>}
+            </div>
+            <div style={{display:'flex',gap:5,alignItems:'center'}}>
+              {/* 相册 */}
+              <button onClick={async()=>{
+                setPhotoAlbum({photos:[],loading:true});
+                const photos = await apiJson('/api/workshop/photos').catch(()=>[]);
+                setPhotoAlbum({photos:Array.isArray(photos)?photos:[],loading:false});
+              }} style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid rgba(148,163,184,0.3)',background:'rgba(148,163,184,0.06)',color:'#94a3b8',cursor:'pointer',fontFamily:'inherit'}}>
+                🖼 相册
+              </button>
+
+
+              {/* 教员：生成快捷入口链接 */}
+              {isInstructor && !wsEditMode && (
+                <button onClick={async()=>{
+                  try {
+                    const r = await fetch('/api/magic-link',{method:'POST',headers:{'Content-Type':'application/json','x-instructor-id':user?.staffId||''},body:JSON.stringify({target:'workshop'})});
+                    const d = await r.json();
+                    if (d.url) { await navigator.clipboard.writeText(d.url); alert('快捷链接已复制（48小时有效）\n粘贴到钉钉收藏即可一键直达'); }
+                  } catch { alert('复制失败，请手动复制'); }
+                }} style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid rgba(251,191,36,0.35)',background:'rgba(251,191,36,0.07)',color:'#fbbf24',cursor:'pointer',fontFamily:'inherit'}}>
+                  🔗 快捷入口
+                </button>
+              )}
+
+              {/* 编辑 / 保存（有权限） */}
+              {hasEditPerm ? (
+                wsEditMode ? (
+                  <button onClick={()=>{ setWsEditMode(false); setExpandedCards(new Set()); setActiveField(null); }}
+                    style={{fontSize:10,padding:'3px 10px',borderRadius:5,border:'none',background:'#22c55e',color:'#07101f',cursor:'pointer',fontFamily:'inherit',fontWeight:700}}>
+                    保存
+                  </button>
+                ) : (
+                  <button onClick={()=>setWsEditMode(true)}
+                    style={{fontSize:10,padding:'3px 10px',borderRadius:5,border:'1px solid rgba(34,197,94,0.4)',background:'rgba(34,197,94,0.08)',color:'#22c55e',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
+                    ✎ 编辑
+                  </button>
+                )
+              ) : (
+                <button onClick={()=>setShowAdminInput(v=>!v)}
+                  style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid #1b3255',background:'transparent',color:'#475569',cursor:'pointer',fontFamily:'inherit'}}>解锁</button>
+              )}
+            </div>
+          </div>
+
+          {/* 编辑模式提示 + 管理员设置/重排按钮 */}
+          {wsEditMode && canEdit && (
+            <div style={{display:'flex',alignItems:'center',gap:6,fontSize:10,color:'#475569',marginBottom:8,padding:'5px 10px',background:'rgba(27,50,85,0.2)',borderRadius:6,border:'1px solid rgba(27,50,85,0.4)'}}>
+              <span style={{flex:1}}>点击字段（▾）可直接修改</span>
+              {!isInstructor && adminPwd && <>
+                <button onClick={()=>{ setSafetyInput(plan?.safetyDate||''); setStartGroupInput(plan?.startGroupId?String(plan.startGroupId):''); setStartLeaderInput(plan?.startLeaderIdx!=null?String(plan.startLeaderIdx):''); setShowSettings(true); }}
+                  style={{fontSize:10,padding:'2px 7px',borderRadius:4,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',cursor:'pointer',fontFamily:'inherit'}}>设置</button>
+                <button onClick={regenerate}
+                  style={{fontSize:10,padding:'2px 7px',borderRadius:4,border:'1px solid rgba(239,68,68,0.3)',background:'transparent',color:'#ef4444',cursor:'pointer',fontFamily:'inherit'}}>重排</button>
+              </>}
+            </div>
+          )}
+
+          {/* 管理员密码输入框 */}
+          {showAdminInput && (
+            <div style={{display:'flex',gap:7,marginBottom:10}}>
+              <input type="password" value={pwdInput} onChange={e=>setPwdInput(e.target.value)}
+                onKeyDown={e=>e.key==='Enter'&&confirmAdminPwd()}
+                placeholder="管理员密码" autoFocus
+                style={{flex:1,background:'#0d1e35',border:'1px solid #1b3255',borderRadius:6,padding:'7px 10px',color:'white',fontSize:12,fontFamily:'inherit',outline:'none'}}/>
+              <button onClick={confirmAdminPwd} style={{padding:'7px 14px',borderRadius:6,border:'none',background:'#1e3a5f',color:'white',fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>确认</button>
+            </div>
+          )}
+
+          {loading && <div style={{textAlign:'center',color:'#475569',fontSize:13,padding:'30px 0'}}>加载中…</div>}
+
+          {!loading && plan && (
+            <div style={{display:'flex',flexDirection:'column',gap:7}}>
+              {plan.plans.map((p) => {
+                const tc = typeStyle(p.plan_type);
+                const g = p.group;
+                const mine = isMyRow(p);
+                const rowOpacity = mine ? 1 : 0.55;
+
+                // 非编辑模式下，非相关卡显示为折叠行
+                const isIndividuallyExpanded = expandedCards.has(p.id);
+                if (!wsEditMode && !mine && !isIndividuallyExpanded) {
+                  return (
+                    <div key={p.id} style={{
+                      display:'flex', alignItems:'center', gap:8,
+                      padding:'8px 12px', borderRadius:9,
+                      background:'rgba(10,25,41,0.6)', border:'1px solid #1b3255',
+                      cursor:'pointer', opacity:0.72,
+                    }} onClick={()=>setExpandedCards(s=>{ const n=new Set(s); n.add(p.id); return n; })}>
+                      <span style={{fontSize:12,fontWeight:600,color:'#64748b',flexShrink:0}}>{dateLabel(p.shift_date)}</span>
+                      <span style={{fontSize:10,padding:'1px 6px',borderRadius:4,border:`1px solid ${tc.border}`,color:tc.text,flexShrink:0,background:tc.bg}}>{p.plan_type==='培训'?'实操':p.plan_type}</span>
+                      {g && <span style={{fontSize:11,color:'#475569',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{g.name}{g.instructor_name?` · ${g.instructor_name}`:''}</span>}
+                      {!g && p.plan_type==='中旬会' && <span style={{fontSize:11,color:'#475569',flex:1}}>全员回段</span>}
+                      <span style={{fontSize:16,color:'#334155',flexShrink:0}}>›</span>
+                    </div>
+                  );
+                }
+
+                // 已单独展开的非相关卡：顶部加收起按钮
+                const collapsible = !wsEditMode && !mine && isIndividuallyExpanded;
+                const fixedNames = (plan.fixedStaff || []).map(f => f.real_name || f.name);
+                const allLeaders = (plan.leaderStaff || []).map(l => l.real_name || l.name);
+                const normalMembers = g
+                  ? (g.members || []).filter(m => m.id !== g.instructor_id && !(plan.fixedStaff||[]).some(f => f.staff_id === m.id))
+                  : [];
+
+                const isOpen = (field) => activeField?.planId === p.id && activeField?.field === field;
+                const toggleField = (field) => {
+                  if (!canEdit) return;
+                  setActiveField(prev => (prev?.planId === p.id && prev?.field === field) ? null : { planId: p.id, field });
+                };
+                const now = new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'});
+                const LOCATIONS = ['工人村', '青菱车场', '复兴路'];
+                const TYPE_LABELS = {'培训':'实操','理论':'理论','轮空':'轮空','中旬会':'中旬会'};
+
+                // 通用下拉 chip 组件（行内渲染）
+                const Chip = ({field, label, color='#94a3b8', borderColor='#1b3255', options, onSelect}) => (
+                  <span style={{display:'inline-flex',alignItems:'center',gap:0,flexShrink:0}}>
+                    <button onClick={()=>toggleField(field)} style={{
+                      padding:'1px 6px',borderRadius:5,fontSize:11,fontWeight:600,fontFamily:'inherit',cursor:'pointer',
+                      color, border:`1px solid ${isOpen(field)?color:borderColor}`,
+                      background: isOpen(field)?'rgba(59,130,246,0.1)':'none'
+                    }}>{label} {canEdit?'▾':''}</button>
+                    {canEdit && isOpen(field) && (
+                      <span style={{display:'inline-flex',flexWrap:'wrap',gap:4,marginLeft:4}}>
+                        {options.map(opt=>(
+                          <button key={opt.value} onClick={()=>onSelect(opt.value)} style={{
+                            padding:'1px 8px',borderRadius:5,fontSize:11,fontFamily:'inherit',cursor:'pointer',
+                            border:`1px solid ${opt.value===opt.current?color:'#1b3255'}`,
+                            background: opt.value===opt.current?`rgba(59,130,246,0.15)`:'none',
+                            color: opt.value===opt.current?color:'#64748b', fontWeight: opt.value===opt.current?600:400
+                          }}>{opt.label}</button>
+                        ))}
+                      </span>
+                    )}
+                  </span>
+                );
+
+                return (
+                  <div key={p.id} style={{
+                    background:'#0a1929', border:`1px solid ${tc.border}`,
+                    borderRadius:10, overflow:'hidden',
+                    transition:'opacity 0.15s', opacity: rowOpacity,
+                    boxShadow: mine ? '0 0 0 1.5px rgba(59,130,246,0.35)' : 'none',
+                  }}>
+
+                    {/* 已单独展开的非相关卡：收起按钮 */}
+                    {collapsible && (
+                      <div style={{display:'flex',justifyContent:'flex-end',padding:'4px 10px',borderBottom:`1px solid ${tc.border}`,background:'rgba(0,0,0,0.2)'}}>
+                        <button onClick={()=>setExpandedCards(s=>{ const n=new Set(s); n.delete(p.id); return n; })}
+                          style={{background:'none',border:'none',color:'#475569',fontSize:11,cursor:'pointer',padding:'0 2px',fontFamily:'inherit'}}>
+                          收起 ∧
+                        </button>
+                      </div>
+                    )}
+
+                    {/* ── 行1：日期 小组 类型 地点 ── */}
+                    <div style={{padding:'8px 12px',background:tc.bg,borderBottom:`1px solid ${tc.border}`}}>
+                      <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                        {mine && <span style={{fontSize:9,color:'#3b82f6'}}>◆</span>}
+                        <span style={{fontWeight:700,fontSize:12,color:'white',marginRight:2}}>{dateLabel(p.shift_date)}</span>
+
+                        {/* 小组 */}
+                        {g && p.plan_type!=='中旬会' && p.plan_type!=='轮空' && (
+                          <Chip field="group" label={g.name} color="#e2e8f0" borderColor="#1e3a5f"
+                            options={(plan.groups||[]).map(gr=>({value:gr.id,label:gr.name,current:p.group_id}))}
+                            onSelect={v=>patchRow(p.id,{group_id:v},`${now} 小组改为"${(plan.groups||[]).find(gr=>gr.id===v)?.name}"`)}
+                          />
+                        )}
+                        {/* 中旬会固定标签 */}
+                        {p.plan_type==='中旬会' && (
+                          <span style={{fontSize:11,fontWeight:600,color:'#fbbf24',padding:'1px 6px',border:'1px solid rgba(251,191,36,0.3)',borderRadius:5}}>全员回段</span>
+                        )}
+
+                        <span style={{flex:1}}/>
+
+                        {/* 培训类型 */}
+                        {p.plan_type!=='中旬会' && (
+                          <Chip field="type" label={TYPE_LABELS[p.plan_type]||p.plan_type} color={tc.text} borderColor={tc.border}
+                            options={['培训','理论','轮空'].map(t=>({value:t,label:t==='培训'?'实操':t,current:p.plan_type}))}
+                            onSelect={v=>handleTypeChange(p,v)}
+                          />
+                        )}
+                        {/* 中旬会 类型 chip */}
+                        {p.plan_type==='中旬会' && (
+                          <Chip field="type" label="理论" color={tc.text} borderColor={tc.border}
+                            options={['理论','培训'].map(t=>({value:t,label:t,current:'理论'}))}
+                            onSelect={()=>{}}
+                          />
+                        )}
+
+                        {/* 地点 */}
+                        {p.plan_type!=='轮空' && (
+                          <Chip field="location" label={p.location||'—'} color="#64748b" borderColor="#1b3255"
+                            options={LOCATIONS.map(l=>({value:l,label:l,current:p.location}))}
+                            onSelect={v=>patchRow(p.id,{location:v},`${now} 地点改为"${v}"`)}
+                          />
+                        )}
+                      </div>
+                    </div>
+
+                    {/* ── 内容区 ── */}
+                    {p.plan_type === '轮空' ? (
+                      <div style={{padding:'8px 12px',fontSize:11,color:'#6b7280',fontStyle:'italic'}}>
+                        本次早班轮空，暂不安排车场培训
+                        {p.notes && <span style={{marginLeft:6,color:'#9ca3af'}}>（{p.notes}）</span>}
+                      </div>
+                    ) : p.plan_type === '中旬会' ? (
+                      (()=>{
+                        // 解析 notes 中存储的特殊人员记录（JSON数组）
+                        let specialEntries = [];
+                        try { specialEntries = JSON.parse(p.notes || '[]'); if(!Array.isArray(specialEntries)) specialEntries = []; } catch(e) { specialEntries = []; }
+                        const ZHXH_SLOTS = 8;
+                        const now2 = new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'});
+                        const isZhxhExpanded = zhxhExpanded.has(p.id);
+                        return (
+                          <div style={{padding:'8px 12px',display:'flex',flexDirection:'column',gap:6}}>
+                            {/* 占位方框行（登记请假/临时参会） */}
+                            <div style={{display:'flex',alignItems:'center',gap:4,flexWrap:'wrap'}}>
+                              {Array.from({length:ZHXH_SLOTS}).map((_,i)=>{
+                                const entry = specialEntries[i];
+                                return entry ? (
+                                  <button key={i} onClick={()=>{
+                                    if(!canEdit) return;
+                                    if(!confirm(`移除 ${entry.staffName}？`)) return;
+                                    const newEntries = specialEntries.filter((_,idx)=>idx!==i);
+                                    const newNotes = JSON.stringify(newEntries);
+                                    patchRow(p.id,{notes:newNotes},`${now2} 移除记录：${entry.staffName}`);
+                                  }} style={{
+                                    padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:canEdit?'pointer':'default',
+                                    border:`1px solid ${entry.type==='请假'?'#ef4444':'#3b82f6'}`,
+                                    background:entry.type==='请假'?'rgba(239,68,68,0.12)':'rgba(59,130,246,0.12)',
+                                    color:entry.type==='请假'?'#fca5a5':'#93c5fd',fontWeight:600
+                                  }}>{entry.staffName}</button>
+                                ) : (
+                                  <button key={i} onClick={()=>{
+                                    if(!canEdit) return;
+                                    setMemberModal({planId:p.id,step:'zhxh_pick',specialEntries,staffId:null,staffName:null,isAdded:false,candidates:[],target:null});
+                                  }} style={{
+                                    display:'inline-block',width:28,height:20,border:'1px dashed rgba(100,130,180,0.5)',borderRadius:4,
+                                    background:'rgba(27,50,85,0.25)',cursor:canEdit?'pointer':'default',padding:0
+                                  }}/>
+                                );
+                              })}
+                            </div>
+                            {/* 备注行 */}
+                            {specialEntries.length>0 && (
+                              <div style={{fontSize:10,color:'#64748b',lineHeight:1.7}}>
+                                备注：{specialEntries.map(e=>`${e.staffName} ${e.type}`).join('；')}
+                              </div>
+                            )}
+                            {specialEntries.length===0 && (
+                              <div style={{fontSize:10,color:'#6b7280',fontStyle:'italic'}}>备注：点击方框登记请假或临时参会人员</div>
+                            )}
+
+                            {/* 全员名单（默认折叠） */}
+                            <div style={{borderTop:'1px solid rgba(27,50,85,0.8)',paddingTop:6}}>
+                              <button onClick={()=>setZhxhExpanded(s=>{const n=new Set(s);isZhxhExpanded?n.delete(p.id):n.add(p.id);return n;})} style={{
+                                background:'none',border:'none',color:'#60a5fa',fontSize:11,cursor:'pointer',padding:0,fontFamily:'inherit',
+                                display:'flex',alignItems:'center',gap:4,width:'100%',justifyContent:'space-between'
+                              }}>
+                                <span style={{fontWeight:600}}>全员名单</span>
+                                <span style={{color:'#475569',fontSize:10}}>{isZhxhExpanded?'收起 ∧':'展开 ∨'}</span>
+                              </button>
+                              {isZhxhExpanded && (
+                                <div style={{marginTop:8,display:'flex',flexDirection:'column',gap:6}}>
+                                  {(plan.groups||[]).map(grp=>{
+                                    const fixedIdsSet = new Set((plan.fixedStaff||[]).map(f=>f.staff_id));
+                                    const grpMembers = (grp.members||[]).filter(m=>!fixedIdsSet.has(m.id));
+                                    return (
+                                      <div key={grp.id} style={{background:'rgba(13,30,50,0.5)',borderRadius:6,padding:'6px 8px'}}>
+                                        <div style={{fontSize:10,color:'#60a5fa',fontWeight:700,marginBottom:4}}>
+                                          {grp.name}{grp.instructor_name?<span style={{color:'#64748b',fontWeight:400,marginLeft:4}}>· {grp.instructor_name}（教员）</span>:null}
+                                        </div>
+                                        <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
+                                          {grpMembers.map((m,mi)=>(
+                                            <button key={mi} onClick={async()=>{
+                                              if(!hasEditPerm) return;
+                                              const shiftYear = parseInt(p.shift_date.slice(0,4));
+                                              const shiftMonth = parseInt(p.shift_date.slice(5,7));
+                                              const yearPlanData = await apiJson(`/api/admin/training-year-plan?year=${shiftYear}`).catch(()=>[]);
+                                              const monthPlanItems = (Array.isArray(yearPlanData)?yearPlanData:[]).find(r=>r.month===shiftMonth)?.sessions || [];
+                                              const currentItems = (() => { try { return JSON.parse(p.completed_items||'[]'); } catch(e) { return []; } })();
+                                              const evals = await apiJson(`/api/workshop/training-plan/${p.id}/evaluations`).catch(()=>[]);
+                                              const evMap = {};
+                                              (Array.isArray(evals)?evals:[]).forEach(e=>{ evMap[e.staff_id]=e; });
+                                              // 构建全员名单供 pick 步骤
+                                              const allZhxhMembers = (plan.groups||[]).flatMap(gr=>{
+                                                const fids = new Set((plan.fixedStaff||[]).map(f=>f.staff_id));
+                                                return (gr.members||[]).filter(x=>!fids.has(x.id)).map(x=>({id:x.id,real_name:x.real_name||x.name}));
+                                              });
+                                              const fixedM = (plan.fixedStaff||[]).map(f=>({id:f.staff_id,real_name:f.real_name||f.name}));
+                                              const allM = [...allZhxhMembers,...fixedM].filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i);
+                                              const targetMember = {staffId:m.id,staffName:m.real_name||m.name};
+                                              const step = currentItems.length>0 ? 'eval' : 'items';
+                                              setEvalModal({planId:p.id,shiftDate:p.shift_date,members:allM,step,target:step==='eval'?targetMember:null,comment:evMap[m.id]?.comment||'',saving:false,evaluations:evMap,yearPlanItems:monthPlanItems,selectedItems:currentItems.length>0?currentItems:monthPlanItems.map(i=>i.item)});
+                                            }} style={{
+                                              padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',
+                                              cursor:hasEditPerm?'pointer':'default',
+                                              border:'1px solid #1e3a5f',
+                                              background:'rgba(30,41,59,0.5)',color:'#b0bec5',fontWeight:400
+                                            }}>{m.real_name||m.name}</button>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                  {(plan.fixedStaff||[]).length>0 && (
+                                    <div style={{background:'rgba(13,30,50,0.5)',borderRadius:6,padding:'6px 8px'}}>
+                                      <div style={{fontSize:10,color:'#c4b5fd',fontWeight:700,marginBottom:4}}>固定成员</div>
+                                      <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
+                                        {(plan.fixedStaff||[]).map((f,fi)=>(
+                                          <button key={fi} onClick={async()=>{
+                                            if(!hasEditPerm) return;
+                                            const shiftYear = parseInt(p.shift_date.slice(0,4));
+                                            const shiftMonth = parseInt(p.shift_date.slice(5,7));
+                                            const yearPlanData = await apiJson(`/api/admin/training-year-plan?year=${shiftYear}`).catch(()=>[]);
+                                            const monthPlanItems = (Array.isArray(yearPlanData)?yearPlanData:[]).find(r=>r.month===shiftMonth)?.sessions || [];
+                                            const currentItems = (() => { try { return JSON.parse(p.completed_items||'[]'); } catch(e) { return []; } })();
+                                            const evals = await apiJson(`/api/workshop/training-plan/${p.id}/evaluations`).catch(()=>[]);
+                                            const evMap = {};
+                                            (Array.isArray(evals)?evals:[]).forEach(e=>{ evMap[e.staff_id]=e; });
+                                            const allZhxhMembers = (plan.groups||[]).flatMap(gr=>{
+                                              const fids = new Set((plan.fixedStaff||[]).map(x=>x.staff_id));
+                                              return (gr.members||[]).filter(x=>!fids.has(x.id)).map(x=>({id:x.id,real_name:x.real_name||x.name}));
+                                            });
+                                            const fixedM = (plan.fixedStaff||[]).map(x=>({id:x.staff_id,real_name:x.real_name||x.name}));
+                                            const allM = [...allZhxhMembers,...fixedM].filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i);
+                                            const targetMember = {staffId:f.staff_id,staffName:f.real_name||f.name};
+                                            const step = currentItems.length>0 ? 'eval' : 'items';
+                                            setEvalModal({planId:p.id,shiftDate:p.shift_date,members:allM,step,target:step==='eval'?targetMember:null,comment:evMap[f.staff_id]?.comment||'',saving:false,evaluations:evMap,yearPlanItems:monthPlanItems,selectedItems:currentItems.length>0?currentItems:monthPlanItems.map(i=>i.item)});
+                                          }} style={{
+                                            padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',
+                                            cursor:hasEditPerm?'pointer':'default',
+                                            border:'1px solid rgba(196,181,253,0.3)',
+                                            background:'rgba(30,41,59,0.5)',color:'#c4b5fd',fontWeight:400
+                                          }}>{f.real_name||f.name}</button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()
+                    ) : g ? (
+                      <div style={{padding:'8px 12px',display:'flex',flexDirection:'column',gap:5}}>
+                        {/* 行2：教员 班组长 */}
+                        <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+                          {(g.instructor_name||canEdit) && (
+                            <span style={{fontSize:11,color:'#7c8fa6',display:'inline-flex',alignItems:'center',gap:4}}>
+                              教员
+                              <Chip field="instructor" label={g.instructor_name||'—'} color="#93c5fd" borderColor="#1b3255"
+                                options={(plan.groups||[]).flatMap(gr=>gr.members||[]).filter((m,i,a)=>m.id&&a.findIndex(x=>x.id===m.id)===i).map(m=>({value:m.id,label:m.real_name||m.name,current:null}))}
+                                onSelect={v=>{const nm=(plan.groups||[]).flatMap(gr=>gr.members||[]).find(m=>m.id===v);patchRow(p.id,{},`${now} 教员暂改为"${nm?.real_name||nm?.name}"（如需永久生效请在小组设置中修改）`);}}
+                              />
+                            </span>
+                          )}
+                          <span style={{fontSize:11,color:'#7c8fa6',display:'inline-flex',alignItems:'center',gap:4}}>
+                            班组长
+                            <Chip field="leader" label={p.leader_name||'—'} color="#fbbf24" borderColor="#1b3255"
+                              options={allLeaders.map(l=>({value:l,label:l,current:p.leader_name}))}
+                              onSelect={v=>patchRow(p.id,{leader_name:v},`${now} 班组长改为"${v}"`)}
+                            />
+                          </span>
+                        </div>
+                        {/* 行3：组员方框（8格）+ 固定 */}
+                        {(()=>{
+                          // 计算实际出现成员：基础成员 ± overrides
+                          const overrides = p.memberOverrides || {added:[],removed:[]};
+                          // 服务端字段: {id, real_name, name} (不是 staff_id/staff_name)
+                          const removedIds = new Set((overrides.removed||[]).map(r=>String(r.id||r.staff_id)));
+                          const baseMembers = normalMembers.filter(m=>!removedIds.has(String(m.id)));
+                          const addedMembers = (overrides.added||[]).map(a=>({id:a.id||a.staff_id,real_name:a.real_name||a.staff_name||a.name,isAdded:true}));
+                          const effectiveMembers = [...baseMembers,...addedMembers];
+                          const SLOTS = 8;
+                          return (
+                            <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                              {/* 组员方框行 */}
+                              <div style={{display:'flex',alignItems:'center',gap:4,flexWrap:'wrap'}}>
+                                <span style={{fontSize:10,color:'#7c8fa6',flexShrink:0}}>组员</span>
+                                <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
+                                  {Array.from({length:SLOTS}).map((_,i)=>{
+                                    const m = effectiveMembers[i];
+                                    const isSwapped = m?.isAdded;
+                                    return m ? (
+                                      <button key={i} onClick={()=>{
+                                        if(!canEdit) return;
+                                        setMemberModal({planId:p.id,staffId:m.id,staffName:m.real_name||m.name,isAdded:isSwapped,step:'main',candidates:[],target:null});
+                                      }} style={{
+                                        padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:canEdit?'pointer':'default',
+                                        border:`1px solid ${isSwapped?'#3b82f6':'#1e3a5f'}`,
+                                        background:isSwapped?'rgba(59,130,246,0.15)':'rgba(30,41,59,0.5)',
+                                        color:isSwapped?'#60a5fa':'#b0bec5',fontWeight:isSwapped?600:400
+                                      }}>{m.real_name||m.name}</button>
+                                    ) : (
+                                      <span key={i} style={{display:'inline-block',width:28,height:20,border:'1px dashed rgba(100,130,180,0.45)',borderRadius:4,background:'rgba(27,50,85,0.2)'}}/>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                              {/* 固定人员 */}
+                              {fixedNames.length>0 && (
+                                <div style={{fontSize:10,color:'#7c8fa6'}}>
+                                  固定 <span style={{color:'#c4b5fd'}}>{fixedNames.join('、')}</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                        {p.notes && <div style={{fontSize:10,color:'#7c8fa6',fontStyle:'italic'}}>备注：{p.notes}</div>}
+                      </div>
+                    ) : (
+                      <div style={{padding:'8px 12px',fontSize:11,color:'#7c8fa6'}}>
+                        未分配小组{p.notes && <span style={{marginLeft:6}}>（{p.notes}）</span>}
+                      </div>
+                    )}
+
+                    {/* ── 变更记录 ── */}
+                    {p.change_log && (
+                      <div style={{padding:'5px 12px 7px',borderTop:'1px solid rgba(27,50,85,0.4)',background:'rgba(0,0,0,0.12)'}}>
+                        {p.change_log.split('\n').map((ln,i)=>(
+                          <div key={i} style={{fontSize:10,color:'#6b7280',lineHeight:1.7}}>• {ln}</div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* ── 现场记录 & 确认点评 ── */}
+                    {p.plan_type !== '轮空' && canEdit && (
+                      <div style={{display:'flex',gap:6,padding:'7px 10px',borderTop:'1px solid rgba(27,50,85,0.35)',background:'rgba(0,0,0,0.1)'}}>
+                        <button onClick={async()=>{
+                          const photos = await apiJson(`/api/workshop/training-plan/${p.id}/photos`).catch(()=>[]);
+                          setPhotoModal({planId:p.id,photos:Array.isArray(photos)?photos:[]});
+                        }} style={{flex:1,padding:'6px',borderRadius:6,border:'1px solid rgba(59,130,246,0.3)',background:'rgba(59,130,246,0.07)',color:'#60a5fa',fontSize:11,fontFamily:'inherit',cursor:'pointer',fontWeight:600}}>
+                          📷 现场记录
+                        </button>
+                        {p.plan_type !== '中旬会' && (
+                          <button onClick={async()=>{
+                            const overrides = p.memberOverrides||{added:[],removed:[]};
+                            const removedIds = new Set((overrides.removed||[]).map(r=>String(r.id||r.staff_id)));
+                            const baseM = (g?.members||[]).filter(m=>!removedIds.has(String(m.id)));
+                            const addedM = (overrides.added||[]).map(a=>({id:a.id||a.staff_id,real_name:a.real_name||a.staff_name||a.name}));
+                            const fixedM = (plan.fixedStaff||[]).map(f=>({id:f.staff_id,real_name:f.real_name||f.name}));
+                            const allM = [...baseM,...addedM,...fixedM].filter((m,i,a)=>a.findIndex(x=>x.id===m.id)===i);
+                            const evals = await apiJson(`/api/workshop/training-plan/${p.id}/evaluations`).catch(()=>[]);
+                            const evMap = {};
+                            (Array.isArray(evals)?evals:[]).forEach(e=>{ evMap[e.staff_id]=e; });
+                            // 加载本月年度计划项点
+                            const shiftYear = parseInt(p.shift_date.slice(0,4));
+                            const shiftMonth = parseInt(p.shift_date.slice(5,7));
+                            const yearPlanData = await apiJson(`/api/admin/training-year-plan?year=${shiftYear}`).catch(()=>[]);
+                            const monthPlanItems = (Array.isArray(yearPlanData)?yearPlanData:[]).find(r=>r.month===shiftMonth)?.sessions || [];
+                            const currentItems = (() => { try { return JSON.parse(p.completed_items||'[]'); } catch(e) { return []; } })();
+                            setEvalModal({planId:p.id,shiftDate:p.shift_date,members:allM,step:'items',target:null,comment:'',saving:false,evaluations:evMap,yearPlanItems:monthPlanItems,selectedItems:currentItems.length>0?currentItems:monthPlanItems.map(i=>i.item)});
+                          }} style={{flex:1,padding:'6px',borderRadius:6,border:'1px solid rgba(251,191,36,0.3)',background:'rgba(251,191,36,0.07)',color:'#fbbf24',fontSize:11,fontFamily:'inherit',cursor:'pointer',fontWeight:600}}>
+                            ✅ 确认点评
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 轮空确认弹窗 */}
+      {lunKongConfirm && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>setLunKongConfirm(null)}>
+          <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:340}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontWeight:600,color:'#fbbf24',fontSize:14,marginBottom:8}}>⚠️ 设为轮空</div>
+            <div style={{fontSize:12,color:'#94a3b8',marginBottom:4,lineHeight:1.6}}>
+              此次早班将设为<strong style={{color:'#ef4444'}}>轮空</strong>，不安排培训。<br/>
+              后续日程不会自动级联变化，如需调整小组顺序请使用"重生"功能。
+            </div>
+            <div style={{fontSize:11,color:'#64748b',marginBottom:5,marginTop:10}}>轮空原因（必填）</div>
+            <input
+              value={lunKongConfirm.noteInput}
+              onChange={e=>setLunKongConfirm(prev=>({...prev,noteInput:e.target.value}))}
+              placeholder="如：恶劣天气、临时调整…"
+              autoFocus
+              style={{width:'100%',boxSizing:'border-box',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:6,padding:'8px 10px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none',marginBottom:14}}
+            />
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={()=>setLunKongConfirm(null)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
+              <button disabled={!lunKongConfirm.noteInput.trim()} onClick={confirmLunKong} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#7c1d1d,#dc2626)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:!lunKongConfirm.noteInput.trim()?0.4:1}}>确认设为轮空</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 成员操作弹窗 */}
+      {memberModal && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:210,padding:16}} onClick={()=>setMemberModal(null)}>
+          <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:340}} onClick={e=>e.stopPropagation()}>
+
+            {/* 主选项：替换 / 延后 */}
+            {memberModal.step==='main' && (<>
+              <div style={{fontWeight:600,color:'#e2e8f0',fontSize:14,marginBottom:4}}>
+                {memberModal.staffName}
+                {memberModal.isAdded && <span style={{fontSize:10,color:'#60a5fa',marginLeft:6,fontWeight:400}}>（换入）</span>}
+              </div>
+              <div style={{fontSize:11,color:'#475569',marginBottom:16}}>选择操作</div>
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={async()=>{
+                  // 加载本月其他计划的成员（排除本计划，且只显示未来日期）
+                  const today2 = new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'});
+                  const allP = plan.plans.filter(x=>x.id!==memberModal.planId&&x.plan_type!=='轮空'&&x.plan_type!=='中旬会'&&x.group&&x.shift_date>=today2);
+                  // 候选：其他计划的组员（包含他们的固定成员来源不同，暂仅用正式组员）
+                  const candidates = allP.flatMap(x=>{
+                    const g2=x.group;
+                    if(!g2)return[];
+                    const overrides2=x.memberOverrides||{added:[],removed:[]};
+                    const removed2=new Set((overrides2.removed||[]).map(r=>String(r.id||r.staff_id)));
+                    const base2=(g2.members||[]).filter(m=>m.id!==g2.instructor_id&&!removed2.has(String(m.id))&&!(plan.fixedStaff||[]).some(f=>f.staff_id===m.id));
+                    const added2=(overrides2.added||[]).map(a=>({id:a.id||a.staff_id,real_name:a.real_name||a.staff_name||a.name,isAdded:true}));
+                    return [...base2,...added2].map(m=>({...m,planId:x.id,shiftDate:x.shift_date}));
+                  }).filter(m=>m.id!==memberModal.staffId);
+                  setMemberModal(prev=>({...prev,step:'swap',candidates}));
+                }} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid #1e3a5f',background:'rgba(59,130,246,0.1)',color:'#60a5fa',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>
+                  替换
+                </button>
+                <button onClick={()=>{
+                  // 候选：本月之后的其他培训日期（排除本计划）
+                  const today = new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'});
+                  const futurePlans = plan.plans.filter(x=>x.id!==memberModal.planId&&x.shift_date>=today&&x.plan_type!=='轮空'&&x.plan_type!=='中旬会');
+                  setMemberModal(prev=>({...prev,step:'postpone',candidates:futurePlans}));
+                }} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid #1e3a5f',background:'rgba(251,191,36,0.08)',color:'#fbbf24',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>
+                  延后
+                </button>
+              </div>
+              <button onClick={()=>setMemberModal(null)} style={{width:'100%',marginTop:10,padding:'8px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>取消</button>
+            </>)}
+
+            {/* 替换：选目标成员 */}
+            {memberModal.step==='swap' && (<>
+              <div style={{fontWeight:600,color:'#e2e8f0',fontSize:13,marginBottom:4}}>替换 {memberModal.staffName}</div>
+              <div style={{fontSize:11,color:'#475569',marginBottom:10}}>选择要与之互换的成员</div>
+              <div style={{maxHeight:260,overflowY:'auto',display:'flex',flexDirection:'column',gap:4}}>
+                {memberModal.candidates.length===0&&<div style={{fontSize:12,color:'#475569',textAlign:'center',padding:'16px 0'}}>无可替换成员</div>}
+                {memberModal.candidates.map((c,i)=>(
+                  <button key={i} onClick={()=>setMemberModal(prev=>({...prev,target:c}))} style={{
+                    padding:'8px 12px',borderRadius:7,border:`1px solid ${memberModal.target?.id===c.id&&memberModal.target?.planId===c.planId?'#3b82f6':'#1b3255'}`,
+                    background:memberModal.target?.id===c.id&&memberModal.target?.planId===c.planId?'rgba(59,130,246,0.15)':'rgba(13,17,23,0.4)',
+                    color:'#e2e8f0',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left',
+                    display:'flex',justifyContent:'space-between',alignItems:'center'
+                  }}>
+                    <span style={{fontWeight:600}}>{c.real_name||c.name}</span>
+                    <span style={{fontSize:10,color:'#475569'}}>{c.shiftDate?.slice(5)}</span>
+                  </button>
+                ))}
+              </div>
+              {memberModal.target && (
+                <div style={{marginTop:10,padding:'8px 10px',background:'rgba(59,130,246,0.08)',borderRadius:6,border:'1px solid rgba(59,130,246,0.2)',fontSize:11,color:'#94a3b8'}}>
+                  将与 <strong style={{color:'#60a5fa'}}>{memberModal.target.real_name||memberModal.target.name}</strong>（{memberModal.target.shiftDate?.slice(5)}）互换位置
+                </div>
+              )}
+              <div style={{display:'flex',gap:8,marginTop:12}}>
+                <button onClick={()=>setMemberModal(prev=>({...prev,step:'main',target:null}))} style={{flex:1,padding:'9px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>返回</button>
+                <button disabled={!memberModal.target} onClick={async()=>{
+                  const {planId,staffId,target} = memberModal;
+                  const now = new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'});
+                  const r = await apiJson('/api/admin/training-plan/member-swap',{method:'POST',headers:hdrs(),body:JSON.stringify({
+                    plan_id_a:planId, staff_id_a:staffId,
+                    plan_id_b:target.planId, staff_id_b:target.id,
+                    note:`${now} ${memberModal.staffName}↔${target.real_name||target.name}`
+                  })}).catch(()=>null);
+                  if(r?.ok){setMemberModal(null);load(month);}
+                  else alert(r?.error||'操作失败');
+                }} style={{flex:2,padding:'9px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#2563eb)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberModal.target?1:0.4}}>
+                  确认互换
+                </button>
+              </div>
+            </>)}
+
+            {/* 中旬会：选人员 */}
+            {memberModal.step==='zhxh_pick' && (<>
+              <div style={{fontWeight:600,color:'#e2e8f0',fontSize:13,marginBottom:4}}>登记人员</div>
+              <div style={{maxHeight:240,overflowY:'auto',display:'flex',flexDirection:'column',gap:3,marginBottom:10}}>
+                {(plan.allStaff||[]).filter(s=>!memberModal.specialEntries?.some(e=>e.staffId===s.id)).map((s,i)=>(
+                  <button key={i} onClick={()=>setMemberModal(prev=>({...prev,target:{staffId:null,staffName:s.real_name||s.name},step:'zhxh_confirm'}))} style={{
+                    padding:'7px 12px',borderRadius:7,border:'1px solid #1b3255',
+                    background:'rgba(13,17,23,0.4)',color:'#e2e8f0',
+                    fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left'
+                  }}>
+                    {s.real_name||s.name}
+                  </button>
+                ))}
+              </div>
+              {/* 手动输入外部人员 */}
+              <div style={{fontSize:11,color:'#475569',marginBottom:5}}>或手动输入姓名</div>
+              <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                <input
+                  value={memberModal.manualName||''}
+                  onChange={e=>setMemberModal(prev=>({...prev,manualName:e.target.value}))}
+                  placeholder="输入姓名…"
+                  style={{width:'100%',boxSizing:'border-box',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:6,padding:'7px 10px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none'}}
+                />
+                <button disabled={!(memberModal.manualName||'').trim()} onClick={()=>{
+                  const name = (memberModal.manualName||'').trim();
+                  if(!name) return;
+                  setMemberModal(prev=>({...prev,target:{staffId:null,staffName:name},step:'zhxh_confirm'}));
+                }} style={{width:'100%',padding:'8px',borderRadius:6,border:'none',background:'rgba(59,130,246,0.2)',color:'#60a5fa',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer',opacity:(memberModal.manualName||'').trim()?1:0.4}}>
+                  下一步
+                </button>
+              </div>
+              <button onClick={()=>setMemberModal(null)} style={{width:'100%',marginTop:8,padding:'7px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>取消</button>
+            </>)}
+
+            {/* 中旬会：选类型（请假 / 临时参会） */}
+            {memberModal.step==='zhxh_confirm' && memberModal.target && (<>
+              <div style={{fontWeight:600,color:'#e2e8f0',fontSize:14,marginBottom:4}}>{memberModal.target.staffName}</div>
+              <div style={{fontSize:11,color:'#475569',marginBottom:14}}>选择状态</div>
+              <div style={{display:'flex',gap:8}}>
+                {['请假','临时参会'].map(type=>(
+                  <button key={type} onClick={async()=>{
+                    const newEntry = {staffId:memberModal.target.staffId,staffName:memberModal.target.staffName,type};
+                    const newEntries = [...(memberModal.specialEntries||[]),newEntry];
+                    const now2 = new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'});
+                    const r = await apiJson(`/api/admin/training-plan/${memberModal.planId}`,{method:'PUT',headers:hdrs(),body:JSON.stringify({
+                      notes:JSON.stringify(newEntries),
+                      log_entry:`${now2} 登记：${memberModal.target.staffName} ${type}`
+                    })}).catch(()=>null);
+                    if(r?.ok){setMemberModal(null);load(month);}
+                    else alert('操作失败');
+                  }} style={{
+                    flex:1,padding:'12px 8px',borderRadius:8,border:`1px solid ${type==='请假'?'rgba(239,68,68,0.4)':'rgba(59,130,246,0.4)'}`,
+                    background:type==='请假'?'rgba(239,68,68,0.1)':'rgba(59,130,246,0.1)',
+                    color:type==='请假'?'#fca5a5':'#93c5fd',
+                    fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'
+                  }}>{type}</button>
+                ))}
+              </div>
+              <button onClick={()=>setMemberModal(prev=>({...prev,step:'zhxh_pick',target:null}))} style={{width:'100%',marginTop:10,padding:'8px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>返回</button>
+            </>)}
+
+            {/* 延后：选目标日期 */}
+            {memberModal.step==='postpone' && (<>
+              <div style={{fontWeight:600,color:'#e2e8f0',fontSize:13,marginBottom:4}}>延后 {memberModal.staffName}</div>
+              <div style={{fontSize:11,color:'#475569',marginBottom:10}}>选择延后回段的日期</div>
+              <div style={{maxHeight:240,overflowY:'auto',display:'flex',flexDirection:'column',gap:4}}>
+                {memberModal.candidates.length===0&&<div style={{fontSize:12,color:'#475569',textAlign:'center',padding:'16px 0'}}>无可选日期</div>}
+                {memberModal.candidates.map((fp,i)=>(
+                  <button key={i} onClick={()=>setMemberModal(prev=>({...prev,target:fp}))} style={{
+                    padding:'8px 12px',borderRadius:7,border:`1px solid ${memberModal.target?.id===fp.id?'#fbbf24':'#1b3255'}`,
+                    background:memberModal.target?.id===fp.id?'rgba(251,191,36,0.12)':'rgba(13,17,23,0.4)',
+                    color:'#e2e8f0',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left',
+                    display:'flex',justifyContent:'space-between',alignItems:'center'
+                  }}>
+                    <span style={{fontWeight:600}}>{fp.shift_date?.slice(5)}</span>
+                    <span style={{fontSize:10,color:'#475569'}}>{fp.group?.name||'—'}</span>
+                  </button>
+                ))}
+              </div>
+              {memberModal.target && (
+                <div style={{marginTop:10,padding:'8px 10px',background:'rgba(251,191,36,0.06)',borderRadius:6,border:'1px solid rgba(251,191,36,0.2)',fontSize:11,color:'#94a3b8'}}>
+                  <strong style={{color:'#fbbf24'}}>{memberModal.staffName}</strong> 将从本次移出，延后至 <strong style={{color:'#fbbf24'}}>{memberModal.target.shift_date?.slice(5)}</strong>
+                </div>
+              )}
+              <div style={{display:'flex',gap:8,marginTop:12}}>
+                <button onClick={()=>setMemberModal(prev=>({...prev,step:'main',target:null}))} style={{flex:1,padding:'9px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>返回</button>
+                <button disabled={!memberModal.target} onClick={async()=>{
+                  const {planId,staffId,target} = memberModal;
+                  const now = new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'});
+                  const r = await apiJson('/api/admin/training-plan/member-postpone',{method:'POST',headers:hdrs(),body:JSON.stringify({
+                    from_plan_id:planId, to_plan_id:target.id, staff_id:staffId,
+                    note:`${now} ${memberModal.staffName}延后至${target.shift_date?.slice(5)}`
+                  })}).catch(()=>null);
+                  if(r?.ok){setMemberModal(null);load(month);}
+                  else alert(r?.error||'操作失败');
+                }} style={{flex:2,padding:'9px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#7c5c00,#d97706)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberModal.target?1:0.4}}>
+                  确认延后
+                </button>
+              </div>
+            </>)}
+
+          </div>
+        </div>
+      )}
+
+      {/* 现场记录弹窗 */}
+      {photoModal && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:210,padding:0}} onClick={()=>setPhotoModal(null)}>
+          <div style={{background:'#0f2744',borderRadius:'14px 14px 0 0',padding:20,width:'100%',maxWidth:480,maxHeight:'80vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontWeight:600,color:'#e2e8f0',fontSize:14,marginBottom:14,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              📷 现场记录
+              <button onClick={()=>setPhotoModal(null)} style={{background:'none',border:'none',color:'#475569',fontSize:18,cursor:'pointer',padding:0}}>×</button>
+            </div>
+
+            {/* 照片网格 */}
+            <div style={{flex:1,overflowY:'auto',marginBottom:12}}>
+              {photoModal.photos.length===0 && (
+                <div style={{textAlign:'center',color:'#334155',fontSize:12,padding:'24px 0'}}>暂无照片，点击下方按钮拍照</div>
+              )}
+              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6}}>
+                {photoModal.photos.map(ph=>(
+                  <div key={ph.id} style={{position:'relative',aspectRatio:'1',borderRadius:6,overflow:'hidden',border:'1px solid #1b3255'}}>
+                    <img src={ph.url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                    <button onClick={async()=>{
+                      if(!confirm('删除这张照片？')) return;
+                      await apiJson(`/api/workshop/training-plan/photos/${ph.id}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);
+                      setPhotoModal(prev=>({...prev,photos:prev.photos.filter(x=>x.id!==ph.id)}));
+                    }} style={{position:'absolute',top:3,right:3,width:20,height:20,borderRadius:'50%',background:'rgba(0,0,0,0.6)',border:'none',color:'white',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>×</button>
+                    <div style={{position:'absolute',bottom:0,left:0,right:0,background:'rgba(0,0,0,0.5)',fontSize:9,color:'#94a3b8',padding:'2px 4px',textAlign:'center'}}>{ph.uploaded_at?.slice(5,16)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 拍照/选图按钮（后台上传，不阻塞） */}
+            <div style={{display:'flex',gap:8}}>
+              <label style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid rgba(59,130,246,0.4)',background:'rgba(59,130,246,0.1)',color:'#60a5fa',fontSize:13,fontWeight:600,cursor:'pointer',textAlign:'center'}}>
+                📷 拍照
+                <input type="file" accept="image/*" capture="environment" style={{display:'none'}} onChange={e=>{
+                  const file = e.target.files?.[0];
+                  if(file) uploadPhoto(file, photoModal.planId);
+                  e.target.value='';
+                }}/>
+              </label>
+              <label style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid #1b3255',background:'rgba(27,50,85,0.2)',color:'#94a3b8',fontSize:13,fontWeight:600,cursor:'pointer',textAlign:'center'}}>
+                🖼 相册
+                <input type="file" accept="image/*" style={{display:'none'}} onChange={e=>{
+                  const file = e.target.files?.[0];
+                  if(file) uploadPhoto(file, photoModal.planId);
+                  e.target.value='';
+                }}/>
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 确认点评弹窗 */}
+      {evalModal && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:210}} onClick={()=>setEvalModal(null)}>
+          <div style={{background:'#0f2744',borderRadius:'14px 14px 0 0',padding:20,width:'100%',maxWidth:480,maxHeight:'80vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+
+            {/* 第零层：选择本次完成的项点 */}
+            {evalModal.step==='items' && (<>
+              <div style={{fontWeight:600,color:'#e2e8f0',fontSize:14,marginBottom:4,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                本次完成项点
+                <button onClick={()=>setEvalModal(null)} style={{background:'none',border:'none',color:'#475569',fontSize:18,cursor:'pointer',padding:0}}>×</button>
+              </div>
+              <div style={{fontSize:11,color:'#64748b',marginBottom:12}}>勾选本次早班实际完成的培训项点</div>
+              {evalModal.yearPlanItems.length===0
+                ? <div style={{color:'#475569',fontSize:13,textAlign:'center',padding:'20px 0'}}>本月无年度计划项点</div>
+                : <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:6,marginBottom:14}}>
+                  {evalModal.yearPlanItems.map((it,i)=>{
+                    const sel=(evalModal.selectedItems||[]).includes(it.item);
+                    return(
+                      <button key={i} onClick={()=>setEvalModal(prev=>{
+                        const cur=prev.selectedItems||[];
+                        const next=sel?cur.filter(x=>x!==it.item):[...cur,it.item];
+                        return{...prev,selectedItems:next};
+                      })} style={{
+                        padding:'10px 14px',borderRadius:8,border:`1px solid ${sel?'rgba(34,197,94,0.5)':'#1b3255'}`,
+                        background:sel?'rgba(34,197,94,0.09)':'rgba(13,17,23,0.4)',
+                        color:'#e2e8f0',fontFamily:'inherit',fontSize:12,cursor:'pointer',
+                        textAlign:'left',display:'flex',alignItems:'center',gap:10
+                      }}>
+                        <span style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?'#22c55e':'#334155'}`,background:sel?'#22c55e':'transparent',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'white'}}>{sel?'✓':''}</span>
+                        <span style={{flex:1,fontWeight:sel?600:400}}>{it.item}</span>
+                        <span style={{fontSize:10,color:'#475569',flexShrink:0}}>{it.trainType}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              }
+              <button disabled={evalModal.saving} onClick={async()=>{
+                setEvalModal(prev=>({...prev,saving:true}));
+                await apiJson(`/api/workshop/training-plan/${evalModal.planId}/completed-items`,{method:'PATCH',headers:hdrs(),body:JSON.stringify({items:evalModal.selectedItems||[]})}).catch(()=>{});
+                setEvalModal(prev=>({...prev,saving:false,step:'pick'}));
+              }} style={{padding:'11px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:evalModal.saving?0.6:1}}>
+                {evalModal.saving?'保存中…':`确认（已选 ${(evalModal.selectedItems||[]).length} 个项点）→`}
+              </button>
+            </>)}
+
+            {/* 第一层：人员列表 */}
+            {evalModal.step==='pick' && (<>
+              <div style={{fontWeight:600,color:'#e2e8f0',fontSize:14,marginBottom:4,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                ✅ 确认点评
+                <button onClick={()=>setEvalModal(null)} style={{background:'none',border:'none',color:'#475569',fontSize:18,cursor:'pointer',padding:0}}>×</button>
+              </div>
+              <div style={{fontSize:11,color:'#475569',marginBottom:8}}>选择人员进行培训确认和点评</div>
+              {(evalModal.selectedItems||[]).length>0&&<div style={{fontSize:10,color:'#60a5fa',marginBottom:10,padding:'5px 8px',background:'rgba(59,130,246,0.08)',borderRadius:5,border:'1px solid rgba(59,130,246,0.2)'}}>本次项点：{(evalModal.selectedItems||[]).join('、')} <button onClick={()=>setEvalModal(prev=>({...prev,step:'items'}))} style={{marginLeft:6,background:'none',border:'none',color:'#475569',fontSize:10,cursor:'pointer',padding:0}}>修改</button></div>}
+              <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:4}}>
+                {evalModal.members.map((m,i)=>{
+                  const ev = evalModal.evaluations[m.id];
+                  return (
+                    <button key={i} onClick={()=>setEvalModal(prev=>({...prev,step:'eval',target:{staffId:m.id,staffName:m.real_name||m.name},comment:ev?.comment||''}))} style={{
+                      padding:'10px 14px',borderRadius:8,border:`1px solid ${ev?'rgba(34,197,94,0.4)':'#1b3255'}`,
+                      background:ev?'rgba(34,197,94,0.07)':'rgba(13,17,23,0.4)',
+                      color:'#e2e8f0',fontFamily:'inherit',fontSize:13,cursor:'pointer',
+                      textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'
+                    }}>
+                      <span style={{fontWeight:600}}>{m.real_name||m.name}</span>
+                      {ev ? (
+                        <span style={{fontSize:10,color:'#22c55e'}}>✓ 已点评{ev.comment?'':' (无评价)'}</span>
+                      ) : (
+                        <span style={{fontSize:10,color:'#334155'}}>待确认</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </>)}
+
+            {/* 第二层：确认 + 点评框 */}
+            {evalModal.step==='eval' && evalModal.target && (<>
+              <div style={{fontWeight:600,color:'#e2e8f0',fontSize:14,marginBottom:2,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                {evalModal.target.staffName}
+                <button onClick={()=>setEvalModal(null)} style={{background:'none',border:'none',color:'#475569',fontSize:18,cursor:'pointer',padding:0}}>×</button>
+              </div>
+              <div style={{fontSize:11,color:'#475569',marginBottom:14}}>本次培训确认与评价</div>
+              <div style={{fontSize:11,color:'#94a3b8',marginBottom:6}}>培训评价（可不填）</div>
+              <textarea
+                value={evalModal.comment}
+                onChange={e=>setEvalModal(prev=>({...prev,comment:e.target.value}))}
+                placeholder="填写本次培训情况、表现要点或改进建议…"
+                rows={4}
+                style={{width:'100%',boxSizing:'border-box',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:8,padding:'10px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none',resize:'none',marginBottom:14}}
+              />
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={()=>setEvalModal(prev=>({...prev,step:'pick',target:null}))} style={{flex:1,padding:'10px',borderRadius:8,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>返回</button>
+                <button disabled={evalModal.saving} onClick={async()=>{
+                  setEvalModal(prev=>({...prev,saving:true}));
+                  const {planId,target,comment} = evalModal;
+                  const r = await apiJson(`/api/workshop/training-plan/${planId}/evaluations/${target.staffId}`,{
+                    method:'PUT', headers:hdrs(),
+                    body:JSON.stringify({staff_name:target.staffName, comment})
+                  }).catch(()=>null);
+                  if(r?.ok){
+                    const evals = await apiJson(`/api/workshop/training-plan/${planId}/evaluations`).catch(()=>[]);
+                    const evMap={};
+                    (Array.isArray(evals)?evals:[]).forEach(e=>{evMap[e.staff_id]=e;});
+                    setEvalModal(prev=>({...prev,saving:false,step:'pick',target:null,evaluations:evMap}));
+                  } else {
+                    setEvalModal(prev=>({...prev,saving:false}));
+                    alert('保存失败');
+                  }
+                }} style={{flex:2,padding:'10px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#14532d,#16a34a)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:evalModal.saving?0.6:1}}>
+                  {evalModal.saving ? '保存中…' : '✅ 确认培训'}
+                </button>
+              </div>
+            </>)}
+
+          </div>
+        </div>
+      )}
+
+
+      {/* 照片相册弹窗 */}
+      {photoAlbum && (() => {
+        // 按教员分组，教员内按 uploaded_at 排序，再按日期分隔
+        const sorted = [...photoAlbum.photos].sort((a,b)=>(a.uploaded_at||'').localeCompare(b.uploaded_at||''));
+        const instructorMap = {};
+        sorted.forEach(ph => {
+          const inst = ph.instructor_name || '未分配教员';
+          if (!instructorMap[inst]) instructorMap[inst] = {};
+          const dateKey = ph.plan_date || ph.uploaded_at?.slice(0,10) || '未知日期';
+          if (!instructorMap[inst][dateKey]) instructorMap[inst][dateKey] = [];
+          instructorMap[inst][dateKey].push(ph);
+        });
+        const instructors = Object.keys(instructorMap).sort();
+        const allPhotos = sorted;
+        return (
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.92)',zIndex:250,display:'flex',flexDirection:'column'}} onClick={()=>setPhotoAlbum(null)}>
+            <div style={{background:'#0a1929',borderBottom:'1px solid #1b3255',flexShrink:0}} onClick={e=>e.stopPropagation()}>
+              {/* 标题栏 */}
+              <div style={{padding:'12px 16px 8px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <div style={{fontWeight:700,color:'#e2e8f0',fontSize:15}}>📷 现场记录相册</div>
+                <button onClick={()=>setPhotoAlbum(null)} style={{background:'none',border:'none',color:'#475569',fontSize:22,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
+              </div>
+              {/* 上传工具栏 */}
+              <div style={{padding:'0 12px 10px',display:'flex',flexDirection:'column',gap:8}}>
+                {/* 拍照/导入按钮 */}
+                <div style={{display:'flex',gap:8}}>
+                  <button onClick={()=>albumCameraRef.current?.click()} style={{flex:1,padding:'9px',borderRadius:8,border:'1px solid rgba(59,130,246,0.4)',background:'rgba(59,130,246,0.08)',color:'#60a5fa',cursor:'pointer',fontSize:12,fontWeight:600}}>📷 拍照</button>
+                  <button onClick={()=>albumFileRef.current?.click()} style={{flex:1,padding:'9px',borderRadius:8,border:'1px solid rgba(100,116,139,0.4)',background:'rgba(100,116,139,0.06)',color:'#94a3b8',cursor:'pointer',fontSize:12,fontWeight:600}}>🖼 导入图片</button>
+                  <input ref={albumCameraRef} type="file" accept="image/*" capture="environment" multiple style={{display:'none'}} onChange={e=>{Array.from(e.target.files||[]).forEach(f=>albumUploadFile(f));e.target.value='';}}/>
+                  <input ref={albumFileRef} type="file" accept="image/*" multiple style={{display:'none'}} onChange={e=>{Array.from(e.target.files||[]).forEach(f=>albumUploadFile(f));e.target.value='';}}/>
+                </div>
+                {/* 水印设置 */}
+                <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                  <label style={{display:'flex',alignItems:'center',gap:5,cursor:'pointer',userSelect:'none'}}>
+                    <input type="checkbox" checked={albumWatermark} onChange={e=>setAlbumWatermark(e.target.checked)} style={{accentColor:'#3b82f6',width:14,height:14}}/>
+                    <span style={{fontSize:11,color:'#94a3b8'}}>加水印</span>
+                  </label>
+                  {albumWatermark&&(<>
+                    {/* 日期选择 */}
+                    <div style={{display:'flex',alignItems:'center',gap:6}}>
+                      <span style={{fontSize:11,color:'#64748b',flexShrink:0}}>日期</span>
+                      <input type="date" value={albumDate} onChange={e=>setAlbumDate(e.target.value)}
+                        style={{flex:1,background:'#0d1e35',border:'1px solid #1b3255',borderRadius:5,padding:'4px 8px',color:'#e2e8f0',fontSize:11,fontFamily:'inherit',outline:'none'}}/>
+                    </div>
+                    {/* 地点 */}
+                    <div style={{display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
+                      <span style={{fontSize:11,color:'#64748b',flexShrink:0}}>地点</span>
+                      {[['工人村','武汉地铁工人村车辆段'],['青菱','武汉地铁青菱车场'],['复兴路','复兴路地铁站']].map(([short,full])=>(
+                        <button key={short} onClick={()=>setAlbumLocation(albumLocation===full?'':full)} style={{padding:'3px 8px',borderRadius:5,border:`1px solid ${albumLocation===full?'#3b82f6':'#1b3255'}`,background:albumLocation===full?'rgba(59,130,246,0.15)':'transparent',color:albumLocation===full?'#60a5fa':'#64748b',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>{short}</button>
+                      ))}
+                      <button onClick={albumGeolocate} disabled={albumLocLoading} style={{padding:'3px 8px',borderRadius:5,border:'1px solid rgba(34,197,94,0.25)',background:'transparent',color:albumLocLoading?'#475569':'#4ade80',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>
+                        {albumLocLoading?'…':'📍'}
+                      </button>
+                    </div>
+                  </>)}
+                </div>
+              </div>
+            </div>
+            <div style={{flex:1,overflowY:'auto',padding:'10px 12px 24px'}} onClick={e=>e.stopPropagation()}>
+              {photoAlbum.loading && <div style={{textAlign:'center',color:'#475569',padding:'40px 0',fontSize:13}}>加载中…</div>}
+              {!photoAlbum.loading && instructors.length===0 && <div style={{textAlign:'center',color:'#334155',padding:'40px 0',fontSize:13}}>暂无现场照片</div>}
+              {instructors.map(inst => {
+                const dateMap = instructorMap[inst];
+                const dateKeys = Object.keys(dateMap).sort((a,b)=>b.localeCompare(a));
+                const instTotal = dateKeys.reduce((s,d)=>s+dateMap[d].length, 0);
+                return (
+                  <div key={inst} style={{marginBottom:20}}>
+                    {/* 教员标题 */}
+                    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,paddingBottom:6,borderBottom:'1px solid rgba(59,130,246,0.2)'}}>
+                      <span style={{fontSize:13,fontWeight:700,color:'#60a5fa'}}>👤 {inst}</span>
+                      <span style={{fontSize:10,color:'#334155',marginLeft:'auto'}}>{instTotal} 张</span>
+                    </div>
+                    {/* 按日期分块 */}
+                    {dateKeys.map(dateKey => {
+                      const photos = dateMap[dateKey];
+                      return (
+                        <div key={dateKey} style={{marginBottom:12}}>
+                          <div style={{fontSize:11,color:'#475569',marginBottom:5,display:'flex',alignItems:'center',gap:6}}>
+                            <span style={{color:'#64748b',fontWeight:600}}>{dateKey}</span>
+                            <span style={{color:'#334155'}}>· {photos[0]?.plan_type||''} {photos[0]?.group_name||''}</span>
+                            <span style={{marginLeft:'auto',color:'#334155'}}>{photos.length} 张</span>
+                          </div>
+                          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:5}}>
+                            {photos.map(ph => {
+                              const globalIdx = allPhotos.indexOf(ph);
+                              return (
+                                <div key={ph.photo_id} style={{position:'relative',aspectRatio:'1',borderRadius:7,overflow:'hidden',border:'1px solid #1b3255',background:'#0d1e35'}}>
+                                  <img src={ph.url} alt="" loading="lazy" onClick={()=>setLightbox({photos:allPhotos,index:globalIdx})} style={{width:'100%',height:'100%',objectFit:'cover',cursor:'pointer'}}/>
+                                  <div style={{position:'absolute',bottom:0,left:0,right:0,fontSize:9,color:'rgba(255,255,255,0.45)',background:'rgba(0,0,0,0.3)',padding:'2px 4px',textAlign:'right',lineHeight:1.4}}>
+                                    {ph.uploaded_at?.slice(11,16)}
+                                  </div>
+                                  {hasEditPerm&&(
+                                    <button onClick={async e=>{
+                                      e.stopPropagation();
+                                      if(!window.confirm('确认删除此照片？'))return;
+                                      await apiJson(`/api/workshop/training-plan/photos/${ph.photo_id}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);
+                                      const photos2=await apiJson('/api/workshop/photos').catch(()=>[]);
+                                      setPhotoAlbum(prev=>prev?{...prev,photos:Array.isArray(photos2)?photos2:[]}:prev);
+                                    }} style={{position:'absolute',top:4,right:4,width:20,height:20,borderRadius:'50%',border:'none',background:'rgba(239,68,68,0.8)',color:'white',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1}}>×</button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 全屏灯箱 */}
+      {lightbox && (() => {
+        const ph = lightbox.photos[lightbox.index];
+        const total = lightbox.photos.length;
+        const goPrev = e => { e.stopPropagation(); setLightbox(l=>({...l,index:(l.index-1+total)%total})); };
+        const goNext = e => { e.stopPropagation(); setLightbox(l=>({...l,index:(l.index+1)%total})); };
+        return (
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.97)',zIndex:300,display:'flex',flexDirection:'column'}} onClick={()=>setLightbox(null)}>
+            {/* 顶栏 */}
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',flexShrink:0}} onClick={e=>e.stopPropagation()}>
+              <div style={{color:'#94a3b8',fontSize:12}}>{lightbox.index+1} / {total}</div>
+              <a href={ph.url} download={ph.filename}
+                style={{fontSize:11,padding:'5px 12px',borderRadius:6,border:'1px solid rgba(59,130,246,0.5)',background:'rgba(59,130,246,0.12)',color:'#60a5fa',textDecoration:'none',fontWeight:600}}
+                onClick={e=>e.stopPropagation()}>
+                ⬇ 下载
+              </a>
+              <button onClick={()=>setLightbox(null)} style={{background:'none',border:'none',color:'#475569',fontSize:22,cursor:'pointer',padding:0}}>×</button>
+            </div>
+            {/* 图片区 */}
+            <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',overflow:'hidden'}} onClick={e=>e.stopPropagation()}>
+              {total>1 && <button onClick={goPrev} style={{position:'absolute',left:8,zIndex:1,background:'rgba(0,0,0,0.5)',border:'1px solid #1b3255',borderRadius:'50%',width:36,height:36,color:'white',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>‹</button>}
+              <img src={ph.url} alt="" style={{maxWidth:'100%',maxHeight:'100%',objectFit:'contain',borderRadius:4}}/>
+              {total>1 && <button onClick={goNext} style={{position:'absolute',right:8,zIndex:1,background:'rgba(0,0,0,0.5)',border:'1px solid #1b3255',borderRadius:'50%',width:36,height:36,color:'white',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>›</button>}
+            </div>
+            {/* 底部信息 */}
+            <div style={{padding:'8px 14px',color:'#475569',fontSize:11,textAlign:'center',flexShrink:0}} onClick={e=>e.stopPropagation()}>
+              {ph.plan_date} {ph.plan_type && `· ${ph.plan_type}`} {ph.group_name && `· ${ph.group_name}`}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 后台上传进度浮动提示 */}
+      {uploadQueue.length > 0 && (
+        <div style={{position:'fixed',bottom:90,left:'50%',transform:'translateX(-50%)',zIndex:300,display:'flex',flexDirection:'column',gap:4,minWidth:200,maxWidth:320,pointerEvents:'none'}}>
+          {uploadQueue.map(item=>(
+            <div key={item.id} style={{
+              background: item.status==='done' ? 'rgba(22,163,74,0.9)' : item.status==='error' ? 'rgba(220,38,38,0.9)' : 'rgba(15,39,68,0.95)',
+              border: `1px solid ${item.status==='done'?'rgba(34,197,94,0.5)':item.status==='error'?'rgba(239,68,68,0.5)':'rgba(59,130,246,0.4)'}`,
+              borderRadius:10,padding:'8px 14px',display:'flex',alignItems:'center',gap:8,
+              boxShadow:'0 4px 16px rgba(0,0,0,0.4)'
+            }}>
+              <span style={{fontSize:13}}>
+                {item.status==='uploading' ? '⏫' : item.status==='done' ? '✅' : '❌'}
+              </span>
+              <span style={{color:'#e2e8f0',fontSize:12,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                {item.status==='uploading' ? `上传中… ${item.filename}` : item.status==='done' ? `上传成功` : `上传失败`}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 月度设置弹窗 */}
+      {showSettings && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>setShowSettings(false)}>
+          <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:360}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontWeight:600,color:'#e2e8f0',fontSize:15,marginBottom:14}}>月度设置 — {monthLabel(month)}</div>
+            <div style={{fontSize:11,color:'#64748b',marginBottom:5}}>中旬会日期（留空=自动取11~20首个工作日早班）</div>
+            <input type="date" value={safetyInput} onChange={e=>setSafetyInput(e.target.value)}
+              style={{width:'100%',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:6,padding:'7px 10px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none',boxSizing:'border-box',marginBottom:12}}/>
+            <div style={{fontSize:11,color:'#64748b',marginBottom:5}}>本月起始小组</div>
+            <select value={startGroupInput} onChange={e=>setStartGroupInput(e.target.value)}
+              style={{width:'100%',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:6,padding:'7px 10px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none',marginBottom:10}}>
+              <option value="">— 自动（第一小组）—</option>
+              {(plan?.groups||[]).map(g=><option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+            <div style={{fontSize:11,color:'#64748b',marginBottom:5}}>班组长起始序号（0~N）</div>
+            <input type="number" value={startLeaderInput} onChange={e=>setStartLeaderInput(e.target.value)} min={0}
+              style={{width:'100%',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:6,padding:'7px 10px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none',boxSizing:'border-box',marginBottom:16}}
+              placeholder={`0 ~ ${(plan?.leaderStaff?.length||1)-1}`}/>
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={()=>setShowSettings(false)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
+              <button onClick={saveSettings} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>保存并重新生成</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+// ── 导入培训计划卡片 ──────────────────────────────────────────────────────────
+const TRAIN_TYPES_YP = ['示范','实操','理论','实践','其他'];
+const TYPE_COLOR_YP = {'示范':'#a78bfa','实操':'#34d399','理论':'#38bdf8','实践':'#fb923c','其他':'#94a3b8'};
+
+function ImportPlanCard({ hdrs }) {
+  const curYear = new Date().getFullYear();
+  const curMonth = new Date().getMonth() + 1;
+  const [uploading, setUploading] = useState(false);
+  const [fileList, setFileList] = useState(null);
+  const [yearPlan, setYearPlan] = useState([]); // [{year,month,sessions:[{item,trainType}]}]
+  const [expanded, setExpanded] = useState({ [curMonth]: true });
+  // editBuf[month] = [{item,trainType}] — 编辑中的草稿
+  const [editBuf, setEditBuf] = useState({});
+  const [editingMonth, setEditingMonth] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [parsing, setParsing] = useState({});
+
+  const iconFor = name => {
+    const ext = (name||'').split('.').pop()?.toLowerCase();
+    if (['jpg','jpeg','png','gif','webp','heic','bmp'].includes(ext)) return '🖼';
+    if (['xlsx','xls','csv'].includes(ext)) return '📊';
+    if (ext==='pdf') return '📄';
+    if (['doc','docx'].includes(ext)) return '📝';
+    return '📎';
+  };
+
+  const loadFileList = () => fetch('/api/admin/training-imports',{headers:hdrs()}).then(r=>r.json()).then(d=>setFileList(Array.isArray(d)?d:[])).catch(()=>setFileList([]));
+  const loadPlan = () => fetch(`/api/admin/training-year-plan?year=${curYear}`,{headers:hdrs()}).then(r=>r.json()).then(d=>setYearPlan(Array.isArray(d)?d:[])).catch(()=>{});
+
+  useEffect(()=>{ loadFileList(); loadPlan(); },[]);
+
+  const upload = async (files) => {
+    if (!files?.length) return;
+    setUploading(true);
+    for (const f of Array.from(files)) {
+      const fd = new FormData(); fd.append('file', f);
+      const h = {...hdrs()}; delete h['Content-Type'];
+      await fetch('/api/admin/training-imports',{method:'POST',headers:h,body:fd}).catch(()=>{});
+    }
+    setUploading(false);
+    loadFileList();
+  };
+
+  const delFile = async (id) => {
+    if (!confirm('确认删除此文件？')) return;
+    await fetch(`/api/admin/training-imports/${id}`,{method:'DELETE',headers:hdrs()});
+    setFileList(l=>l.filter(x=>x.id!==id));
+  };
+
+  const parseFile = async (id) => {
+    setParsing(p=>({...p,[id]:true}));
+    await fetch(`/api/admin/training-imports/${id}/parse`,{method:'POST',headers:hdrs()}).catch(()=>{});
+    setFileList(l=>l.map(x=>x.id===id?{...x,parse_status:'processing'}:x));
+    const poll = setInterval(async () => {
+      const r = await fetch('/api/admin/training-imports',{headers:hdrs()}).then(r=>r.json()).catch(()=>[]);
+      const f = r.find(x=>x.id===id);
+      if (f?.parse_status !== 'processing') {
+        setFileList(r); setParsing(p=>({...p,[id]:false})); clearInterval(poll);
+        if (f?.parse_status==='done') loadPlan();
+      }
+    }, 3000);
+    setTimeout(()=>{ clearInterval(poll); setParsing(p=>({...p,[id]:false})); }, 90000);
+  };
+
+  const getMonthRows = (m) => yearPlan.find(r=>r.month===m)?.sessions || [];
+
+  // 开始编辑某月：复制当前数据到 editBuf
+  const startEdit = (m) => {
+    setEditBuf(b=>({...b,[m]: getMonthRows(m).map(r=>({...r}))}));
+    setEditingMonth(m);
+    setExpanded(e=>({...e,[m]:true}));
+  };
+  const cancelEdit = (m) => { setEditingMonth(null); };
+  const saveEdit = async (m) => {
+    setSaving(true);
+    const sessions = editBuf[m] || [];
+    await fetch(`/api/admin/training-year-plan/${curYear}/${m}`,{method:'PUT',headers:hdrs(),body:JSON.stringify({sessions})}).catch(()=>{});
+    setYearPlan(p=>{ const rest=p.filter(r=>r.month!==m); return [...rest,{year:curYear,month:m,sessions}].sort((a,b)=>a.month-b.month); });
+    setEditingMonth(null); setSaving(false);
+  };
+  const bufUpdate = (m,idx,field,val) => setEditBuf(b=>({...b,[m]:b[m].map((r,i)=>i===idx?{...r,[field]:val}:r)}));
+  const bufAdd = (m) => setEditBuf(b=>({...b,[m]:[...(b[m]||getMonthRows(m)),{item:'',trainType:'实操'}]}));
+  const bufDel = (m,idx) => setEditBuf(b=>({...b,[m]:(b[m]||getMonthRows(m)).filter((_,i)=>i!==idx)}));
+
+  const statusBadge = s => s==='done'?{t:'已识别',c:'#22c55e'}:s==='processing'?{t:'识别中…',c:'#f59e0b'}:s==='error'?{t:'识别失败',c:'#ef4444'}:{t:'待识别',c:'#475569'};
+
+  const MONTHS = Array.from({length:12},(_,i)=>i+1);
+
+  return (
+    <div className="card" style={{padding:0,overflow:'hidden'}}>
+
+      {/* ── 文件上传区 ── */}
+      <div style={{padding:'14px 16px 12px',borderBottom:'1px solid #1b3255'}}>
+        <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:10,fontWeight:600}}>导入培训计划文件</div>
+        <label style={{display:'block',border:'1px dashed rgba(59,130,246,0.4)',borderRadius:8,padding:'12px',textAlign:'center',cursor:'pointer',background:'rgba(59,130,246,0.04)',marginBottom:8}}>
+          <input type="file" multiple accept="image/*,.xlsx,.xls,.csv,.pdf,.doc,.docx" style={{display:'none'}}
+            onChange={e=>{upload(e.target.files);e.target.value='';}} disabled={uploading}/>
+          <div style={{fontSize:16,marginBottom:2}}>{uploading?'⏳':'＋'}</div>
+          <div style={{fontSize:11,color:'#64748b'}}>{uploading?'上传中…':'点击上传排班图片 / Excel / PDF / Word'}</div>
+        </label>
+        {fileList && fileList.map(f => {
+          const b = statusBadge(f.parse_status);
+          return (
+            <div key={f.id} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderTop:'1px solid rgba(27,50,85,0.35)'}}>
+              <span style={{fontSize:14,flexShrink:0}}>{iconFor(f.original_name||f.filename)}</span>
+              <div style={{flex:1,overflow:'hidden'}}>
+                <div style={{fontSize:11,color:'#e2e8f0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{f.original_name||f.filename}</div>
+                <div style={{fontSize:10,color:'#475569'}}>{(f.uploaded_at||'').slice(0,16)}</div>
+              </div>
+              <span style={{fontSize:10,color:b.c,flexShrink:0}}>{b.t}</span>
+              {f.parse_status!=='processing' && (
+                <button onClick={()=>parseFile(f.id)} disabled={!!parsing[f.id]}
+                  style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid rgba(59,130,246,0.4)',background:'rgba(59,130,246,0.1)',color:'#60a5fa',cursor:'pointer',flexShrink:0,opacity:parsing[f.id]?0.5:1}}>
+                  🤖 {f.parse_status==='done'?'重新识别':'识别'}
+                </button>
+              )}
+              <a href={`/training-imports/${f.filename}`} target="_blank" style={{fontSize:10,color:'#475569',textDecoration:'none',flexShrink:0}}>查看</a>
+              <button onClick={()=>delFile(f.id)} style={{background:'none',border:'none',color:'#334155',fontSize:16,cursor:'pointer',padding:0,flexShrink:0}}>×</button>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── 年度培训计划表 ── */}
+      {/* 表头 */}
+      <div style={{display:'grid',gridTemplateColumns:'52px 1fr 64px 80px',background:'rgba(27,50,85,0.6)',borderBottom:'1px solid #1b3255'}}>
+        {['月份','培训项点','培训方式','操作'].map(h=>(
+          <div key={h} style={{padding:'7px 8px',fontSize:10,fontWeight:700,color:'#64748b',letterSpacing:1,textAlign:'center'}}>{h}</div>
+        ))}
+      </div>
+
+      {MONTHS.map(m => {
+        const rows = getMonthRows(m);
+        const isOpen = !!expanded[m];
+        const isCur = m===curMonth;
+        const isPast = m<curMonth;
+        const isEditing = editingMonth===m;
+        const buf = editBuf[m] || rows;
+
+        return (
+          <div key={m} style={{borderBottom:'1px solid rgba(27,50,85,0.4)'}}>
+            {/* 月份折叠标题 */}
+            <div onClick={()=>setExpanded(e=>({...e,[m]:!isOpen}))}
+              style={{display:'flex',alignItems:'center',padding:'8px 12px',cursor:'pointer',
+                background:isCur?'rgba(59,130,246,0.07)':isPast?'rgba(0,0,0,0.12)':'transparent',
+                borderLeft:`3px solid ${isCur?'#3b82f6':isPast?'#1e3a5f':'transparent'}`}}>
+              <span style={{fontSize:12,fontWeight:isCur?700:400,color:isCur?'#93c5fd':isPast?'#475569':'#64748b',minWidth:56}}>
+                {m}月 {isCur&&<span style={{fontSize:9,background:'rgba(59,130,246,0.25)',color:'#60a5fa',borderRadius:3,padding:'0 4px',marginLeft:3}}>本月</span>}
+              </span>
+              <span style={{fontSize:10,color:'#334155',flex:1}}>{rows.length>0?`${rows.length}项`:'暂无'}</span>
+              <span style={{fontSize:11,color:'#334155'}}>{isOpen?'▾':'›'}</span>
+            </div>
+
+            {/* 展开内容 */}
+            {isOpen && (<>
+              {/* 数据行 */}
+              {(isEditing?buf:rows).map((r,idx)=>(
+                <div key={idx} style={{display:'grid',gridTemplateColumns:'52px 1fr 64px 80px',borderTop:'1px solid rgba(27,50,85,0.25)',background:idx%2===0?'transparent':'rgba(0,0,0,0.08)'}}>
+                  <div style={{padding:'7px 8px',fontSize:11,color:'#475569',textAlign:'center',alignSelf:'center'}}>{m}/{idx+1}</div>
+                  {isEditing ? (
+                    <input value={r.item||''} onChange={e=>bufUpdate(m,idx,'item',e.target.value)}
+                      style={{margin:'4px 4px',padding:'4px 6px',background:'#0d1e35',border:'1px solid #2a4a7f',borderRadius:4,color:'#e2e8f0',fontSize:11,fontFamily:'inherit',outline:'none'}}/>
+                  ) : (
+                    <div style={{padding:'7px 8px',fontSize:11,color:'#e2e8f0',lineHeight:1.5,alignSelf:'center'}}>{r.item}</div>
+                  )}
+                  {isEditing ? (
+                    <select value={r.trainType||'实操'} onChange={e=>bufUpdate(m,idx,'trainType',e.target.value)}
+                      style={{margin:'4px 2px',padding:'4px 4px',background:'#0d1e35',border:'1px solid #2a4a7f',borderRadius:4,color:TYPE_COLOR_YP[r.trainType]||'#94a3b8',fontSize:11,fontFamily:'inherit',outline:'none'}}>
+                      {TRAIN_TYPES_YP.map(t=><option key={t} value={t}>{t}</option>)}
+                    </select>
+                  ) : (
+                    <div style={{padding:'7px 4px',textAlign:'center',alignSelf:'center'}}>
+                      <span style={{fontSize:10,padding:'2px 6px',borderRadius:4,border:`1px solid ${TYPE_COLOR_YP[r.trainType]||'#475569'}44`,color:TYPE_COLOR_YP[r.trainType]||'#94a3b8',background:`${TYPE_COLOR_YP[r.trainType]||'#475569'}11`}}>{r.trainType||'—'}</span>
+                    </div>
+                  )}
+                  <div style={{padding:'4px 6px',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                    {isEditing && <button onClick={()=>bufDel(m,idx)} style={{background:'none',border:'none',color:'#475569',fontSize:14,cursor:'pointer',padding:'0 4px'}}>×</button>}
+                  </div>
+                </div>
+              ))}
+
+              {/* 空提示 */}
+              {!isEditing && rows.length===0 && (
+                <div style={{padding:'10px 12px',fontSize:11,color:'#334155',textAlign:'center'}}>暂无培训项点</div>
+              )}
+
+              {/* 编辑模式：添加行 + 保存取消 */}
+              {isEditing && (
+                <div style={{padding:'6px 12px',borderTop:'1px solid rgba(27,50,85,0.3)',display:'flex',gap:8,alignItems:'center',background:'rgba(0,0,0,0.1)'}}>
+                  <button onClick={()=>bufAdd(m)} style={{fontSize:11,padding:'4px 10px',borderRadius:5,border:'1px dashed rgba(59,130,246,0.4)',background:'rgba(59,130,246,0.06)',color:'#60a5fa',cursor:'pointer',fontFamily:'inherit'}}>＋ 添加</button>
+                  <span style={{flex:1}}/>
+                  <button onClick={()=>cancelEdit(m)} style={{fontSize:11,padding:'4px 10px',borderRadius:5,border:'1px solid #1b3255',background:'transparent',color:'#64748b',cursor:'pointer',fontFamily:'inherit'}}>取消</button>
+                  <button onClick={()=>saveEdit(m)} disabled={saving} style={{fontSize:11,padding:'4px 12px',borderRadius:5,border:'none',background:'#3b82f6',color:'white',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
+                    {saving?'保存中…':'保存'}
+                  </button>
+                </div>
+              )}
+
+              {/* 非编辑模式：修改按钮 */}
+              {!isEditing && (
+                <div style={{padding:'5px 12px',borderTop:'1px solid rgba(27,50,85,0.2)',background:'rgba(0,0,0,0.08)',display:'flex',justifyContent:'flex-end'}}>
+                  <button onClick={()=>startEdit(m)} style={{fontSize:10,padding:'3px 10px',borderRadius:5,border:'1px solid #1b3255',background:'transparent',color:'#64748b',cursor:'pointer',fontFamily:'inherit'}}>✎ 修改</button>
+                </div>
+              )}
+            </>)}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function AdminScreen({ onBack }) {
-  const [authed,setAuthed]=useState(false);
-  const [pwd,setPwd]=useState('');
+  const [authed,setAuthed]=useState(()=>!!localStorage.getItem('admin_pwd'));
+  const [pwd,setPwd]=useState(()=>localStorage.getItem('admin_pwd')||'');
   const [pwdErr,setPwdErr]=useState('');
   const [tab,setTab]=useState('overview');
   const [overview,setOverview]=useState(null);
@@ -2253,18 +4466,26 @@ function AdminScreen({ onBack }) {
   const [qr,setQr]=useState(null);
   const [logs,setLogs]=useState([]);
   const [lbSessions,setLbSessions]=useState([]);
+  const [lbSessionsAlltime,setLbSessionsAlltime]=useState([]);
   const [lbMode,setLbMode]=useState('cycle'); // 'cycle'|'alltime'
   const [weakQuestions,setWeakQuestions]=useState([]);
   const [incompleteExpanded,setIncompleteExpanded]=useState(false);
   const [lbCollapsed,setLbCollapsed]=useState(true);
+  const [staffListCollapsed,setStaffListCollapsed]=useState(true);
   const [resetModal,setResetModal]=useState(null); // null or {staff_id, name}
   const [makeupModal,setMakeupModal]=useState(null); // null or {staff_id, name}
   const [adminDrillModal,setAdminDrillModal]=useState(null); // {staffId,staffName,mode,loading,sessions,cycles,expandedCycleId}
   const [dingtalkLoading,setDingtalkLoading]=useState(false);
   const [allCorrectExpanded,setAllCorrectExpanded]=useState(false);
   const [lowErrorExpanded,setLowErrorExpanded]=useState(false);
+  const [highErrorCollapsed,setHighErrorCollapsed]=useState(true);
+  const [monthPlanCompletion,setMonthPlanCompletion]=useState([]);
+  const [monthMemberCompletion,setMonthMemberCompletion]=useState(null);
+  const [memberEvalModal,setMemberEvalModal]=useState(null); // {id, name, plans:[]}
+  const [planDetailModal,setPlanDetailModal]=useState(null); // plan object
   const [exportMonths,setExportMonths]=useState([]);
-  const [showExportMenu,setShowExportMenu]=useState(false);
+  const [showExportMenu,setShowExportMenu]=useState(null); // null|'quiz'|'workshop'
+  const [exportWsModal,setExportWsModal]=useState(null);
   // 手动添加题目
   const [addQ,setAddQ]=useState({text:'',reference:'',keywords:'',category:'业务知识',difficulty:'中等',bank_id:''});
   const [addQLoading,setAddQLoading]=useState(false);
@@ -2274,29 +4495,46 @@ function AdminScreen({ onBack }) {
   const [aiBankId,setAiBankId]=useState('');
   const [aiResult,setAiResult]=useState(null);
   const [aiLoading,setAiLoading]=useState(false);
-  // 手动选题
+  // 手动选题 / 抽问设置
   const [qSearch,setQSearch]=useState('');
   const [qAll,setQAll]=useState([]);
-  const [qPinned,setQPinned]=useState({ids:[],scope:'none',bank_fallback_id:null});
+  const [qPinned,setQPinned]=useState({ids:[],scope:'none',mode:'emergency',count:3,bank_id:null});
   const [qSelected,setQSelected]=useState([]);
   const [pinScope,setPinScope]=useState('today');
   const [pinFallback,setPinFallback]=useState('');
   const [qSelectOpen,setQSelectOpen]=useState(false);
   const [qSelectBank,setQSelectBank]=useState('incident'); // 'incident' | 'emergency'
+  const [pinCount,setPinCount]=useState(3);         // 抽问题目数 1-5
+  const [pinMode,setPinMode]=useState('emergency'); // 'manual'|'random'|'emergency'
+  const [pinRandomBankId,setPinRandomBankId]=useState(null); // 多题随机时的题库id
+  const [pinSaveModal,setPinSaveModal]=useState(false); // 保存确认弹窗
+  // 题库展开状态（bankId -> true/false）和题目缓存（bankId -> questions[]）
+  const [bankExpanded,setBankExpanded]=useState({});
+  const [bankQsCache,setBankQsCache]=useState({});
+  const [bankSectionOpen,setBankSectionOpen]=useState({});
+  const [editQModal,setEditQModal]=useState(null); // {id,bankId,text,reference,keywords,category}
+  const [checkedBankIds,setCheckedBankIds]=useState([]);
+  // 上传/人工出题面板
+  const [showUploadPanel,setShowUploadPanel]=useState(false);
+  const [showAddQPanel,setShowAddQPanel]=useState(false);
+  // 新增分类
+  const [newCategoryName,setNewCategoryName]=useState('');
+  const [savingCategory,setSavingCategory]=useState(false);
   const ah=useMemo?undefined:adminHeaders(pwd); // will pass inline
   const hdrs=(extra={})=>({...adminHeaders(pwd),'Content-Type':'application/json',...extra});
 
   const login=async()=>{
     try{const r=await api('/api/admin/login',{method:'POST',body:JSON.stringify({password:pwd})});
-      if(r.ok){setAuthed(true);}else setPwdErr('密码错误');
+      if(r.ok){localStorage.setItem('admin_pwd',pwd);setAuthed(true);}else setPwdErr('密码错误');
     }catch{setPwdErr('连接服务器失败');}
   };
+  const logout=()=>{localStorage.removeItem('admin_pwd');setPwd('');setAuthed(false);};
 
   useEffect(()=>{
     if(!authed)return;
-    if(tab==='overview'){apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});apiJson('/api/admin/weak-questions',{headers:hdrs()}).then(setWeakQuestions).catch(()=>{});apiJson('/api/export/months',{headers:hdrs()}).then(setExportMonths).catch(()=>{});}
+    if(tab==='overview'){apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});apiJson('/api/admin/leaderboard/alltime',{headers:hdrs()}).then(d=>setLbSessionsAlltime(Array.isArray(d)?d:(d.rows||[]))).catch(()=>{});apiJson('/api/admin/weak-questions',{headers:hdrs()}).then(setWeakQuestions).catch(()=>{});apiJson('/api/export/months',{headers:hdrs()}).then(setExportMonths).catch(()=>{});apiJson('/api/admin/month-plan-completion',{headers:hdrs()}).then(setMonthPlanCompletion).catch(()=>{});apiJson('/api/admin/month-member-completion',{headers:hdrs()}).then(setMonthMemberCompletion).catch(()=>{});}
     if(tab==='members')apiJson('/api/admin/members',{headers:hdrs()}).then(setMembers).catch(()=>{});
-    if(tab==='banks'){apiJson('/api/banks',{headers:hdrs()}).then(d=>{setBanks(d);if(d.length>0){setAiBankId(String(d[0].id));setPinFallback(String(d[0].id));}}).catch(()=>{});apiJson('/api/settings',{headers:hdrs()}).then(setSettings).catch(()=>{});apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(d=>{setQPinned(d);setQSelected(d.ids||[]);setPinScope(d.scope==='none'?'today':d.scope);setPinFallback(d.bank_fallback_id?String(d.bank_fallback_id):'');}).catch(()=>{});}
+    if(tab==='banks'){apiJson('/api/banks',{headers:hdrs()}).then(d=>{setBanks(d);if(d.length>0){setAiBankId(String(d[0].id));setPinFallback(String(d[0].id));}const manualBank=d.find(b=>b.name==='人工提问');if(manualBank)setAddQ(q=>({...q,bank_id:String(manualBank.id)}));}).catch(()=>{});apiJson('/api/settings',{headers:hdrs()}).then(setSettings).catch(()=>{});apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(d=>{setQPinned(d);setQSelected(d.ids||[]);setPinScope(d.scope==='none'?'today':d.scope);setPinFallback(d.bank_fallback_id?String(d.bank_fallback_id):'');setPinCount(d.count||3);setPinMode(d.bank_ids?.length>0?'manual':d.mode||'emergency');setPinRandomBankId(d.bank_id||null);setCheckedBankIds(d.bank_ids||[]);}).catch(()=>{});}
     if(tab==='qr')apiJson('/api/qrcode').then(setQr).catch(()=>{});
     if(tab==='logs')apiJson('/api/admin/logs',{headers:hdrs()}).then(setLogs).catch(()=>{});
   },[tab,authed]);
@@ -2333,7 +4571,7 @@ function AdminScreen({ onBack }) {
 
   return(
     <div className="screen admin-screen">
-      <div className="page-header"><button className="back-btn" onClick={onBack}>←</button><h2>管理员后台</h2><div/></div>
+      <div className="page-header"><button className="back-btn" onClick={onBack}>←</button><h2>管理员后台</h2><button onClick={logout} style={{fontSize:11,color:'#475569',background:'none',border:'1px solid #1b3255',borderRadius:5,padding:'3px 9px',cursor:'pointer'}}>退出登录</button></div>
       <div className="tab-row" style={{flexWrap:'wrap',gap:5}}>
         {[['overview','概览'],['members','人员'],['banks','题库'],['settings','设置'],['logs','日志'],['qr','扫码']].map(([k,v])=>(
           <button key={k} className={`tab${tab===k?' active':''}`} style={{flex:'none',padding:'7px 12px'}} onClick={()=>setTab(k)}>{v}</button>
@@ -2375,7 +4613,7 @@ function AdminScreen({ onBack }) {
               return(
                 <div style={{borderTop:'1px solid #1b3255',padding:'10px 12px 10px'}}>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'5px 6px'}}>
-                    {sorted.map((p,ni)=>{
+                    {(staffListCollapsed?sorted.slice(0,12):sorted).map((p,ni)=>{
                       const isDone=p.status==='done';
                       const isInt=p.status==='interrupted';
                       const isBrowse=p.status==='browsed';
@@ -2383,16 +4621,17 @@ function AdminScreen({ onBack }) {
                       const nameCol=isDone?'#22c55e':isInt||isBrowse?'#f59e0b':isOverdue?'#f97316':'#ef4444';
                       const bg=isDone?'rgba(34,197,94,0.06)':isInt||isBrowse?'rgba(245,158,11,0.06)':isOverdue?'rgba(249,115,22,0.07)':'rgba(239,68,68,0.05)';
                       const border=isDone?'rgba(34,197,94,0.18)':isInt||isBrowse?'rgba(245,158,11,0.2)':isOverdue?'rgba(249,115,22,0.25)':'rgba(239,68,68,0.12)';
-                      const clickable=isInt||isBrowse||isOverdue;
+                      const clickable=isDone||isInt||isBrowse||isOverdue;
                       return(
                         <div key={ni} onClick={()=>{
-                          if(isInt||isBrowse) setResetModal({staff_id:p.staff_id,name:p.name});
+                          if(isDone) setResetModal({staff_id:p.staff_id,name:p.name,score:p.score,completed_at:p.completed_at,isDone:true});
+                          else if(isInt||isBrowse) setResetModal({staff_id:p.staff_id,name:p.name});
                           else if(isOverdue) setMakeupModal({staff_id:p.staff_id,name:p.name});
                         }}
                           style={{display:'flex',flexDirection:'column',gap:1,padding:'5px 7px',background:bg,border:`1px solid ${border}`,borderRadius:6,minWidth:0,cursor:clickable?'pointer':'default'}}>
                           <div style={{fontSize:11,color:nameCol,fontWeight:700,lineHeight:1.3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
                           <div style={{fontSize:8,color:'#64748b',lineHeight:1.2}}>
-                            {isDone?`${p.score??'—'}分`:isInt?'中断 ›':isBrowse?'浏览 ›':isOverdue?'逾期 ›':'未答'}
+                            {isDone?`${p.score??'—'}分 ›`:isInt?'中断 ›':isBrowse?'浏览 ›':isOverdue?'逾期 ›':'未答'}
                           </div>
                         </div>
                       );
@@ -2404,6 +4643,12 @@ function AdminScreen({ onBack }) {
                     <span style={{color:'#ef4444'}}>● 未答题</span>
                     <span style={{color:'#f97316'}}>● 逾期（可点击补答）</span>
                   </div>
+                  {sorted.length>12&&(
+                    <div onClick={()=>setStaffListCollapsed(c=>!c)} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,marginTop:8,padding:'7px 0',cursor:'pointer',borderTop:'1px solid rgba(27,50,85,0.4)',color:'#60a5fa',fontSize:12,fontWeight:600}}>
+                      <span style={{display:'inline-block',transform:staffListCollapsed?'none':'rotate(180deg)',transition:'transform 0.2s',fontSize:14}}>⌄</span>
+                      {staffListCollapsed?`展开全部 (共 ${sorted.length} 人)`:'收起'}
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -2467,11 +4712,31 @@ function AdminScreen({ onBack }) {
                 </div>
               );
             };
+            const shownHighError=highErrorCollapsed?highError.slice(0,3):highError;
             return(
               <div className="card" style={{borderColor:'rgba(239,68,68,0.3)'}}>
-                <div style={{fontSize:10,color:'#ef4444',letterSpacing:2,fontWeight:600,marginBottom:14,textTransform:'uppercase'}}>本期高错误率题目</div>
+                <div onClick={()=>setHighErrorCollapsed(c=>!c)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',marginBottom:highErrorCollapsed?8:14}}>
+                  <div style={{fontSize:10,color:'#ef4444',letterSpacing:2,fontWeight:600,textTransform:'uppercase'}}>本期高错误率题目{highError.length>0?` (${highError.length})`:''}</div>
+                  <span style={{fontSize:15,color:'#ef4444',display:'inline-block',transform:highErrorCollapsed?'none':'rotate(180deg)',transition:'transform 0.2s'}}>⌄</span>
+                </div>
+                {highErrorCollapsed&&highError.length>0&&(
+                  <div style={{display:'flex',flexDirection:'column',gap:5}}>
+                    {highError.slice(0,3).map((q,qi)=>(
+                      <div key={qi} style={{display:'flex',alignItems:'center',gap:8}}>
+                        <div style={{flex:1,fontSize:11,color:'rgba(255,255,255,0.75)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{q.question_text.length>28?q.question_text.slice(0,28)+'…':q.question_text}</div>
+                        <span style={{fontSize:12,fontWeight:700,color:q.error_rate>=70?'#ef4444':'#f59e0b',flexShrink:0}}>{q.error_rate}%</span>
+                      </div>
+                    ))}
+                    {highError.length>3&&<div style={{fontSize:10,color:'#475569',marginTop:2}}>还有 {highError.length-3} 道 · 点击展开</div>}
+                  </div>
+                )}
+                {highErrorCollapsed&&highError.length===0&&<div style={{fontSize:12,color:'#22c55e'}}>✓ 暂无高错误率题目</div>}
+                {!highErrorCollapsed&&<>
                 {highError.length===0&&<div style={{fontSize:12,color:'#22c55e',marginBottom:8}}>✓ 暂无错误率 ≥40% 的题目</div>}
-                {highError.map((q,qi)=>renderQ(q,qi,highError))}
+                {shownHighError.map((q,qi)=>renderQ(q,qi,shownHighError))}
+                {highError.length>3&&(
+                  <div onClick={e=>{e.stopPropagation();setHighErrorCollapsed(false);}} style={{textAlign:'center',color:'#60a5fa',fontSize:11,marginTop:8,cursor:'pointer'}}>{highErrorCollapsed?`展开全部 ${highError.length} 道`:'收起'}</div>
+                )}
                 {lowError.length>0&&(
                   <div style={{borderTop:highError.length>0?'1px solid rgba(27,50,85,0.5)':'none',paddingTop:highError.length>0?12:0,marginTop:highError.length>0?2:0}}>
                     <div onClick={()=>setLowErrorExpanded(e=>!e)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',marginBottom:lowErrorExpanded?10:0}}>
@@ -2495,9 +4760,187 @@ function AdminScreen({ onBack }) {
                     ))}
                   </div>
                 )}
+                </>}
               </div>
             );
           })()}
+
+          {/* ── 本月培训完成情况（全员按小组） ── */}
+          {monthMemberCompletion&&(()=>{
+            const allGroups=monthMemberCompletion.groups||[];
+            const fixedMembers=monthMemberCompletion.fixed||[];
+            // 汇总：所有人的 done/total
+            const allMembers=[...allGroups.flatMap(g=>g.members),...fixedMembers];
+            const totalPeople=allMembers.length;
+            const donePeople=allMembers.filter(m=>m.total>0&&m.done>=m.total).length;
+            const pct=Math.round((donePeople/Math.max(totalPeople,1))*100);
+            return(
+              <div className="card" style={{padding:0,overflow:'hidden'}}>
+                <div style={{padding:'14px 16px 10px'}}>
+                  <div style={{fontSize:10,color:'#64748b',letterSpacing:2,fontWeight:600,marginBottom:10,textTransform:'uppercase'}}>本月培训完成情况</div>
+                  <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:10}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:30,fontWeight:900,color:'white',lineHeight:1}}>{donePeople}<span style={{fontSize:12,color:'#64748b',fontWeight:400,marginLeft:5}}>/ {totalPeople} 人</span></div>
+                      {donePeople<totalPeople
+                        ? <div style={{fontSize:11,color:'#f59e0b',marginTop:4}}>还差 {totalPeople-donePeople} 人未完成评价</div>
+                        : <div style={{fontSize:11,color:'#22c55e',marginTop:4}}>全员已完成评价 ✓</div>}
+                    </div>
+                    <ScoreRing score={pct} size={62}/>
+                  </div>
+                  <div style={{height:5,background:'#1e293b',borderRadius:3,overflow:'hidden'}}>
+                    <div style={{height:'100%',width:`${pct}%`,background:'linear-gradient(90deg,#3b82f6,#22c55e)',borderRadius:3,transition:'width 0.8s ease'}}/>
+                  </div>
+                </div>
+                <div style={{borderTop:'1px solid #1b3255',padding:'10px 12px 12px'}}>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:8}}>
+                    {allGroups.map(g=>(
+                      <div key={g.id} style={{background:'rgba(15,33,56,0.6)',border:'1px solid #1b3255',borderRadius:8,padding:'8px 10px'}}>
+                        <div style={{fontSize:10,color:'#60a5fa',fontWeight:700,marginBottom:6,letterSpacing:0.5}}>{g.name}{g.instructor_name?<span style={{color:'#64748b',fontWeight:400,marginLeft:4}}>· {g.instructor_name}</span>:null}</div>
+                        <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                          {g.members.map(m=>{
+                            const isDone=m.total>0&&m.done>=m.total;
+                            const isNone=m.total===0;
+                            const scoreCol=isDone?'#22c55e':isNone?'#475569':'#f59e0b';
+                            const openMemberModal=()=>{
+                              const monthItems=monthMemberCompletion?.monthItems||[];
+                              const itemStatuses=monthItems.map(it=>{
+                                const coveringPlan=(monthPlanCompletion||[]).find(p=>{
+                                  const ci=p.completed_items||[];
+                                  return ci.includes(it.item)&&p.members?.some(x=>x.id===m.id&&x.evaluated);
+                                });
+                                if(coveringPlan){const mem=coveringPlan.members.find(x=>x.id===m.id);return{item:it.item,trainType:it.trainType,done:true,shift_date:coveringPlan.shift_date,comment:mem?.comment||''};}
+                                return{item:it.item,trainType:it.trainType,done:false};
+                              });
+                              setMemberEvalModal({id:m.id,name:m.name,itemStatuses});
+                            };
+                            return(
+                              <div key={m.id} onClick={openMemberModal} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:4,cursor:'pointer',borderRadius:4,padding:'1px 2px',margin:'-1px -2px'}}>
+                                <span style={{fontSize:11,color:isDone?'#94a3b8':'#cbd5e1',fontWeight:isDone?400:500,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.name}</span>
+                                <span style={{fontSize:10,color:scoreCol,fontWeight:700,flexShrink:0}}>
+                                  {isNone?'—':`${m.done}/${m.total}`}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {fixedMembers.length>0&&(
+                    <div style={{marginTop:8,background:'rgba(15,33,56,0.6)',border:'1px solid rgba(196,181,253,0.2)',borderRadius:8,padding:'8px 10px'}}>
+                      <div style={{fontSize:10,color:'#c4b5fd',fontWeight:700,marginBottom:6,letterSpacing:0.5}}>固定成员</div>
+                      <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+                        {fixedMembers.map(m=>{
+                          const isDone=m.total>0&&m.done>=m.total;
+                          const isNone=m.total===0;
+                          const scoreCol=isDone?'#22c55e':isNone?'#475569':'#f59e0b';
+                          const openMemberModal=()=>{
+                            const monthItems=monthMemberCompletion?.monthItems||[];
+                            const itemStatuses=monthItems.map(it=>{
+                              const coveringPlan=(monthPlanCompletion||[]).find(p=>{
+                                const ci=p.completed_items||[];
+                                return ci.includes(it.item)&&p.members?.some(x=>x.id===m.id&&x.evaluated);
+                              });
+                              if(coveringPlan){const mem=coveringPlan.members.find(x=>x.id===m.id);return{item:it.item,trainType:it.trainType,done:true,shift_date:coveringPlan.shift_date,comment:mem?.comment||''};}
+                              return{item:it.item,trainType:it.trainType,done:false};
+                            });
+                            setMemberEvalModal({id:m.id,name:m.name,itemStatuses});
+                          };
+                          return(
+                            <div key={m.id} onClick={openMemberModal} style={{display:'flex',alignItems:'center',gap:4,cursor:'pointer'}}>
+                              <span style={{fontSize:11,color:'#cbd5e1'}}>{m.name}</span>
+                              <span style={{fontSize:10,color:scoreCol,fontWeight:700}}>{isNone?'—':`${m.done}/${m.total}`}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  <div style={{display:'flex',gap:10,marginTop:8,fontSize:9,color:'#475569',flexWrap:'wrap'}}>
+                    <span style={{color:'#22c55e'}}>● 已完成</span>
+                    <span style={{color:'#f59e0b'}}>● 待完成</span>
+                    <span style={{color:'#475569'}}>● 本月无安排</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ── 成员培训评价详情弹窗 ── */}
+          {memberEvalModal&&(
+            <div onClick={()=>setMemberEvalModal(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+              <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'#0d1e35',border:'1px solid rgba(59,130,246,0.3)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'70vh',overflowY:'auto'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:15,color:'white'}}>{memberEvalModal.name}</div>
+                    <div style={{fontSize:12,color:'#64748b',marginTop:2}}>本月培训项点完成情况</div>
+                  </div>
+                  <button onClick={()=>setMemberEvalModal(null)} style={{background:'none',border:'none',color:'#64748b',fontSize:22,cursor:'pointer',lineHeight:1}}>×</button>
+                </div>
+                {(()=>{
+                  const items=memberEvalModal.itemStatuses||[];
+                  if(items.length===0) return <div style={{color:'#475569',fontSize:13,textAlign:'center',padding:'20px 0'}}>本月暂无培训项点</div>;
+                  const doneCount=items.filter(it=>it.done).length;
+                  return(
+                    <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                      <div style={{fontSize:11,color:'#64748b',marginBottom:4}}>{doneCount}/{items.length} 项已完成</div>
+                      {items.map((it,i)=>{
+                        const mm_dd = it.done && it.shift_date ? (()=>{const[,mm,dd]=it.shift_date.split('-');return`${parseInt(mm)}/${parseInt(dd)}`;})() : null;
+                        return(
+                          <div key={i} style={{padding:'10px 12px',background:it.done?'rgba(34,197,94,0.06)':'rgba(239,68,68,0.04)',border:`1px solid ${it.done?'rgba(34,197,94,0.2)':'rgba(239,68,68,0.15)'}`,borderRadius:8}}>
+                            <div style={{display:'flex',alignItems:'center',gap:8}}>
+                              <span style={{fontSize:13,flexShrink:0}}>{it.done?'✅':'❌'}</span>
+                              <span style={{flex:1,fontSize:12,color:it.done?'#e2e8f0':'#ef4444',fontWeight:it.done?500:600}}>{it.item}</span>
+                              <span style={{fontSize:10,color:'#475569',flexShrink:0}}>{it.trainType}</span>
+                              {mm_dd&&<span style={{fontSize:10,color:'#64748b',flexShrink:0}}>（{mm_dd}）</span>}
+                            </div>
+                            {it.done&&it.comment&&(
+                              <div style={{marginTop:5,fontSize:11,color:'#94a3b8',lineHeight:1.6,borderLeft:'2px solid rgba(34,197,94,0.35)',paddingLeft:8}}>评价：{it.comment}</div>
+                            )}
+                            {it.done&&!it.comment&&(
+                              <div style={{marginTop:3,fontSize:10,color:'#475569',paddingLeft:10}}>（无评语）</div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* ── 本月项点详情弹窗 ── */}
+          {planDetailModal&&(
+            <div onClick={()=>setPlanDetailModal(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+              <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'#0d1e35',border:'1px solid rgba(59,130,246,0.3)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'70vh',overflowY:'auto'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:15,color:'white'}}>{(()=>{const[,m,d]=planDetailModal.shift_date.split('-');return`${parseInt(m)}月${parseInt(d)}日`;})()}</div>
+                    <div style={{fontSize:12,color:'#64748b',marginTop:2}}>{planDetailModal.group_name} · {planDetailModal.plan_type==='培训'?'实操培训':planDetailModal.plan_type}</div>
+                  </div>
+                  <button onClick={()=>setPlanDetailModal(null)} style={{background:'none',border:'none',color:'#64748b',fontSize:22,cursor:'pointer',lineHeight:1}}>×</button>
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                  {planDetailModal.members.length===0
+                    ? <div style={{color:'#475569',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无成员数据</div>
+                    : planDetailModal.members.map((m,i)=>(
+                      <div key={i} style={{padding:'8px 12px',background:m.evaluated?'rgba(34,197,94,0.06)':'rgba(239,68,68,0.05)',border:`1px solid ${m.evaluated?'rgba(34,197,94,0.18)':'rgba(239,68,68,0.12)'}`,borderRadius:8}}>
+                        <div style={{display:'flex',alignItems:'center',gap:10}}>
+                          <div style={{width:8,height:8,borderRadius:'50%',background:m.evaluated?'#22c55e':'#ef4444',flexShrink:0}}/>
+                          <div style={{flex:1,fontSize:13,color:'white',fontWeight:600}}>{m.name}</div>
+                          <div style={{fontSize:11,color:m.evaluated?'#22c55e':'#ef4444'}}>{m.evaluated?'已评价':'未评价'}</div>
+                        </div>
+                        {m.evaluated&&m.comment&&(
+                          <div style={{marginTop:5,marginLeft:18,fontSize:11,color:'#94a3b8',lineHeight:1.5,borderLeft:'2px solid rgba(34,197,94,0.3)',paddingLeft:8}}>{m.comment}</div>
+                        )}
+                      </div>
+                    ))
+                  }
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ── 班组各类题均分 ── */}
           <div className="card">
@@ -2538,7 +4981,7 @@ function AdminScreen({ onBack }) {
                       {s.answers?.map((a,ai)=>(
                         <div key={ai} style={{padding:'6px 0',borderTop:'1px solid rgba(27,50,85,0.5)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
                           <span style={{fontSize:11,color:'rgba(255,255,255,0.7)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
-                          <span style={{fontSize:12,fontWeight:700,flexShrink:0,color:a.score>=99?'#22c55e':a.score>=67?'#f59e0b':'#ef4444'}}>{Math.round(a.score*33/100)}</span>
+                          <span style={{fontSize:12,fontWeight:700,flexShrink:0,color:a.score>=99?'#22c55e':a.score>=67?'#f59e0b':'#ef4444'}}>{Math.round(a.score/(s.answers.length||3))}</span>
                         </div>
                       ))}
                     </div>
@@ -2573,7 +5016,7 @@ function AdminScreen({ onBack }) {
                             {s.answers?.map((a,ai)=>(
                               <div key={ai} style={{padding:'5px 0',borderTop:'1px solid rgba(27,50,85,0.4)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
                                 <span style={{fontSize:10,color:'rgba(255,255,255,0.6)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
-                                <span style={{fontSize:11,fontWeight:700,flexShrink:0,color:a.score>=99?'#22c55e':a.score>=67?'#f59e0b':'#ef4444'}}>{Math.round(a.score*33/100)}</span>
+                                <span style={{fontSize:11,fontWeight:700,flexShrink:0,color:a.score>=99?'#22c55e':a.score>=67?'#f59e0b':'#ef4444'}}>{Math.round(a.score/(s.answers.length||3))}</span>
                               </div>
                             ))}
                           </div>
@@ -2586,69 +5029,155 @@ function AdminScreen({ onBack }) {
             </div>
           )}
 
-          {/* ── 积分榜 ── */}
-          <div className="card" style={{padding:0,overflow:'hidden'}}>
-            <div style={{padding:'12px 16px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-              <span style={{fontSize:10,color:'#64748b',letterSpacing:2,fontWeight:600,textTransform:'uppercase'}}>{lbMode==='cycle'?'本轮积分榜':'总排行榜'}</span>
-              <button onClick={()=>{const nm=lbMode==='cycle'?'alltime':'cycle';setLbMode(nm);setAdminDrillModal(null);apiJson(nm==='alltime'?'/api/admin/leaderboard/alltime':'/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||d||[])).catch(()=>{});}} style={{fontSize:10,color:'#3b82f6',background:'rgba(59,130,246,0.08)',border:'1px solid rgba(59,130,246,0.2)',borderRadius:20,padding:'2px 9px',cursor:'pointer'}}>切换{lbMode==='cycle'?'全记录':'本轮'}</button>
-            </div>
-            <div style={{borderTop:'1px solid #1b3255'}}/>
-            {(lbCollapsed?lbSessions.slice(0,10):lbSessions).map((r,i)=>{
-              const medals=['🥇','🥈','🥉'];
-              const pts=r.total_points??r.pts??0;
-              const sub=lbMode==='cycle'?`${r.sessions_count||1}次·均分${r.avg_score??'—'}`:`${r.cycle_count||1}轮`;
-              return(
-                <div key={r.staff_id} onClick={async()=>{
-                  setAdminDrillModal({staffId:r.staff_id,staffName:r.staff_name,mode:lbMode,loading:true,sessions:null,cycles:null,expandedCycleId:null});
-                  if(lbMode==='cycle'){
-                    const d=await apiJson(`/api/leaderboard/cycle/member/${r.staff_id}`).catch(()=>null);
-                    setAdminDrillModal(m=>({...m,loading:false,sessions:d?.sessions||[]}));
-                  } else {
-                    const d=await apiJson(`/api/admin/leaderboard/alltime/cycles/${r.staff_id}`,{headers:hdrs()}).catch(()=>null);
-                    setAdminDrillModal(m=>({...m,loading:false,cycles:d?.cycles||[]}));
-                  }
-                }} style={{display:'flex',alignItems:'center',gap:8,padding:'10px 16px',borderBottom:i<lbSessions.length-1?'1px solid rgba(27,50,85,0.35)':'none',cursor:'pointer'}}>
-                  <span style={{fontSize:i<3?15:12,width:22,textAlign:'center',flexShrink:0,color:['#ffd700','#c0c0c0','#cd7f32'][i]||'#475569'}}>{i<3?medals[i]:(i+1)}</span>
-                  {r.avatar
-                    ?<img src={r.avatar} style={{width:24,height:24,borderRadius:'50%',objectFit:'cover',flexShrink:0}}/>
-                    :<div style={{width:24,height:24,borderRadius:'50%',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:'white',flexShrink:0}}>{r.staff_name?.[0]}</div>
-                  }
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,color:'var(--text)',fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:5}}>
-                      {r.staff_name}
-                      {r.is_tester?<Badge label="测" color="#a855f7"/>:null}
+          {/* ── 积分榜（双列） ── */}
+          {(()=>{
+            const AdminLbCol = ({title, rows, mode, collapsed, setCollapsed})=>{
+              const shown = collapsed ? rows.slice(0,3) : rows;
+              const badges = r => (<>
+                {r.is_leader?<span style={{fontSize:8,padding:'1px 4px',borderRadius:6,background:'rgba(234,179,8,0.15)',border:'1px solid rgba(234,179,8,0.4)',color:'#fbbf24',flexShrink:0}}>组长</span>:null}
+                {r.is_exempt&&!r.is_leader?<span style={{fontSize:8,padding:'1px 4px',borderRadius:6,background:'rgba(245,158,11,0.15)',border:'1px solid rgba(245,158,11,0.4)',color:'#f59e0b',flexShrink:0}}>免答</span>:null}
+                {r.is_instructor?<span style={{fontSize:8,padding:'1px 4px',borderRadius:6,background:'rgba(99,102,241,0.15)',border:'1px solid rgba(99,102,241,0.4)',color:'#a5b4fc',flexShrink:0}}>教员</span>:null}
+              </>);
+              return (
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:10,color:'#64748b',fontWeight:600,letterSpacing:1,marginBottom:8}}>{title}</div>
+                  {shown.map((r,i)=>{
+                    const pts=r.total_points??0;
+                    return(
+                      <div key={r.staff_id} onClick={async()=>{
+                        setAdminDrillModal({staffId:r.staff_id,staffName:r.staff_name,mode,loading:true,sessions:null,cycles:null,expandedCycleId:null});
+                        if(mode==='cycle'){
+                          const d=await apiJson(`/api/leaderboard/cycle/member/${r.staff_id}`).catch(()=>null);
+                          setAdminDrillModal(m=>({...m,loading:false,sessions:d?.sessions||[]}));
+                        } else {
+                          const d=await apiJson(`/api/admin/leaderboard/alltime/cycles/${r.staff_id}`,{headers:hdrs()}).catch(()=>null);
+                          setAdminDrillModal(m=>({...m,loading:false,cycles:d?.cycles||[]}));
+                        }
+                      }} style={{display:'flex',alignItems:'center',gap:5,padding:'5px 0',borderBottom:i<shown.length-1?'1px solid rgba(27,50,85,0.5)':'none',cursor:'pointer'}}>
+                        <span style={{fontSize:i<3?12:10,width:16,textAlign:'center',flexShrink:0,color:['#ffd700','#b0b8c8','#cd7f32'][i]||'var(--muted)'}}>
+                          {['🥇','🥈','🥉'][i]||(i+1)}
+                        </span>
+                        <span style={{flex:1,fontSize:11,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.staff_name}</span>
+                        <div style={{display:'flex',gap:2,alignItems:'center',flexShrink:0}}>{badges(r)}</div>
+                        <span style={{fontWeight:700,color:'var(--gold)',fontSize:11,flexShrink:0,marginLeft:2}}>{pts}</span>
+                      </div>
+                    );
+                  })}
+                  {rows.length>3&&(
+                    <div onClick={()=>setCollapsed(c=>!c)} style={{textAlign:'center',marginTop:6,fontSize:11,color:'#60a5fa',cursor:'pointer',fontWeight:600}}>
+                      {collapsed?`全部 ${rows.length} 人 ▼`:'收起 ▲'}
                     </div>
-                    <div style={{fontSize:9,color:'#475569',marginTop:1}}>{sub}</div>
-                  </div>
-                  <span style={{fontWeight:700,color:'#c8a84b',fontSize:14,flexShrink:0}}>{pts}</span>
+                  )}
                 </div>
               );
-            })}
-            {lbSessions.length>10&&(
-              <div onClick={()=>setLbCollapsed(c=>!c)} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'11px 16px',cursor:'pointer',borderTop:'1px solid rgba(27,50,85,0.4)',color:'#60a5fa',fontSize:13,fontWeight:600}}>
-                <span style={{display:'inline-block',transform:lbCollapsed?'none':'rotate(180deg)',transition:'transform 0.2s',fontSize:15}}>⌄</span>
-                {lbCollapsed?`展开全部 (共 ${lbSessions.length} 人)`:'收起'}
+            };
+            return (
+              <div className="card">
+                <div style={{fontSize:10,color:'#64748b',letterSpacing:2,fontWeight:600,marginBottom:12}}>积分榜</div>
+                <div style={{display:'flex',gap:12}}>
+                  <AdminLbCol title="本轮" rows={lbSessions} mode="cycle" collapsed={lbCollapsed} setCollapsed={setLbCollapsed}/>
+                  <div style={{width:1,background:'rgba(27,50,85,0.6)'}}/>
+                  <AdminLbCol title="本月" rows={lbSessionsAlltime} mode="alltime" collapsed={lbCollapsed} setCollapsed={setLbCollapsed}/>
+                </div>
               </div>
-            )}
-          </div>
+            );
+          })()}
 
           {/* ── 导出记录 ── */}
-          <div style={{position:'relative'}}>
-            <button onClick={()=>{setShowExportMenu(m=>!m);if(!exportMonths.length)apiJson('/api/export/months',{headers:hdrs()}).then(setExportMonths).catch(()=>{});}} className="btn-primary" style={{width:'100%',textAlign:'center',padding:'13px',border:'none',cursor:'pointer'}}>📊 导出记录 ▾</button>
-            {showExportMenu&&(
-              <div onClick={()=>setShowExportMenu(false)} style={{position:'absolute',bottom:'calc(100% + 6px)',left:0,right:0,background:'#0d1e35',border:'1px solid rgba(59,130,246,0.4)',borderRadius:10,overflow:'hidden',zIndex:50,boxShadow:'0 -4px 20px rgba(0,0,0,0.5)'}}>
-                <div style={{padding:'8px 14px 6px',fontSize:10,color:'#64748b',letterSpacing:1,fontWeight:600,textTransform:'uppercase'}}>选择月份</div>
-                {exportMonths.length===0&&<div style={{padding:'10px 14px',fontSize:12,color:'#475569'}}>暂无数据</div>}
-                {exportMonths.map(m=>(
-                  <a key={m} href={`/api/export?password=${pwd}&month=${m}`} target="_blank" style={{display:'block',padding:'11px 16px',fontSize:14,color:'white',textDecoration:'none',borderTop:'1px solid rgba(27,50,85,0.5)'}}
-                    onMouseEnter={e=>e.currentTarget.style.background='rgba(59,130,246,0.12)'}
-                    onMouseLeave={e=>e.currentTarget.style.background='none'}>
-                    {m} <span style={{fontSize:11,color:'#64748b',marginLeft:6}}>下载 Excel</span>
-                  </a>
-                ))}
+          <button onClick={()=>{
+            setShowExportMenu('open');
+            if(!exportMonths.length) apiJson('/api/export/months',{headers:hdrs()}).then(setExportMonths).catch(()=>{});
+          }} className="btn-primary" style={{width:'100%',textAlign:'center',padding:'13px',border:'none',cursor:'pointer'}}>📊 导出记录</button>
+
+          {/* 导出弹窗 */}
+          {showExportMenu==='open'&&(
+            <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={()=>{setShowExportMenu(null);setExportWsModal(null);}}>
+              <div style={{background:'#0a1929',borderRadius:'14px 14px 0 0',width:'100%',maxWidth:480,maxHeight:'80vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+                {/* 顶栏 */}
+                <div style={{padding:'14px 16px 10px',borderBottom:'1px solid #1b3255',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+                  <span style={{fontWeight:700,color:'#e2e8f0',fontSize:15}}>📊 导出记录</span>
+                  <button onClick={()=>{setShowExportMenu(null);setExportWsModal(null);}} style={{background:'none',border:'none',color:'#475569',fontSize:22,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
+                </div>
+                {/* 二级选择 */}
+                {!exportWsModal&&(
+                  <div style={{padding:'12px 16px',display:'flex',flexDirection:'column',gap:10}}>
+                    {/* 抽问记录 */}
+                    <div>
+                      <div style={{fontSize:11,color:'#64748b',fontWeight:600,letterSpacing:1,marginBottom:6}}>📋 抽问记录</div>
+                      <div style={{background:'#0d1e35',border:'1px solid rgba(59,130,246,0.25)',borderRadius:8,overflow:'hidden'}}>
+                        {exportMonths.length===0&&<div style={{padding:'12px 14px',fontSize:12,color:'#475569'}}>暂无数据</div>}
+                        {exportMonths.map(m=>(
+                          <a key={m} href={`/api/export?password=${pwd}&month=${m}`} target="_blank" style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'11px 14px',fontSize:13,color:'white',textDecoration:'none',borderTop:'1px solid rgba(27,50,85,0.5)'}}
+                            onMouseEnter={e=>e.currentTarget.style.background='rgba(59,130,246,0.1)'}
+                            onMouseLeave={e=>e.currentTarget.style.background='none'}>
+                            <span>{m}</span><span style={{fontSize:11,color:'#475569'}}>↓ Excel</span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                    {/* 月度任务 */}
+                    <div>
+                      <div style={{fontSize:11,color:'#64748b',fontWeight:600,letterSpacing:1,marginBottom:6}}>🏭 月度任务</div>
+                      <button onClick={async()=>{
+                        setExportWsModal({plans:[],months:[],activeMonth:'',selected:new Set(),showMonthPicker:false,loading:true});
+                        const plans=await apiJson('/api/export/workshop/plans',{headers:hdrs()}).catch(()=>[]);
+                        const allPlans=Array.isArray(plans)?plans:[];
+                        const months=[...new Set(allPlans.map(p=>p.year_month))].sort((a,b)=>b.localeCompare(a));
+                        const curMonth=new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'}).slice(0,7);
+                        const active=months.includes(curMonth)?curMonth:(months[0]||curMonth);
+                        const mp=allPlans.filter(p=>p.year_month===active);
+                        setExportWsModal({plans:allPlans,months,activeMonth:active,selected:new Set(mp.map(p=>p.id)),showMonthPicker:false,loading:false});
+                      }} style={{width:'100%',padding:'11px',borderRadius:8,border:'1px solid rgba(34,197,94,0.3)',background:'rgba(34,197,94,0.06)',color:'#4ade80',cursor:'pointer',fontSize:13,fontWeight:600,fontFamily:'inherit'}}>
+                        选择月份并导出 →
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {/* 月度任务勾选面板 */}
+                {exportWsModal&&(()=>{
+                  const {plans,months,activeMonth,selected:sel,showMonthPicker,loading}=exportWsModal;
+                  const monthPlans=plans.filter(p=>p.year_month===activeMonth);
+                  const allSel=monthPlans.length>0&&monthPlans.every(p=>sel.has(p.id));
+                  const switchMonth=m=>{const mp=plans.filter(p=>p.year_month===m);setExportWsModal(prev=>({...prev,activeMonth:m,selected:new Set(mp.map(p=>p.id)),showMonthPicker:false}));};
+                  const toggleAll=()=>{const next=new Set(sel);if(allSel)monthPlans.forEach(p=>next.delete(p.id));else monthPlans.forEach(p=>next.add(p.id));setExportWsModal(prev=>({...prev,selected:next}));};
+                  const toggleOne=id=>{const next=new Set(sel);next.has(id)?next.delete(id):next.add(id);setExportWsModal(prev=>({...prev,selected:next}));};
+                  const doExport=()=>{if(!sel.size)return;const ids=[...sel].join(',');window.open(`/api/export/workshop?password=${encodeURIComponent(pwd)}&ids=${ids}`,'_blank');};
+                  const typeColor=t=>t==='中旬会'?'#f59e0b':t==='理论'?'#38bdf8':'#34d399';
+                  return (<>
+                    <div style={{padding:'8px 14px',borderBottom:'1px solid #1b3255',display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
+                      <button onClick={()=>setExportWsModal(null)} style={{background:'none',border:'none',color:'#60a5fa',fontSize:13,cursor:'pointer',padding:0,marginRight:4}}>← 返回</button>
+                      <div style={{position:'relative',flex:1}}>
+                        <button onClick={()=>setExportWsModal(prev=>({...prev,showMonthPicker:!prev.showMonthPicker}))} style={{padding:'5px 10px',borderRadius:5,border:`1px solid ${showMonthPicker?'#3b82f6':'#1b3255'}`,background:'transparent',color:'#e2e8f0',cursor:'pointer',fontSize:12,fontFamily:'inherit'}}>
+                          {activeMonth||'…'} ▾
+                        </button>
+                        {showMonthPicker&&(
+                          <div style={{position:'absolute',top:'calc(100% + 4px)',left:0,background:'#0a1929',border:'1px solid rgba(59,130,246,0.4)',borderRadius:7,overflow:'hidden',zIndex:20,boxShadow:'0 4px 20px rgba(0,0,0,0.6)',minWidth:110}}>
+                            {months.map(m=><div key={m} onClick={()=>switchMonth(m)} style={{padding:'8px 12px',fontSize:12,color:m===activeMonth?'#60a5fa':'#e2e8f0',background:m===activeMonth?'rgba(59,130,246,0.1)':'transparent',cursor:'pointer',borderTop:'1px solid rgba(27,50,85,0.4)'}}>{m}</div>)}
+                          </div>
+                        )}
+                      </div>
+                      <button onClick={toggleAll} style={{padding:'5px 8px',borderRadius:5,border:'1px solid #1b3255',background:'transparent',color:'#64748b',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>{allSel?'取消全选':'全选'}</button>
+                      <button onClick={doExport} disabled={!sel.size} style={{padding:'5px 12px',borderRadius:5,border:'none',background:sel.size?'#22c55e':'#1b3255',color:sel.size?'#022c16':'#475569',cursor:sel.size?'pointer':'default',fontSize:11,fontWeight:600,fontFamily:'inherit'}}>↓ 导出{sel.size?` (${sel.size})`:''}</button>
+                    </div>
+                    <div style={{flex:1,overflowY:'auto'}}>
+                      {loading&&<div style={{textAlign:'center',color:'#475569',padding:'28px 0',fontSize:13}}>加载中…</div>}
+                      {!loading&&monthPlans.length===0&&<div style={{textAlign:'center',color:'#475569',padding:'28px 0',fontSize:13}}>该月暂无培训计划</div>}
+                      {monthPlans.map(p=>(
+                        <div key={p.id} onClick={()=>toggleOne(p.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderBottom:'1px solid rgba(27,50,85,0.35)',cursor:'pointer',background:sel.has(p.id)?'rgba(34,197,94,0.05)':'transparent'}}>
+                          <div style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel.has(p.id)?'#22c55e':'#334155'}`,background:sel.has(p.id)?'#22c55e':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                            {sel.has(p.id)&&<span style={{color:'#022c16',fontSize:10,fontWeight:700,lineHeight:1}}>✓</span>}
+                          </div>
+                          <span style={{fontSize:12,color:'#94a3b8',width:36,flexShrink:0}}>{p.shift_date?.slice(5)}</span>
+                          <span style={{fontSize:10,padding:'1px 5px',borderRadius:3,border:`1px solid ${typeColor(p.plan_type)}55`,color:typeColor(p.plan_type),flexShrink:0}}>{p.plan_type}</span>
+                          <span style={{fontSize:12,color:'#cbd5e1',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.group_name||''}{p.instructor_name?` · ${p.instructor_name}`:''}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>);
+                })()}
               </div>
-            )}
-          </div>
+            </div>
+          )}
           <button onClick={async()=>{
             if(!window.confirm('确认清除今日所有答题记录？\n（记录会保留在数据库中，不影响 Excel 导出）'))return;
             const r=await apiJson('/api/admin/sessions/today',{method:'DELETE',headers:hdrs()}).catch(()=>null);
@@ -2663,212 +5192,358 @@ function AdminScreen({ onBack }) {
 
           {/* ══ 板块1：本套班抽问题目 ══ */}
           {(()=>{
-            // 从题库中筛选"概述题"（安全事件类，含"请简述"或"请简要概述"）
-            const summaryQs = qAll.filter(q => q.category==='安全事件' && (q.text.includes('请简述') || q.text.includes('请简要概述')));
-            // 已选题目详情
-            const slots = [0,1,2].map(i => {
-              const id = qSelected[i];
-              return id ? (qPinned.questions?.find(q=>q.id===id) || summaryQs.find(q=>q.id===id) || qAll.find(q=>q.id===id) || {id,text:'...'}) : null;
-            });
-            const isManual = qPinned.scope !== 'none';
+            const isActive = qPinned.scope !== 'none';
+            const needPool = pinMode==='random'&&!pinRandomBankId; // 需要手动勾选题池
+            const poolEnough = needPool ? qSelected.length > pinCount : true;
+            const bankPoolMode = pinMode==='manual' && checkedBankIds.length > 0; // 勾选整个题库随机
+            const manualEnough = pinMode==='manual' ? (bankPoolMode || qSelected.length === pinCount) : true;
+            const canSave = pinMode==='emergency' || (pinMode==='random'&&pinRandomBankId) || (pinMode==='random'&&poolEnough) || (pinMode==='manual'&&manualEnough);
+
+            const doSave = async()=>{
+              const body = {
+                mode: bankPoolMode ? 'random' : pinMode,
+                count: pinCount,
+                scope: pinScope,
+                ids: (!bankPoolMode && (pinMode==='manual'||needPool)) ? qSelected : [],
+                bank_id: (pinMode==='random'&&pinRandomBankId&&!bankPoolMode) ? parseInt(pinRandomBankId) : null,
+                bank_ids: bankPoolMode ? checkedBankIds : [],
+                bank_fallback_id: null,
+              };
+              const r=await apiJson('/api/admin/pinned-questions',{method:'PUT',headers:hdrs(),body:JSON.stringify(body)}).catch(()=>null);
+              if(r?.ok){
+                apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(d=>{setQPinned(d);setPinCount(d.count||3);setPinMode(d.bank_ids?.length>0?'manual':d.mode||'emergency');setPinRandomBankId(d.bank_id||null);setQSelected(d.ids||[]);setCheckedBankIds(d.bank_ids||[]);});
+                setQSelectOpen(false);
+                setPinSaveModal(false);
+                apiJson('/api/admin/dingtalk/notify-start',{method:'POST',headers:hdrs(),body:JSON.stringify({ids:body.ids,mode:body.mode,count:body.count,bank_id:body.bank_id,bank_ids:body.bank_ids,scope:body.scope})}).catch(()=>null);
+              } else { alert('设置失败'); }
+            };
+
             return (
               <div className="card">
-                <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600,marginBottom:10}}>📌 本套班抽问题目</div>
-                {/* 两个模式按钮 */}
-                <div style={{display:'flex',gap:8,marginBottom:14}}>
-                  <button onClick={async()=>{
-                    const r=await apiJson('/api/admin/pinned-questions',{method:'PUT',headers:hdrs(),body:JSON.stringify({ids:[],scope:'none',bank_fallback_id:null})}).catch(()=>null);
-                    if(r?.ok){setQPinned({ids:[],scope:'none',bank_fallback_id:null,questions:[]});setQSelected([]);setQSelectOpen(false);}
-                  }} style={{flex:1,padding:'10px',borderRadius:8,border:`2px solid ${!isManual?'#3b82f6':'#1b3255'}`,background:!isManual?'rgba(59,130,246,0.12)':'none',color:!isManual?'#60a5fa':'#64748b',cursor:'pointer',fontSize:13,fontWeight:600}}>
-                    🎲 应急随机三题
-                  </button>
-                  <button onClick={()=>{
-                    setQSelectOpen(true);
-                    if(qAll.length===0) apiJson('/api/admin/questions/all',{headers:hdrs()}).then(setQAll).catch(()=>{});
-                  }} style={{flex:1,padding:'10px',borderRadius:8,border:`2px solid ${isManual?'#3b82f6':'#1b3255'}`,background:isManual?'rgba(59,130,246,0.12)':'none',color:isManual?'#60a5fa':'#64748b',cursor:'pointer',fontSize:13,fontWeight:600}}>
-                    ✏️ 手动选题
-                  </button>
+                <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600,marginBottom:12}}>📌 本套班抽问题目</div>
+
+                {/* 当前生效状态 */}
+                {isActive&&!qSelectOpen&&(
+                  <div style={{marginBottom:12,padding:'8px 12px',background:'rgba(34,197,94,0.07)',border:'1px solid rgba(34,197,94,0.2)',borderRadius:8,fontSize:11,color:'#86efac'}}>
+                    ✅ 当前已设置：{qPinned.mode==='emergency'?'应急随机':qPinned.mode==='random'?'多题随机':'手动选题'} · {qPinned.count||3}题 · {qPinned.scope==='today'?'今天生效':'本套班生效'}
+                    <button onClick={async()=>{await apiJson('/api/admin/pinned-questions',{method:'PUT',headers:hdrs(),body:JSON.stringify({ids:[],scope:'none',mode:'emergency',count:3,bank_id:null,bank_ids:[]})}).catch(()=>null);setQPinned({ids:[],scope:'none',mode:'emergency',count:3,bank_id:null,bank_ids:[],questions:[]});setQSelected([]);setPinMode('emergency');setPinCount(3);setPinRandomBankId(null);setCheckedBankIds([]);}} style={{marginLeft:10,background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:11,padding:0}}>取消</button>
+                  </div>
+                )}
+
+                {/* 第一排：抽问几题 */}
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:11,color:'#94a3b8',fontWeight:600,marginBottom:6}}>抽问几题</div>
+                  <div style={{display:'flex',gap:6}}>
+                    {[1,2,3,4,5].map(n=>(
+                      <button key={n} onClick={()=>{setPinCount(n);setQSelected([]);}} style={{flex:1,padding:'8px 0',borderRadius:7,border:`2px solid ${pinCount===n?'#3b82f6':'#1b3255'}`,background:pinCount===n?'rgba(59,130,246,0.18)':'rgba(13,17,23,0.4)',color:pinCount===n?'#60a5fa':'#64748b',cursor:'pointer',fontSize:14,fontWeight:700}}>{n}</button>
+                    ))}
+                  </div>
                 </div>
 
-                {/* 三个槽位 - 始终显示当前状态 */}
-                <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:qSelectOpen?12:0}}>
-                  {[0,1,2].map(i=>{
-                    const q = isManual ? (qPinned.questions?.[i] || null) : null;
-                    const editing = qSelectOpen && qSelected[i]!==undefined;
-                    const draft = qSelectOpen ? (qAll.find(x=>x.id===qSelected[i])||null) : null;
-                    const display = qSelectOpen ? draft : q;
-                    return (
-                      <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'9px 12px',borderRadius:8,border:`1px solid ${display?'#1e3a5f':'rgba(27,50,85,0.5)'}`,background:display?'rgba(30,58,95,0.3)':'rgba(13,17,23,0.4)'}}>
-                        <div style={{width:22,height:22,borderRadius:'50%',background:display?'#1e3a5f':'#0d1117',border:`1px solid ${display?'#3b82f6':'#1b3255'}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-                          <span style={{fontSize:11,color:display?'#60a5fa':'#475569',fontWeight:700}}>{i+1}</span>
-                        </div>
-                        <div style={{flex:1,minWidth:0}}>
-                          {display
-                            ? <div style={{fontSize:12,color:'#e2e8f0',lineHeight:1.4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{display.text?.slice(0,32)}{display.text?.length>32?'…':''}</div>
-                            : <div style={{fontSize:12,color:'#475569'}}>未选题{qSelectOpen?'，请从下方选择':''}</div>
-                          }
-                        </div>
-                        {qSelectOpen&&display&&<button onClick={()=>setQSelected(s=>{const n=[...s];n.splice(i,1);return n;})} style={{background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:14,padding:'0 4px',flexShrink:0}}>×</button>}
-                      </div>
-                    );
-                  })}
+                {/* 第二排：模式选择 */}
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:11,color:'#94a3b8',fontWeight:600,marginBottom:6}}>出题方式</div>
+                  <div style={{display:'flex',gap:6}}>
+                    {[['manual','✏️ 手动选题'],['random','🎲 多题随机'],['emergency','🚨 应急随机']].map(([m,label])=>(
+                      <button key={m} onClick={()=>{setPinMode(m);setQSelected([]);if(m!=='manual'&&m!=='random')setQSelectOpen(false);}} style={{flex:1,padding:'9px 4px',borderRadius:8,border:`2px solid ${pinMode===m?'#3b82f6':'#1b3255'}`,background:pinMode===m?'rgba(59,130,246,0.15)':'none',color:pinMode===m?'#60a5fa':'#64748b',cursor:'pointer',fontSize:11,fontWeight:600}}>{label}</button>
+                    ))}
+                  </div>
                 </div>
 
-                {/* 选题面板 */}
-                {qSelectOpen&&(()=>{
-                  const emergencyQs = qAll.filter(q => q.bank_id === 1);
-                  const displayQs = qSelectBank==='emergency' ? emergencyQs : summaryQs;
-                  const emptyMsg = qSelectBank==='emergency' ? '应急故障处置题库暂无题目' : '暂无事件概述题，请先上传事件分析报告';
-                  return (
-                    <>
-                      {/* 题库切换 tab */}
-                      <div style={{display:'flex',gap:6,marginBottom:8,marginTop:4}}>
-                        {[['incident','📋 安全事件'],['emergency','🚨 应急故障处置']].map(([key,label])=>(
-                          <button key={key} onClick={()=>setQSelectBank(key)} style={{flex:1,padding:'6px 8px',borderRadius:6,border:`1px solid ${qSelectBank===key?'#3b82f6':'#1b3255'}`,background:qSelectBank===key?'rgba(59,130,246,0.15)':'none',color:qSelectBank===key?'#60a5fa':'#64748b',cursor:'pointer',fontSize:11,fontWeight:600}}>
-                            {label}{qSelectBank===key&&<span style={{marginLeft:4,color:'#94a3b8',fontWeight:400}}>({displayQs.length})</span>}
-                          </button>
+                {/* 多题随机：选题库或勾选题池 */}
+                {pinMode==='random'&&(
+                  <div style={{marginBottom:12,padding:'10px 12px',background:'rgba(13,17,23,0.5)',border:'1px solid #1b3255',borderRadius:8}}>
+                    <div style={{fontSize:11,color:'#94a3b8',fontWeight:600,marginBottom:8}}>随机来源</div>
+                    <div style={{display:'flex',gap:6,marginBottom:8}}>
+                      <button onClick={()=>{setPinRandomBankId(null);setQSelectOpen(false);}} style={{flex:1,padding:'7px',borderRadius:6,border:`1px solid ${!pinRandomBankId?'#3b82f6':'#1b3255'}`,background:!pinRandomBankId?'rgba(59,130,246,0.12)':'none',color:!pinRandomBankId?'#60a5fa':'#94a3b8',cursor:'pointer',fontSize:11,fontWeight:600}}>手动勾选题池</button>
+                      <button onClick={()=>{setPinRandomBankId('select');setQSelectOpen(false);}} style={{flex:1,padding:'7px',borderRadius:6,border:`1px solid ${pinRandomBankId?'#3b82f6':'#1b3255'}`,background:pinRandomBankId?'rgba(59,130,246,0.12)':'none',color:pinRandomBankId?'#60a5fa':'#94a3b8',cursor:'pointer',fontSize:11,fontWeight:600}}>指定题库随机</button>
+                    </div>
+                    {pinRandomBankId&&pinRandomBankId!=='select'&&(
+                      <div style={{fontSize:11,color:'#60a5fa',marginBottom:4}}>已选：{banks.find(b=>String(b.id)===String(pinRandomBankId))?.name||'—'} <button onClick={()=>setPinRandomBankId('select')} style={{marginLeft:6,background:'none',border:'none',color:'#475569',cursor:'pointer',fontSize:10,padding:0}}>重选</button></div>
+                    )}
+                    {pinRandomBankId==='select'&&(
+                      <div style={{maxHeight:160,overflowY:'auto',display:'flex',flexDirection:'column',gap:3}}>
+                        {banks.filter(b=>b.name!=='人工提问').map(b=>(
+                          <button key={b.id} onClick={()=>setPinRandomBankId(String(b.id))} style={{textAlign:'left',padding:'6px 10px',borderRadius:6,border:`1px solid ${String(pinRandomBankId)===String(b.id)?'#3b82f6':'#1b3255'}`,background:String(pinRandomBankId)===String(b.id)?'rgba(59,130,246,0.12)':'none',color:'#e2e8f0',cursor:'pointer',fontSize:12}}>{b.name} <span style={{color:'#475569',fontSize:10}}>({b.q_count||0}题)</span></button>
                         ))}
                       </div>
-                      {/* 题目列表 */}
-                      <div style={{maxHeight:200,overflowY:'auto',border:'1px solid #1b3255',borderRadius:8,marginBottom:10}}>
-                        {displayQs.length===0
-                          ? <div style={{padding:'14px',textAlign:'center',color:'#475569',fontSize:12}}>{emptyMsg}</div>
-                          : displayQs.map(q=>{
-                              const sel = qSelected.includes(q.id);
-                              const full = !sel && qSelected.length >= 3;
-                              return (
-                                <div key={q.id} onClick={()=>{
-                                  if(sel){setQSelected(s=>s.filter(id=>id!==q.id));}
-                                  else if(!full){setQSelected(s=>[...s,q.id]);}
-                                }} style={{display:'flex',gap:8,alignItems:'flex-start',padding:'9px 12px',borderBottom:'1px solid rgba(27,50,85,0.4)',cursor:full?'not-allowed':'pointer',background:sel?'rgba(59,130,246,0.1)':'none',opacity:full?0.4:1}}>
-                                  <div style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel?'#3b82f6':'#475569'}`,background:sel?'#3b82f6':'none',flexShrink:0,marginTop:2,display:'flex',alignItems:'center',justifyContent:'center'}}>
-                                    {sel&&<span style={{color:'white',fontSize:9}}>✓</span>}
-                                  </div>
-                                  <div style={{flex:1}}>
-                                    <div style={{fontSize:12,color:'white',lineHeight:1.4}}>{q.text.slice(0,50)}{q.text.length>50?'…':''}</div>
-                                    <div style={{fontSize:10,color:'#475569',marginTop:2}}>{q.bank_name}</div>
-                                  </div>
-                                </div>
-                              );
-                            })
-                        }
+                    )}
+                    {!pinRandomBankId&&(
+                      <div>
+                        <div style={{fontSize:11,color:'#475569',marginBottom:6}}>需勾选 &gt; {pinCount} 题作为题池（当前 {qSelected.length} 题{!poolEnough?<span style={{color:'#ef4444'}}> ⚠️ 不足</span>:null}）</div>
+                        <button onClick={()=>{setQSelectOpen(o=>!o);if(qAll.length===0)apiJson('/api/admin/questions/all',{headers:hdrs()}).then(setQAll).catch(()=>{});}} style={{width:'100%',padding:'7px',borderRadius:6,border:'1px dashed rgba(59,130,246,0.4)',background:'rgba(59,130,246,0.06)',color:'#60a5fa',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>{qSelectOpen?'▲ 收起题库':'▼ 展开题库勾选'}</button>
                       </div>
-                      {/* 已选计数提示 */}
-                      {qSelected.length>0&&<div style={{fontSize:11,color:'#60a5fa',marginBottom:8}}>已选 {qSelected.length}/3 题{qSelected.length<3?'，可继续从任意题库补充':''}</div>}
-                      {/* 生效范围 */}
-                      <div style={{display:'flex',gap:8,marginBottom:8}}>
-                        {['today','shift'].map(s=><button key={s} onClick={()=>setPinScope(s)} style={{flex:1,padding:'7px',borderRadius:6,border:`1px solid ${pinScope===s?'#3b82f6':'#1b3255'}`,background:pinScope===s?'rgba(59,130,246,0.15)':'none',color:pinScope===s?'#60a5fa':'#94a3b8',cursor:'pointer',fontSize:12}}>{s==='today'?'今天生效':'本套班生效'}</button>)}
+                    )}
+                  </div>
+                )}
+
+                {/* 手动选题：显示已选槽位 + 展开题库 */}
+                {pinMode==='manual'&&(
+                  <div style={{marginBottom:12}}>
+                    <div style={{display:'flex',flexDirection:'column',gap:5,marginBottom:8}}>
+                      {Array.from({length:pinCount}).map((_,i)=>{
+                        const q=qAll.find(x=>x.id===qSelected[i])||qPinned.questions?.find(x=>x.id===qSelected[i]);
+                        return(
+                          <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',borderRadius:7,border:`1px solid ${q?'#1e3a5f':'rgba(27,50,85,0.4)'}`,background:q?'rgba(30,58,95,0.25)':'rgba(13,17,23,0.3)'}}>
+                            <span style={{width:18,height:18,borderRadius:'50%',background:q?'#1e3a5f':'#0a1929',border:`1px solid ${q?'#3b82f6':'#1b3255'}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:10,color:q?'#60a5fa':'#475569',fontWeight:700}}>{i+1}</span>
+                            <span style={{flex:1,fontSize:11,color:q?'#e2e8f0':'#475569',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{q?q.text?.slice(0,40)+(q.text?.length>40?'…':''):'未选'}</span>
+                            {q&&<button onClick={()=>setQSelected(s=>s.filter((_,idx)=>idx!==i))} style={{background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:13,padding:'0 2px',flexShrink:0}}>×</button>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <button onClick={()=>{setQSelectOpen(o=>!o);if(qAll.length===0)apiJson('/api/admin/questions/all',{headers:hdrs()}).then(setQAll).catch(()=>{});}} style={{width:'100%',padding:'7px',borderRadius:6,border:'1px dashed rgba(59,130,246,0.4)',background:'rgba(59,130,246,0.06)',color:'#60a5fa',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>{qSelectOpen?'▲ 收起题库':'▼ 展开题库选题'}{!manualEnough?<span style={{color:'#f59e0b',marginLeft:6}}>(还需选 {pinCount-qSelected.length} 题)</span>:null}</button>
+                  </div>
+                )}
+
+                {/* 题库随机池说明 */}
+                {bankPoolMode&&(
+                  <div style={{marginBottom:12,padding:'8px 10px',background:'rgba(59,130,246,0.06)',border:'1px solid rgba(59,130,246,0.25)',borderRadius:7,fontSize:11,color:'#93c5fd',lineHeight:1.6}}>
+                    🎲 将从已勾选题库中混合随机抽取 {pinCount} 题
+                    <div style={{marginTop:4,display:'flex',gap:6,flexWrap:'wrap'}}>
+                      {checkedBankIds.map(id=>{const b=banks.find(x=>x.id===id);return b?<span key={id} style={{padding:'1px 7px',borderRadius:10,background:'rgba(59,130,246,0.15)',border:'1px solid rgba(59,130,246,0.3)',color:'#60a5fa',fontSize:10}}>{b.name} ({b.q_count||'?'}题)</span>:null;})}
+                    </div>
+                  </div>
+                )}
+
+                {/* 应急随机说明 */}
+                {pinMode==='emergency'&&(
+                  <div style={{marginBottom:12,padding:'8px 10px',background:'rgba(239,68,68,0.05)',border:'1px solid rgba(239,68,68,0.15)',borderRadius:7,fontSize:11,color:'#fca5a5'}}>
+                    🚨 将从应急故障处置题库中随机抽取 {pinCount} 题
+                  </div>
+                )}
+
+                {/* 第三排：生效范围 */}
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:11,color:'#94a3b8',fontWeight:600,marginBottom:6}}>生效范围</div>
+                  <div style={{display:'flex',gap:8}}>
+                    {['today','shift'].map(s=><button key={s} onClick={()=>setPinScope(s)} style={{flex:1,padding:'8px',borderRadius:7,border:`1px solid ${pinScope===s?'#3b82f6':'#1b3255'}`,background:pinScope===s?'rgba(59,130,246,0.15)':'none',color:pinScope===s?'#60a5fa':'#94a3b8',cursor:'pointer',fontSize:12}}>{s==='today'?'今天生效':'本套班生效'}</button>)}
+                  </div>
+                </div>
+
+                {/* 第四排：保存按钮 */}
+                <button disabled={!canSave} onClick={()=>setPinSaveModal(true)} style={{width:'100%',padding:'11px',borderRadius:8,border:'none',background:canSave?'linear-gradient(135deg,#1e3a5f,#3b82f6)':'#1b3255',color:canSave?'white':'#475569',fontSize:13,fontWeight:600,cursor:canSave?'pointer':'not-allowed',fontFamily:'inherit'}}>
+                  保存并发布
+                </button>
+
+                {/* 保存确认弹窗 */}
+                {pinSaveModal&&(
+                  <div onClick={()=>setPinSaveModal(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+                    <div onClick={e=>e.stopPropagation()} style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:320,border:'1px solid rgba(59,130,246,0.3)'}}>
+                      <div style={{fontWeight:700,color:'white',fontSize:15,marginBottom:8}}>📣 发布抽问</div>
+                      <div style={{fontSize:13,color:'#94a3b8',marginBottom:6,lineHeight:1.6}}>
+                        将设置 <span style={{color:'#60a5fa',fontWeight:600}}>{pinCount}题 · {pinMode==='emergency'?'应急随机':pinMode==='random'?'多题随机':'手动选题'} · {pinScope==='today'?'今天生效':'本套班生效'}</span>
                       </div>
+                      <div style={{fontSize:12,color:'#f59e0b',marginBottom:16}}>⚠️ 同时将在钉钉群内发出答题提醒通知</div>
                       <div style={{display:'flex',gap:8}}>
-                        <button disabled={qSelected.length===0} onClick={async()=>{
-                          const r=await apiJson('/api/admin/pinned-questions',{method:'PUT',headers:hdrs(),body:JSON.stringify({ids:qSelected,scope:pinScope,bank_fallback_id:1})}).catch(()=>null);
-                          if(r?.ok){apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(d=>{setQPinned(d);});setQSelectOpen(false);}
-                          else alert('设置失败');
-                        }} style={{flex:2,background:'#1b3a6e',border:'none',color:'white',borderRadius:7,padding:'10px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:qSelected.length===0?0.4:1}}>确认启用（{qSelected.length}/3）</button>
-                        <button onClick={()=>{setQSelectOpen(false);setQSelected(qPinned.ids||[]);}} style={{flex:1,background:'none',border:'1px solid #1b3255',color:'#64748b',borderRadius:7,padding:'10px',fontSize:12,cursor:'pointer'}}>取消</button>
+                        <button onClick={()=>setPinSaveModal(false)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
+                        <button onClick={doSave} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>确认发布</button>
                       </div>
-                    </>
-                  );
-                })()}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}
 
-          {/* ══ 板块2：人工出题 ══ */}
-          <div className="card">
-            <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600,marginBottom:12}}>✍️ 人工出题</div>
-            <div style={{display:'flex',flexDirection:'column',gap:10}}>
-              <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                <div style={{fontSize:11,color:'#94a3b8',fontWeight:600}}>题目</div>
-                <select value={addQ.bank_id} onChange={e=>setAddQ(q=>({...q,bank_id:e.target.value}))} style={{background:'#0d1117',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}>
-                  <option value="">选择题库</option>
-                  {banks.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
-                <select value={addQ.category} onChange={e=>setAddQ(q=>({...q,category:e.target.value}))} style={{background:'#0d1117',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}>
-                  {['安全事件','应急处置','业务知识','设备操作','规章制度'].map(c=><option key={c}>{c}</option>)}
-                </select>
-                <textarea value={addQ.text} onChange={e=>setAddQ(q=>({...q,text:e.target.value}))} placeholder="输入题目内容…" rows={3} style={{background:'#0d1117',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'8px 10px',fontSize:13,resize:'vertical'}}/>
-              </div>
-              <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                <div style={{fontSize:11,color:'#94a3b8',fontWeight:600}}>答题要点</div>
-                {(addQ.reference?addQ.reference.split(';').filter((_,i,a)=>i<a.length||true):['','']).map((pt,i,arr)=>(
-                  <div key={i} style={{display:'flex',gap:6,alignItems:'center'}}>
-                    <span style={{fontSize:11,color:'#475569',width:16,flexShrink:0,textAlign:'right'}}>{i+1}.</span>
-                    <input value={pt} onChange={e=>{const pts=addQ.reference?addQ.reference.split(';'):[];while(pts.length<=i)pts.push('');pts[i]=e.target.value;setAddQ(q=>({...q,reference:pts.join(';')}));}} placeholder={`要点 ${i+1}`} style={{flex:1,background:'#0d1117',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}/>
-                    {i>0&&<button onClick={()=>{const pts=addQ.reference.split(';');pts.splice(i,1);setAddQ(q=>({...q,reference:pts.join(';')}));}} style={{background:'none',border:'none',color:'#475569',cursor:'pointer',fontSize:16,padding:'0 4px'}}>×</button>}
-                  </div>
-                ))}
-                <button onClick={()=>setAddQ(q=>({...q,reference:(q.reference?q.reference+';':'')}))} style={{background:'none',border:'1px dashed #1b3255',color:'#475569',borderRadius:6,padding:'6px',fontSize:12,cursor:'pointer'}}>+ 添加要点</button>
-                <button disabled={aiLoading||!addQ.text.trim()} onClick={async()=>{
-                  setAiLoading(true);
-                  const r=await apiJson('/api/admin/questions/ai-generate',{method:'POST',headers:hdrs(),body:JSON.stringify({content:addQ.text,count:1})}).catch(()=>null);
-                  setAiLoading(false);
-                  if(r?.ok&&r.questions?.[0]?.reference){setAddQ(q=>({...q,reference:r.questions[0].reference}));alert('AI已生成答题要点');}
-                  else alert('AI生成失败');
-                }} style={{background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',border:'none',color:'white',borderRadius:7,padding:'9px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:aiLoading?0.6:1}}>{aiLoading?'AI分析中…':'🤖 AI生成答题要点'}</button>
-                <button disabled={addQLoading||!addQ.text.trim()||!addQ.reference.trim()||!addQ.bank_id} onClick={async()=>{
-                  setAddQLoading(true);
-                  const r=await apiJson('/api/questions',{method:'POST',headers:hdrs(),body:JSON.stringify({...addQ,bank_id:parseInt(addQ.bank_id)})}).catch(()=>null);
-                  setAddQLoading(false);
-                  if(r?.id){alert('添加成功');setAddQ(q=>({...q,text:'',reference:'',keywords:''}));apiJson('/api/banks',{headers:hdrs()}).then(setBanks);}
-                  else alert('添加失败');
-                }} style={{background:'#1b3a6e',border:'none',color:'white',borderRadius:7,padding:'9px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:addQLoading?0.6:1}}>{addQLoading?'提交中…':'保存题目'}</button>
-              </div>
-            </div>
-          </div>
-
-          {/* ══ 板块3：题库 ══ */}
+          {/* ══ 板块2：题库 ══ */}
           {(()=>{
             const emergencyBank = banks.find(b=>b.id===1);
-            const incidentBanks = banks.filter(b=>b.id!==1&&(b.name.includes('事件')||b.name.includes('事故')||b.name.includes('分析')||b.name.includes('报告')));
-            const internalBanks = banks.filter(b=>b.id!==1&&!b.name.includes('事件')&&!b.name.includes('事故')&&!b.name.includes('分析')&&!b.name.includes('报告'));
-            const BankRow = ({b,showTag})=>(
-              <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',padding:'9px 12px',borderBottom:'1px solid rgba(27,50,85,0.4)'}}>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:12,color:'white',fontWeight:600,marginBottom:2,lineHeight:1.4}}>{b.name}</div>
-                  <div style={{fontSize:11,color:'#475569'}}>{b.q_count||0} 题</div>
-                </div>
-                {showTag&&<span style={{fontSize:10,color:'#22c55e',background:'rgba(34,197,94,0.1)',border:'1px solid rgba(34,197,94,0.3)',borderRadius:4,padding:'2px 7px',flexShrink:0,marginLeft:8}}>固定使用</span>}
-              </div>
-            );
-            const Section = ({label,icon,items,fixed})=>{
-              const [open,setOpen]=useState(true);
-              if(!items||items.length===0)return null;
+            const riskBank = banks.find(b=>b.name==='风险数据库');
+            const incidentBanks = banks.filter(b=>b.id!==1&&b.name!=='风险数据库'&&b.name!=='人工提问'&&(b.name.includes('事件')||b.name.includes('事故')||b.name.includes('分析')||b.name.includes('报告')));
+            const theoryBanks = banks.filter(b=>b.id!==1&&b.name!=='风险数据库'&&b.name!=='人工提问'&&!b.name.includes('事件')&&!b.name.includes('事故')&&!b.name.includes('分析')&&!b.name.includes('报告'));
+            const renderBankRow=(b)=>{
+              const expanded=!!bankExpanded[b.id];
+              const qs=bankQsCache[b.id]||null;
+              const toggleExpand=async()=>{
+                if(!expanded&&qs===null){
+                  const d=await apiJson(`/api/admin/questions/all?bank_id=${b.id}`,{headers:hdrs()}).catch(()=>null);
+                  setBankQsCache(prev=>({...prev,[b.id]:Array.isArray(d)?d:[]}));
+                }
+                setBankExpanded(prev=>({...prev,[b.id]:!expanded}));
+              };
+              const deleteQ=async(qid)=>{
+                if(!confirm('确认删除该题目？'))return;
+                await apiJson(`/api/questions/${qid}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);
+                setBankQsCache(prev=>({...prev,[b.id]:(prev[b.id]||[]).filter(q=>q.id!==qid)}));
+                apiJson('/api/banks',{headers:hdrs()}).then(setBanks).catch(()=>{});
+              };
+              const _bankPoolMode = pinMode==='manual' && checkedBankIds.length > 0;
+              const canCheck = (qSelectOpen || (pinMode==='manual') || (pinMode==='random'&&!pinRandomBankId)) && !_bankPoolMode;
               return (
-                <div style={{marginBottom:10,border:'1px solid #1b3255',borderRadius:8,overflow:'hidden'}}>
-                  <div onClick={()=>!fixed&&setOpen(o=>!o)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 12px',background:'#0d1e35',cursor:fixed?'default':'pointer'}}>
-                    <span style={{fontSize:12,fontWeight:700,color:'#94a3b8'}}>{icon} {label} <span style={{color:'#475569',fontWeight:400,fontSize:11}}>· {items.length}个</span></span>
-                    {!fixed&&<span style={{color:'#475569',fontSize:11}}>{open?'▲':'▼'}</span>}
+                <div key={b.id} style={{borderBottom:'1px solid rgba(27,50,85,0.4)'}}>
+                  <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',padding:'9px 12px',cursor:'pointer'}} onClick={toggleExpand}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,color:'white',fontWeight:600,marginBottom:2,lineHeight:1.4}}>{b.name}</div>
+                      <div style={{fontSize:11,color:'#475569'}}>{b.q_count||0} 题 <span style={{color:'#334155',marginLeft:4}}>{expanded?'▲':'▼'}</span></div>
+                    </div>
                   </div>
-                  {open&&items.map((b,i)=><BankRow key={i} b={b} showTag={fixed}/>)}
+                  {expanded&&qs!==null&&(
+                    <div style={{padding:'0 12px 10px',background:'rgba(13,17,23,0.5)',maxHeight:320,overflowY:'auto'}}>
+                      {qs.length===0?<div style={{fontSize:11,color:'#475569',textAlign:'center',padding:'8px 0'}}>暂无题目</div>:qs.map(q=>{
+                        const sel=qSelected.includes(q.id);
+                        const maxReached=!sel&&(pinMode==='manual'?qSelected.length>=pinCount:false);
+                        return (
+                          <div key={q.id} style={{display:'flex',alignItems:'flex-start',gap:8,padding:'7px 0',borderBottom:'1px solid rgba(27,50,85,0.3)'}}>
+                            {canCheck&&<div onClick={e=>{e.stopPropagation();if(sel){setQSelected(s=>s.filter(id=>id!==q.id));}else if(!maxReached){setQSelected(s=>[...s,q.id]);}}} style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel?'#3b82f6':'#334155'}`,background:sel?'#3b82f6':'none',flexShrink:0,marginTop:2,display:'flex',alignItems:'center',justifyContent:'center',cursor:maxReached?'not-allowed':'pointer',opacity:maxReached?0.4:1}}>
+                              {sel&&<span style={{color:'white',fontSize:9}}>✓</span>}
+                            </div>}
+                            <div style={{flex:1,fontSize:11,color:'#94a3b8',lineHeight:1.5}}>{q.text}</div>
+                            <button onClick={e=>{e.stopPropagation();setEditQModal({id:q.id,bankId:b.id,text:q.text,reference:q.reference||'',keywords:q.keywords||'',category:q.category||''});}} style={{flexShrink:0,background:'none',border:'1px solid rgba(59,130,246,0.3)',color:'#60a5fa',borderRadius:4,padding:'2px 8px',fontSize:11,cursor:'pointer',marginRight:4}}>编辑</button>
+                            <button onClick={e=>{e.stopPropagation();deleteQ(q.id);}} style={{flexShrink:0,background:'none',border:'1px solid rgba(239,68,68,0.3)',color:'#ef4444',borderRadius:4,padding:'2px 8px',fontSize:11,cursor:'pointer'}}>删除</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            };
+            const BankSection = ({sectionKey,label,icon,items,defaultOpen=true})=>{
+              const open = sectionKey in bankSectionOpen ? bankSectionOpen[sectionKey] : defaultOpen;
+              const toggleOpen = ()=>setBankSectionOpen(prev=>({...prev,[sectionKey]:!open}));
+              if(!items||items.length===0)return null;
+              const sectionBankIds = items.map(b=>b.id);
+              const allChecked = sectionBankIds.every(id=>checkedBankIds.includes(id));
+              const toggleBankSection = e=>{
+                e.stopPropagation();
+                setCheckedBankIds(prev=>{
+                  if(allChecked) return prev.filter(id=>!sectionBankIds.includes(id));
+                  return [...new Set([...prev,...sectionBankIds])];
+                });
+                setQSelected([]);
+              };
+              const showBankCheck = pinMode==='manual';
+              return (
+                <div style={{marginBottom:10,border:`1px solid ${allChecked&&showBankCheck?'rgba(59,130,246,0.5)':'#1b3255'}`,borderRadius:8,overflow:'hidden',background:allChecked&&showBankCheck?'rgba(59,130,246,0.04)':'transparent'}}>
+                  <div onClick={toggleOpen} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 12px',background:'#0d1e35',cursor:'pointer'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      {showBankCheck&&(
+                        <div onClick={toggleBankSection} style={{width:16,height:16,borderRadius:3,border:`2px solid ${allChecked?'#3b82f6':'#334155'}`,background:allChecked?'#3b82f6':'none',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer'}}>
+                          {allChecked&&<span style={{color:'white',fontSize:9,lineHeight:1}}>✓</span>}
+                        </div>
+                      )}
+                      <span style={{fontSize:12,fontWeight:700,color:allChecked&&showBankCheck?'#60a5fa':'#94a3b8'}}>{icon} {label} <span style={{color:'#475569',fontWeight:400,fontSize:11}}>· {items.length}个</span></span>
+                    </div>
+                    <span style={{color:'#475569',fontSize:11}}>{open?'▲':'▼'}</span>
+                  </div>
+                  {open&&items.map(b=>renderBankRow(b))}
                 </div>
               );
             };
             return (
               <div className="card">
                 <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600,marginBottom:12}}>📚 题库</div>
-                <div style={{fontSize:11,color:'#475569',marginBottom:10,padding:'7px 10px',background:'rgba(59,130,246,0.06)',borderRadius:6,border:'1px solid rgba(59,130,246,0.15)'}}>
-                  💡 应急随机三题固定从<span style={{color:'#60a5fa'}}>应急故障处置题库</span>随机抽取；手动选题支持从<span style={{color:'#60a5fa'}}>安全事件</span>或<span style={{color:'#60a5fa'}}>应急故障处置</span>题库混选
+                {emergencyBank&&<BankSection sectionKey="emergency" label="应急故障处置" icon="🚨" items={[emergencyBank]} defaultOpen={true}/>}
+                {riskBank&&<BankSection sectionKey="risk" label="风险数据库" icon="⚠️" items={[riskBank]} defaultOpen={false}/>}
+                <BankSection sectionKey="incident" label="事件分析报告" icon="📋" items={incidentBanks} defaultOpen={false}/>
+                {theoryBanks.length>0&&<BankSection sectionKey="theory" label="理论考试题库" icon="📖" items={theoryBanks} defaultOpen={false}/>}
+
+                {/* 增加分类 */}
+                <div style={{display:'flex',gap:8,marginTop:4,marginBottom:14}}>
+                  <input value={newCategoryName} onChange={e=>setNewCategoryName(e.target.value)} placeholder="增加分类…" style={{flex:1,background:'#0d1117',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:12}}/>
+                  <button disabled={savingCategory||!newCategoryName.trim()} onClick={async()=>{
+                    setSavingCategory(true);
+                    const r=await apiJson('/api/admin/banks',{method:'POST',headers:hdrs(),body:JSON.stringify({name:newCategoryName.trim(),q_type:'简答'})}).catch(()=>null);
+                    setSavingCategory(false);
+                    if(r?.id){setNewCategoryName('');apiJson('/api/banks',{headers:hdrs()}).then(setBanks).catch(()=>{});}
+                    else alert('保存失败');
+                  }} style={{background:'#1b3a6e',border:'none',color:'white',borderRadius:6,padding:'7px 14px',fontSize:12,fontWeight:600,cursor:'pointer',opacity:savingCategory?0.6:1,whiteSpace:'nowrap'}}>保存</button>
                 </div>
-                {emergencyBank&&<Section label="应急故障处置" icon="🚨" items={[emergencyBank]} fixed={true}/>}
-                <Section label="事件分析报告" icon="📋" items={incidentBanks}/>
-                {internalBanks.length>0&&<Section label="其他题库" icon="📖" items={internalBanks}/>}
+
+                {/* 操作按钮行 */}
+                <div style={{display:'flex',gap:8}}>
+                  <button onClick={()=>{setShowUploadPanel(p=>!p);setShowAddQPanel(false);}} style={{flex:1,background:showUploadPanel?'#1b3a6e':'#0d1e35',border:`1px solid ${showUploadPanel?'#3b82f6':'#1b3255'}`,color:showUploadPanel?'#60a5fa':'#94a3b8',borderRadius:7,padding:'9px',fontSize:12,fontWeight:600,cursor:'pointer'}}>📥 上传题库</button>
+                  <button onClick={()=>{setShowAddQPanel(p=>!p);setShowUploadPanel(false);}} style={{flex:1,background:showAddQPanel?'#1b3a6e':'#0d1e35',border:`1px solid ${showAddQPanel?'#3b82f6':'#1b3255'}`,color:showAddQPanel?'#60a5fa':'#94a3b8',borderRadius:7,padding:'9px',fontSize:12,fontWeight:600,cursor:'pointer'}}>✍️ 人工出题</button>
+                </div>
+
+                {/* 上传题库面板 */}
+                {showUploadPanel&&(
+                  <div style={{marginTop:10,display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                    <BankImportCard pwd={pwd} onImported={()=>apiJson('/api/banks',{headers:hdrs()}).then(setBanks).catch(()=>{})}/>
+                    <DocParseCard pwd={pwd} banks={banks} onImported={()=>apiJson('/api/banks',{headers:hdrs()}).then(setBanks).catch(()=>{})}/>
+                  </div>
+                )}
+
+                {/* 人工出题面板 */}
+                {showAddQPanel&&(
+                  <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:10,borderTop:'1px solid #1b3255',paddingTop:12}}>
+                    <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                      <div style={{fontSize:11,color:'#94a3b8',fontWeight:600}}>题目</div>
+                      <select value={addQ.category} onChange={e=>setAddQ(q=>({...q,category:e.target.value}))} style={{background:'#0d1117',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}>
+                        {['安全事件','应急处置','业务知识','设备操作','规章制度'].map(c=><option key={c}>{c}</option>)}
+                      </select>
+                      <textarea value={addQ.text} onChange={e=>setAddQ(q=>({...q,text:e.target.value}))} placeholder="输入题目内容…" rows={3} style={{background:'#0d1117',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'8px 10px',fontSize:13,resize:'vertical'}}/>
+                    </div>
+                    <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                      <div style={{fontSize:11,color:'#94a3b8',fontWeight:600}}>答题要点</div>
+                      {(addQ.reference?addQ.reference.split(';').filter((_,i,a)=>i<a.length||true):['','']).map((pt,i,arr)=>(
+                        <div key={i} style={{display:'flex',gap:6,alignItems:'center'}}>
+                          <span style={{fontSize:11,color:'#475569',width:16,flexShrink:0,textAlign:'right'}}>{i+1}.</span>
+                          <input value={pt} onChange={e=>{const pts=addQ.reference?addQ.reference.split(';'):[];while(pts.length<=i)pts.push('');pts[i]=e.target.value;setAddQ(q=>({...q,reference:pts.join(';')}));}} placeholder={`要点 ${i+1}`} style={{flex:1,background:'#0d1117',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}/>
+                          {i>0&&<button onClick={()=>{const pts=addQ.reference.split(';');pts.splice(i,1);setAddQ(q=>({...q,reference:pts.join(';')}));}} style={{background:'none',border:'none',color:'#475569',cursor:'pointer',fontSize:16,padding:'0 4px'}}>×</button>}
+                        </div>
+                      ))}
+                      <button onClick={()=>setAddQ(q=>({...q,reference:(q.reference?q.reference+';':'')}))} style={{background:'none',border:'1px dashed #1b3255',color:'#475569',borderRadius:6,padding:'6px',fontSize:12,cursor:'pointer'}}>+ 添加要点</button>
+                      <button disabled={aiLoading||!addQ.text.trim()} onClick={async()=>{
+                        setAiLoading(true);
+                        const r=await apiJson('/api/admin/questions/ai-generate',{method:'POST',headers:hdrs(),body:JSON.stringify({content:addQ.text,count:1})}).catch(()=>null);
+                        setAiLoading(false);
+                        if(r?.ok&&r.questions?.[0]?.reference){setAddQ(q=>({...q,reference:r.questions[0].reference}));alert('AI已生成答题要点');}
+                        else alert('AI生成失败');
+                      }} style={{background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',border:'none',color:'white',borderRadius:7,padding:'9px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:aiLoading?0.6:1}}>{aiLoading?'AI分析中…':'🤖 AI生成答题要点'}</button>
+                      <button disabled={addQLoading||!addQ.text.trim()||!addQ.reference.trim()||!addQ.bank_id} onClick={async()=>{
+                        setAddQLoading(true);
+                        const r=await apiJson('/api/questions',{method:'POST',headers:hdrs(),body:JSON.stringify({...addQ,bank_id:parseInt(addQ.bank_id)})}).catch(()=>null);
+                        setAddQLoading(false);
+                        if(r?.id){alert('添加成功');setAddQ(q=>({...q,text:'',reference:'',keywords:''}));apiJson('/api/banks',{headers:hdrs()}).then(setBanks);}
+                        else alert('添加失败');
+                      }} style={{background:'#1b3a6e',border:'none',color:'white',borderRadius:7,padding:'9px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:addQLoading?0.6:1}}>{addQLoading?'提交中…':'保存题目'}</button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}
 
-          {/* ══ 板块4：上传文件 ══ */}
-          <div className="card">
-            <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600,marginBottom:12}}>📥 上传题库文件</div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-              <BankImportCard pwd={pwd} onImported={()=>apiJson('/api/banks',{headers:hdrs()}).then(setBanks).catch(()=>{})}/>
-              <DocParseCard pwd={pwd} banks={banks} onImported={()=>apiJson('/api/banks',{headers:hdrs()}).then(setBanks).catch(()=>{})}/>
-            </div>
-          </div>
-
         </>}
 
+        {/* 题目编辑弹窗 */}
+        {editQModal&&(
+          <div onClick={()=>setEditQModal(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',zIndex:400,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:400,border:'1px solid rgba(59,130,246,0.3)',display:'flex',flexDirection:'column',gap:12}}>
+              <div style={{fontWeight:700,color:'white',fontSize:15}}>编辑题目</div>
+              <div>
+                <div style={{fontSize:11,color:'#64748b',marginBottom:4}}>题目</div>
+                <textarea value={editQModal.text} onChange={e=>setEditQModal(m=>({...m,text:e.target.value}))}
+                  rows={3} style={{width:'100%',padding:'8px 10px',borderRadius:7,border:'1px solid #1b3255',background:'#0d1117',color:'#e2e8f0',fontSize:12,fontFamily:'inherit',resize:'vertical',boxSizing:'border-box'}}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:'#64748b',marginBottom:4}}>参考答案（各要点用分号分隔）</div>
+                <textarea value={editQModal.reference} onChange={e=>setEditQModal(m=>({...m,reference:e.target.value}))}
+                  rows={4} style={{width:'100%',padding:'8px 10px',borderRadius:7,border:'1px solid #1b3255',background:'#0d1117',color:'#e2e8f0',fontSize:12,fontFamily:'inherit',resize:'vertical',boxSizing:'border-box'}}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:'#64748b',marginBottom:4}}>关键词（逗号分隔，用于关键词评分）</div>
+                <input value={editQModal.keywords} onChange={e=>setEditQModal(m=>({...m,keywords:e.target.value}))}
+                  style={{width:'100%',padding:'7px 10px',borderRadius:7,border:'1px solid #1b3255',background:'#0d1117',color:'#e2e8f0',fontSize:12,boxSizing:'border-box'}}/>
+              </div>
+              <div style={{display:'flex',gap:8,marginTop:4}}>
+                <button onClick={()=>setEditQModal(null)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
+                <button onClick={async()=>{
+                  const r=await apiJson(`/api/questions/${editQModal.id}`,{method:'PUT',headers:hdrs(),body:JSON.stringify({text:editQModal.text,reference:editQModal.reference,keywords:editQModal.keywords,category:editQModal.category})}).catch(()=>null);
+                  if(r?.ok){
+                    setBankQsCache(prev=>({...prev,[editQModal.bankId]:(prev[editQModal.bankId]||[]).map(q=>q.id===editQModal.id?{...q,text:editQModal.text,reference:editQModal.reference,keywords:editQModal.keywords}:q)}));
+                    setEditQModal(null);
+                  } else { alert('保存失败'); }
+                }} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>保存</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {tab==='settings'&&<>
+          <ImportPlanCard hdrs={hdrs}/>
           <div className="card">
             <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:12,fontWeight:600}}>题库与答题设置</div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'1px solid #1b3255',fontSize:13}}>
@@ -2885,7 +5560,7 @@ function AdminScreen({ onBack }) {
           <div className="card">
             <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:12,fontWeight:600}}>积分规则说明</div>
             <div style={{fontSize:13,color:'#94a3b8',lineHeight:2}}>
-              每题满分：<strong style={{color:'white'}}>33.33分</strong>，三题满分 <strong style={{color:'#c8a84b'}}>100分</strong><br/>
+              每题均分，满分 <strong style={{color:'#c8a84b'}}>100分</strong>（题数不同每题分值自动调整）<br/>
               60分及格，按答题得分比例折算<br/>
               本月练习过：额外 <strong style={{color:'#22c55e'}}>+1分</strong><br/>
               本轮排行榜范围：<strong style={{color:'white'}}>白班→夜班→早班（27人）</strong>
@@ -2936,14 +5611,42 @@ export default function App() {
   const [quizMode,setQuizMode]=useState('normal');
   const [practiceMode,setPracticeMode]=useState('practice_random');
   const nav=s=>setScreen(s);
+
+  // Magic link 自动登录 + 深链导航
+  useEffect(()=>{
+    // 1. 从 /go 落地页写入的 sessionStorage 自动登录
+    try {
+      const mu = sessionStorage.getItem('magic_user');
+      const mn = sessionStorage.getItem('magic_nav');
+      if (mu) {
+        sessionStorage.removeItem('magic_user');
+        sessionStorage.removeItem('magic_nav');
+        const u = JSON.parse(mu);
+        setUser(u);
+        setScreen(mn || 'home');
+        return;
+      }
+    } catch {}
+    // 2. 普通深链：URL 带 ?_nav=workshop 等，登录后跳转
+    const urlNav = new URLSearchParams(location.search).get('_nav');
+    if (urlNav) { sessionStorage.setItem('pending_nav', urlNav); history.replaceState({},'','/'); }
+  }, []);
+
+  const handleLogin = u => {
+    setUser(u);
+    const dest = sessionStorage.getItem('pending_nav');
+    if (dest) { sessionStorage.removeItem('pending_nav'); nav(dest); }
+    else nav('home');
+  };
+
   return(
     <>
       <style>{CSS}</style>
       <div className="app-frame">
-        {screen==="login"&&<LoginScreen onLogin={u=>{setUser(u);nav("home");}} onAdmin={()=>nav("admin")}/>}
+        {screen==="login"&&<LoginScreen onLogin={handleLogin} onAdmin={()=>nav("admin")}/>}
         {screen==="home"&&<HomeScreen user={user} nav={nav}/>}
         {screen==="quiz"&&<QuizScreen user={user} mode="normal" onDone={(r,p,m)=>{setQuizResults(r);setQuizPoints(p);setQuizMode(m);nav("result");}} onBack={()=>nav("home")}/>}
-        {screen==="practice_quiz"&&<QuizScreen user={user} mode={practiceMode} onDone={(r,p,m)=>{setQuizResults(r);setQuizPoints(p);setQuizMode(m);nav("practice_result");}}/>}
+        {screen==="practice_quiz"&&<QuizScreen user={user} mode={practiceMode} onDone={(r,p,m)=>{setQuizResults(r);setQuizPoints(p);setQuizMode(m);nav("practice_result");}} onBack={()=>nav("practice")}/>}
         {screen==="result"&&<ResultScreen user={user} results={quizResults} points={quizPoints} mode={quizMode} onHome={()=>nav("home")}/>}
         {screen==="practice_result"&&<ResultScreen user={user} results={quizResults} points={quizPoints} mode={quizMode} onHome={()=>nav("home")} onContinuePractice={()=>{nav("practice_quiz");}}/>}
         {screen==="practice"&&<PracticeScreen user={user} onBack={()=>nav("home")} onStart={m=>{setPracticeMode(m);nav("practice_quiz");}}/>}
@@ -2951,7 +5654,8 @@ export default function App() {
         {screen==="banks"&&<BanksPreviewScreen onBack={()=>nav("home")}/>}
         {screen==="leaderboard"&&<LeaderboardScreen user={user} onBack={()=>nav("home")}/>}
         {screen==="profile"&&<ProfileScreen user={user} onBack={()=>nav("home")}/>}
-        {screen==="admin"&&<AdminScreen onBack={()=>nav("login")}/>}
+        {screen==="admin"&&<AdminScreen onBack={()=>nav(user?"home":"login")}/>}
+        {screen==="workshop"&&<WorkshopScreen user={user} onBack={()=>nav("home")}/>}
       </div>
     </>
   );

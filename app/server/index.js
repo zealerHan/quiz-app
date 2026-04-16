@@ -10,6 +10,7 @@ const Database = require('better-sqlite3');
 const cors = require('cors');
 const path = require('path');
 const ExcelJS = require('exceljs');
+const sharp = require('sharp');
 const crypto = require('crypto');
 const os = require('os');
 const QRCode = require('qrcode');
@@ -144,6 +145,130 @@ db.exec(`CREATE TABLE IF NOT EXISTS makeup_grants (
   PRIMARY KEY (staff_id, cycle_id)
 )`);
 
+// ─── Training Tables（车间任务模块）──────────────────────────────────────────
+try { db.exec('ALTER TABLE staff ADD COLUMN is_instructor INTEGER DEFAULT 0'); } catch(e) {}
+try { db.exec('ALTER TABLE staff ADD COLUMN is_leader INTEGER DEFAULT 0'); } catch(e) {}
+
+db.exec(`CREATE TABLE IF NOT EXISTS training_groups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  instructor_id TEXT,
+  sort_order INTEGER DEFAULT 0
+)`);
+
+db.exec(`CREATE TABLE IF NOT EXISTS training_group_members (
+  group_id INTEGER NOT NULL,
+  staff_id TEXT NOT NULL,
+  is_fixed INTEGER DEFAULT 0,
+  PRIMARY KEY (group_id, staff_id)
+)`);
+try { db.exec('ALTER TABLE training_group_members ADD COLUMN is_fixed INTEGER DEFAULT 0'); } catch(e) {}
+
+// 全局固定培训人员（出现在所有小组末尾）
+db.exec(`CREATE TABLE IF NOT EXISTS training_fixed_members (
+  staff_id TEXT PRIMARY KEY
+)`);
+
+// 月度培训计划
+db.exec(`CREATE TABLE IF NOT EXISTS monthly_training_plans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  year_month TEXT NOT NULL,
+  shift_date TEXT NOT NULL,
+  location TEXT,
+  plan_type TEXT DEFAULT '培训',
+  group_id INTEGER,
+  leader_name TEXT,
+  is_type_custom INTEGER DEFAULT 0,
+  safety_date_custom TEXT,
+  notes TEXT,
+  UNIQUE(year_month, shift_date)
+)`);
+try { db.exec('ALTER TABLE monthly_training_plans ADD COLUMN leader_name TEXT'); } catch(e) {}
+// 安全分析会日期可自定义（每月一条）
+db.exec(`CREATE TABLE IF NOT EXISTS training_plan_settings (
+  year_month TEXT PRIMARY KEY,
+  safety_date TEXT,
+  start_group_id INTEGER,
+  start_leader_idx INTEGER DEFAULT 0
+)`);
+try { db.exec('ALTER TABLE training_plan_settings ADD COLUMN start_group_id INTEGER'); } catch(e) {}
+try { db.exec('ALTER TABLE training_plan_settings ADD COLUMN start_leader_idx INTEGER DEFAULT 0'); } catch(e) {}
+try { db.exec("ALTER TABLE monthly_training_plans ADD COLUMN completed_items TEXT DEFAULT '[]'"); } catch(e) {}
+
+// 数据修复：2026-04-13 第三小组已有评价但 completed_items 未设置
+try {
+  const p0413 = db.prepare("SELECT id, completed_items FROM monthly_training_plans WHERE shift_date='2026-04-13' AND year_month='2026-04'").get();
+  if (p0413) {
+    const ci = JSON.parse(p0413.completed_items || '[]');
+    if (ci.length === 0) {
+      const evalCount = db.prepare('SELECT COUNT(*) as c FROM training_evaluations WHERE plan_id=?').get(p0413.id);
+      if (evalCount.c > 0) {
+        db.prepare("UPDATE monthly_training_plans SET completed_items=? WHERE id=?")
+          .run('["人工介入","线路异物侵限处置办法"]', p0413.id);
+        console.log('[Migration] 已修复 2026-04-13 培训计划 completed_items');
+      }
+    }
+  }
+} catch(e) {}
+
+// 打卡 & 教员确认
+db.exec(`CREATE TABLE IF NOT EXISTS training_attendance (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_id INTEGER NOT NULL,
+  staff_id TEXT NOT NULL,
+  checked_in INTEGER DEFAULT 0,
+  checkin_time TEXT,
+  checkin_lat REAL,
+  checkin_lng REAL,
+  instructor_confirmed INTEGER DEFAULT 0,
+  confirm_time TEXT,
+  confirmed_by TEXT,
+  UNIQUE(plan_id, staff_id)
+)`);
+
+// 现场照片
+db.exec(`CREATE TABLE IF NOT EXISTS training_photos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_id INTEGER NOT NULL,
+  filename TEXT NOT NULL,
+  uploaded_at TEXT DEFAULT (datetime('now','localtime')),
+  uploaded_by TEXT
+)`);
+
+// 培训点评
+db.exec(`CREATE TABLE IF NOT EXISTS training_evaluations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_id INTEGER NOT NULL,
+  staff_id TEXT NOT NULL,
+  staff_name TEXT,
+  comment TEXT,
+  evaluated_by TEXT,
+  evaluated_at TEXT DEFAULT (datetime('now','localtime')),
+  UNIQUE(plan_id, staff_id)
+)`);
+
+// 确保照片目录存在
+const PHOTO_DIR = path.join(__dirname, '..', 'data', 'training-photos');
+if (!fs.existsSync(PHOTO_DIR)) fs.mkdirSync(PHOTO_DIR, { recursive: true });
+
+// ─── 一次性初始化：班组长标记（is_leader）───────────────────────────────────
+{
+  const cnt = db.prepare('SELECT COUNT(*) as c FROM staff WHERE is_leader=1').get().c;
+  if (cnt === 0) {
+    // 艾凌风 07512、韩颖 3743、胡鑫 17341 — 按实际工号设置
+    db.prepare("UPDATE staff SET is_leader=1 WHERE id IN ('07512','3743','17341')").run();
+  }
+}
+
+// ─── 一次性初始化：2026-04 培训计划设置（中旬会 → Apr 17，起始教员 idx=1）──────
+{
+  const s = db.prepare('SELECT safety_date FROM training_plan_settings WHERE year_month=?').get('2026-04');
+  if (!s || s.safety_date !== '2026-04-17') {
+    db.prepare('INSERT OR REPLACE INTO training_plan_settings (year_month,safety_date,start_group_id,start_leader_idx) VALUES (?,?,?,?)').run('2026-04','2026-04-17',2,2);
+    db.prepare('DELETE FROM monthly_training_plans WHERE year_month=?').run('2026-04');
+  }
+}
+
 // ─── Shift Calendar Table ──────────────────────────────────────────────────
 db.exec(`CREATE TABLE IF NOT EXISTS shift_calendar (
   date TEXT PRIMARY KEY,
@@ -250,6 +375,77 @@ ensureCurrentCycle();
 // 每小时检查一次是否需要切换轮次
 setInterval(ensureCurrentCycle, 60 * 60 * 1000);
 
+// ─── 早班定时推送：12:30 和 16:30 推送教员确认情况 ────────────────────────────
+async function pushTrainingEvalStatus() {
+  // 只在早班日推送
+  const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+  const todayShift = db.prepare('SELECT shift FROM shift_calendar WHERE date=?').get(todayStr)?.shift || '';
+  if (todayShift !== '早班') return;
+
+  // 找今日（早班日）的培训计划
+  const plan = db.prepare('SELECT * FROM monthly_training_plans WHERE shift_date=?').get(todayStr);
+  if (!plan) return;
+
+  // 已确认人员
+  const evals = db.prepare(
+    'SELECT e.staff_name, e.evaluated_by, e.evaluated_at FROM training_evaluations e WHERE e.plan_id=? ORDER BY e.evaluated_at'
+  ).all(plan.id);
+
+  // 计划应参加人员（应用 overrides，中旬会取全员）
+  const full = getTrainingPlanForDate(todayStr);
+  let allMembers = [];
+  if (plan.plan_type === '中旬会') {
+    const leaveNames = new Set((full?.zhxhLeavers || []).map(l => l.staffName));
+    allMembers = [
+      ...(full?.zhxhLeaders || []).map(l => l.real_name || l.name),
+      ...(full?.zhxhMembers || []).map(m => m.real_name || m.name),
+    ].filter(n => !leaveNames.has(n));
+  } else {
+    const fixedIds = new Set((full?.fixedStaff || []).map(f => String(f.staff_id)));
+    const members = (full?.group?.members || []).filter(m => !fixedIds.has(String(m.id)));
+    allMembers = [...members.map(m => m.real_name || m.name), ...(full?.fixedStaff || []).map(f => f.real_name || f.name)];
+  }
+  const confirmedNames = evals.map(e => e.staff_name);
+  const pendingNames = allMembers.filter(n => !confirmedNames.includes(n));
+
+  // 检查照片是否已上传
+  const photoCount = db.prepare('SELECT COUNT(*) as cnt FROM training_photos WHERE plan_id=?').get(plan.id)?.cnt || 0;
+  const photoStatus = photoCount > 0 ? `✅ 已上传现场照片（${photoCount}张）` : '⚠️ 现场照片还未上传';
+
+  const now = new Date().toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
+  const dateLabel = fmtDate(todayStr);
+  const lines = [`📋 ${now}  ${dateLabel}早班培训进度`];
+
+  if (confirmedNames.length > 0) {
+    lines.push(`✅ 已确认完成（${confirmedNames.length}人）：${confirmedNames.join('、')}`);
+  } else {
+    lines.push('✅ 已确认完成（0人）');
+  }
+  if (pendingNames.length > 0) {
+    lines.push(`⏳ 待确认（${pendingNames.length}人）：${pendingNames.join('、')}`);
+  } else {
+    lines.push('✅ 全员已确认完成');
+  }
+  lines.push(photoStatus);
+
+  await sendGroupPush(lines.join('\n'));
+}
+
+// 每分钟检查一次时间，在 12:30 和 16:30 各推送一次
+let lastEvalPushDate = { '12:30': '', '16:30': '' };
+setInterval(() => {
+  const now = new Date();
+  const cst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
+  const hh = String(cst.getHours()).padStart(2, '0');
+  const mm = String(cst.getMinutes()).padStart(2, '0');
+  const hhmm = `${hh}:${mm}`;
+  const todayStr = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+  if ((hhmm === '12:30' || hhmm === '16:30') && lastEvalPushDate[hhmm] !== todayStr) {
+    lastEvalPushDate[hhmm] = todayStr;
+    pushTrainingEvalStatus().catch(() => {});
+  }
+}, 60 * 1000);
+
 // 默认设置
 [
   ['exam_mode', '0'],
@@ -259,8 +455,9 @@ setInterval(ensureCurrentCycle, 60 * 60 * 1000);
 ].forEach(([k,v]) => db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)").run(k,v));
 
 app.use(cors());
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, '..', 'dist')));
+app.use('/training-photos', express.static(path.join(__dirname, '..', 'data', 'training-photos')));
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 function getSetting(key) {
@@ -279,6 +476,20 @@ function adminAuth(req, res, next) {
   if (pwd !== ADMIN_PASSWORD) return res.status(401).json({ error: '密码错误' });
   next();
 }
+// 培训计划编辑权限：管理员密码 或 教员身份
+function workshopEditAuth(req, res, next) {
+  const pwd = req.headers['x-admin-password'] || req.query.password;
+  if (pwd === ADMIN_PASSWORD) return next();
+  const instructorId = req.headers['x-instructor-id'];
+  if (instructorId) {
+    const s = db.prepare('SELECT is_instructor FROM staff WHERE id=?').get(instructorId);
+    if (s?.is_instructor) { req.instructorId = instructorId; return next(); }
+    // 也检查是否在小组中担任教员
+    const inGroup = db.prepare('SELECT 1 FROM training_groups WHERE instructor_id=? LIMIT 1').get(instructorId);
+    if (inGroup) { req.instructorId = instructorId; return next(); }
+  }
+  return res.status(401).json({ error: '需要管理员密码或教员身份' });
+}
 const _logStmt = db.prepare("INSERT INTO admin_logs (action, detail, operator) VALUES (?,?,?)");
 function logAdmin(action, detail='', operator='admin') {
   try { _logStmt.run(action, String(detail), operator); } catch(e) {}
@@ -296,20 +507,22 @@ app.post('/api/login', (req, res) => {
   const s = all.find(r => normalize(r.id) === inputNum);
   if (!s) return res.status(404).json({ error: '工号不存在，请联系班组长' });
   if (s.phone_tail && s.phone_tail !== phoneTail) return res.status(401).json({ error: '手机尾号不匹配' });
-  res.json({ ok: true, staffId: s.id, realName: s.real_name || s.name, phoneTail: s.phone_tail || '', isExempt: !!s.is_exempt, isTester: !!s.is_tester });
+  // 检查是否有编辑权限：staff.is_instructor=1 或 在training_groups担任教员
+  const isInstructor = !!s.is_instructor || !!db.prepare('SELECT 1 FROM training_groups WHERE instructor_id=? LIMIT 1').get(s.id);
+  res.json({ ok: true, staffId: s.id, realName: s.real_name || s.name, phoneTail: s.phone_tail || '', isExempt: !!s.is_exempt, isTester: !!s.is_tester, isInstructor, isLeader: !!s.is_leader });
 });
 
 app.get('/api/staff', adminAuth, (req, res) => {
-  res.json(db.prepare('SELECT id, real_name, phone_tail, is_exempt, is_tester, COALESCE(is_cp,0) as is_cp, created_at FROM staff ORDER BY created_at DESC').all());
+  res.json(db.prepare('SELECT id, real_name, phone_tail, is_exempt, is_tester, COALESCE(is_cp,0) as is_cp, COALESCE(is_leader,0) as is_leader, COALESCE(is_instructor,0) as is_instructor, created_at FROM staff ORDER BY created_at DESC').all());
 });
 
 // 单条添加
 app.post('/api/staff', adminAuth, (req, res) => {
-  const { id, real_name, phone_tail, is_exempt, is_tester, is_cp } = req.body;
+  const { id, real_name, phone_tail, is_exempt, is_tester, is_cp, is_leader, is_instructor } = req.body;
   if (!id?.trim() || !real_name?.trim()) return res.status(400).json({ error: '工号和姓名不能为空' });
   const staffId = id.trim().replace(/^Y/i, '');
-  db.prepare('INSERT OR REPLACE INTO staff (id, name, real_name, phone_tail, is_exempt, is_tester, is_cp) VALUES (?,?,?,?,?,?,?)')
-    .run(staffId, real_name.trim(), real_name.trim(), (phone_tail||'').toString().trim().slice(-4), is_exempt?1:0, is_tester?1:0, is_cp?1:0);
+  db.prepare('INSERT OR REPLACE INTO staff (id, name, real_name, phone_tail, is_exempt, is_tester, is_cp, is_leader, is_instructor) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run(staffId, real_name.trim(), real_name.trim(), (phone_tail||'').toString().trim().slice(-4), is_exempt?1:0, is_tester?1:0, is_cp?1:0, is_leader?1:0, is_instructor?1:0);
   logAdmin('添加人员', `工号${staffId} ${real_name.trim()}`);
   res.json({ ok: true });
 });
@@ -337,10 +550,10 @@ app.delete('/api/staff/:id', adminAuth, (req, res) => {
 });
 // 编辑人员
 app.put('/api/staff/:id', adminAuth, (req, res) => {
-  const { real_name, phone_tail, is_exempt, is_tester, is_cp } = req.body;
+  const { real_name, phone_tail, is_exempt, is_tester, is_cp, is_leader, is_instructor } = req.body;
   if (!real_name?.trim()) return res.status(400).json({ error: '姓名不能为空' });
-  db.prepare('UPDATE staff SET name=?, real_name=?, phone_tail=?, is_exempt=?, is_tester=?, is_cp=? WHERE id=?')
-    .run(real_name.trim(), real_name.trim(), (phone_tail||'').toString().trim().slice(-4), is_exempt?1:0, is_tester?1:0, is_cp?1:0, req.params.id);
+  db.prepare('UPDATE staff SET name=?, real_name=?, phone_tail=?, is_exempt=?, is_tester=?, is_cp=?, is_leader=?, is_instructor=? WHERE id=?')
+    .run(real_name.trim(), real_name.trim(), (phone_tail||'').toString().trim().slice(-4), is_exempt?1:0, is_tester?1:0, is_cp?1:0, is_leader?1:0, is_instructor?1:0, req.params.id);
   logAdmin('编辑人员', `工号${req.params.id} ${real_name.trim()}`);
   res.json({ ok: true });
 });
@@ -356,19 +569,38 @@ app.get('/api/questions', (req, res) => {
     if (pinnedVal) {
       try {
         const pinned = JSON.parse(pinnedVal);
-        const todayStr = new Date().toISOString().slice(0, 10);
+        const todayStr = new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'});
         const active = (pinned.scope === 'today' && pinned.created_date === todayStr) || pinned.scope === 'shift';
-        if (active && pinned.ids?.length > 0) {
-          const placeholders = pinned.ids.map(() => '?').join(',');
-          let qs = db.prepare(`SELECT * FROM questions WHERE id IN (${placeholders}) AND active=1`).all(...pinned.ids);
-          // 题目不足3题时用备用题库补全
-          if (qs.length < 3 && pinned.bank_fallback_id) {
-            const needed = 3 - qs.length;
-            const existingIds = qs.map(q => q.id);
-            const excl = existingIds.length > 0 ? `AND id NOT IN (${existingIds.map(() => '?').join(',')})` : '';
-            const extras = db.prepare(`SELECT * FROM questions WHERE bank_id=? AND active=1 ${excl} ORDER BY RANDOM() LIMIT ?`).all(pinned.bank_fallback_id, ...existingIds, needed);
-            qs = [...qs, ...extras];
+        if (active) {
+          const count = pinned.count || 3;
+          const mode = pinned.mode || (pinned.ids?.length > 0 ? 'manual' : 'emergency');
+          const hasContent = (pinned.ids?.length > 0) || (mode === 'random' && (pinned.bank_id || pinned.bank_ids?.length > 0)) || mode === 'emergency';
+          if (!hasContent) return res.json({ questions: [], bankId: 'pinned', count, examMode: false, pinned: true });
+          let qs = [];
+
+          if (mode === 'emergency') {
+            qs = db.prepare('SELECT * FROM questions WHERE bank_id=1 AND active=1 ORDER BY RANDOM() LIMIT ?').all(count);
+          } else if (mode === 'random') {
+            if (pinned.bank_ids?.length > 0) {
+              // 多题库混合随机
+              const placeholders = pinned.bank_ids.map(() => '?').join(',');
+              qs = db.prepare(`SELECT * FROM questions WHERE bank_id IN (${placeholders}) AND active=1 ORDER BY RANDOM() LIMIT ?`).all(...pinned.bank_ids, count);
+            } else if (pinned.bank_id) {
+              qs = db.prepare('SELECT * FROM questions WHERE bank_id=? AND active=1 ORDER BY RANDOM() LIMIT ?').all(pinned.bank_id, count);
+            } else if (pinned.ids?.length > 0) {
+              const placeholders = pinned.ids.map(() => '?').join(',');
+              const pool = db.prepare(`SELECT * FROM questions WHERE id IN (${placeholders}) AND active=1`).all(...pinned.ids);
+              // 从池中随机取 count 题
+              for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+              qs = pool.slice(0, count);
+            }
+          } else if (mode === 'manual') {
+            if (pinned.ids?.length > 0) {
+              const placeholders = pinned.ids.map(() => '?').join(',');
+              qs = db.prepare(`SELECT * FROM questions WHERE id IN (${placeholders}) AND active=1`).all(...pinned.ids);
+            }
           }
+
           if (qs.length > 0) return res.json({ questions: qs, bankId: 'pinned', count: qs.length, examMode: false, pinned: true });
         }
       } catch(e) { /* fall through */ }
@@ -405,6 +637,14 @@ app.post('/api/questions', adminAuth, (req, res) => {
 
 app.delete('/api/questions/:id', adminAuth, (req, res) => {
   db.prepare('UPDATE questions SET active=0 WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+app.put('/api/questions/:id', adminAuth, (req, res) => {
+  const { text, reference, keywords, category } = req.body;
+  if (!text?.trim()) return res.status(400).json({ error: '题目不能为空' });
+  db.prepare('UPDATE questions SET text=?,reference=?,keywords=?,category=? WHERE id=?')
+    .run(text.trim(), reference||'', keywords||'', category||'业务知识', req.params.id);
   res.json({ ok: true });
 });
 
@@ -566,6 +806,8 @@ ${ansText}
 async function scoreWithQwen(question, reference, answer, category) {
   const KEY = process.env.DASHSCOPE_API_KEY;
   if (!KEY || !answer?.trim()) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
   try {
     const resp = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
       method: 'POST',
@@ -575,12 +817,13 @@ async function scoreWithQwen(question, reference, answer, category) {
         messages: [{ role: 'user', content: buildScoringPrompt(question, reference, answer, category) }],
         max_tokens: 800,
         temperature: 0.1
-      })
+      }),
+      signal: controller.signal
     });
     const data = await resp.json();
     const raw = (data.choices?.[0]?.message?.content || '{}').replace(/```json|```/g, '').trim();
     return JSON.parse(raw);
-  } catch(e) { return null; }
+  } catch(e) { return null; } finally { clearTimeout(timer); }
 }
 
 function scoreKeyword(reference, keywords, answer) {
@@ -671,13 +914,16 @@ app.get('/api/leaderboard/cycle', (req, res) => {
            s.q_count, s.tab_switch_count, s.created_at as last_at,
            (SELECT COUNT(*) FROM sessions s2 WHERE s2.staff_id=s.staff_id AND s2.cycle_id=s.cycle_id
             AND s2.completed=1 AND COALESCE(s2.is_practice,0)=0) as attempts,
-           (SELECT avatar FROM staff WHERE id=s.staff_id LIMIT 1) as avatar
+           (SELECT avatar FROM staff WHERE id=s.staff_id LIMIT 1) as avatar,
+           COALESCE(st.is_exempt,0) as is_exempt,
+           COALESCE(st.is_instructor,0) as is_instructor
     FROM sessions s
+    LEFT JOIN staff st ON st.id=s.staff_id
     WHERE s.id IN (
       SELECT MIN(id) FROM sessions
       WHERE cycle_id=? AND completed=1 AND COALESCE(hidden,0)=0
       AND COALESCE(is_practice,0)=0 AND COALESCE(is_deleted,0)=0
-      AND staff_id NOT IN (SELECT id FROM staff WHERE is_exempt=1)
+      AND staff_id NOT IN (SELECT id FROM staff WHERE is_leader=1)
       GROUP BY staff_id
     )
     ORDER BY s.total_points DESC LIMIT 30
@@ -797,14 +1043,16 @@ app.get('/api/leaderboard/alltime', (req, res) => {
       WHERE completed=1 AND COALESCE(hidden,0)=0 AND COALESCE(is_practice,0)=0
       AND COALESCE(is_deleted,0)=0
       AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')
-      AND staff_id NOT IN (SELECT id FROM staff WHERE is_exempt=1)
+      AND staff_id NOT IN (SELECT id FROM staff WHERE is_leader=1)
       GROUP BY staff_id, cycle_id
     )
-    SELECT staff_id, staff_name,
-           SUM(cycle_pts) as total_points,
-           COUNT(DISTINCT cycle_id) as cycle_count,
-           (SELECT avatar FROM staff WHERE id=staff_id LIMIT 1) as avatar
-    FROM cycle_avg GROUP BY staff_id ORDER BY total_points DESC LIMIT 30
+    SELECT ca.staff_id, ca.staff_name,
+           SUM(ca.cycle_pts) as total_points,
+           COUNT(DISTINCT ca.cycle_id) as cycle_count,
+           COALESCE(st.is_exempt,0) as is_exempt,
+           COALESCE(st.is_instructor,0) as is_instructor
+    FROM cycle_avg ca LEFT JOIN staff st ON st.id=ca.staff_id
+    GROUP BY ca.staff_id ORDER BY total_points DESC LIMIT 30
   `).all();
   res.json(rows);
 });
@@ -843,7 +1091,7 @@ app.get('/api/me/:staffId', (req, res) => {
            GROUP_CONCAT(a.category) as cats
     FROM sessions s
     LEFT JOIN answers a ON a.session_id=s.id
-    WHERE s.staff_id=? AND s.completed=1
+    WHERE s.staff_id=? AND s.completed=1 AND COALESCE(s.is_practice,0)=0
     GROUP BY s.id ORDER BY s.created_at DESC LIMIT 10
   `).all(sid);
 
@@ -1003,6 +1251,134 @@ app.get('/api/makeup/status/:staffId', (req, res) => {
   res.json({ granted: !!grant, expiresAt: grant?.expires_at || null });
 });
 
+// 本月培训项点完成情况（各计划评价进度）
+app.get('/api/admin/month-plan-completion', adminAuth, (req, res) => {
+  const month = req.query.month || new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'}).slice(0,7);
+  const plans = db.prepare(
+    "SELECT id, shift_date, plan_type, group_id, leader_name, completed_items FROM monthly_training_plans WHERE year_month=? AND plan_type NOT IN ('轮空') ORDER BY shift_date"
+  ).all(month);
+
+  const result = plans.map(plan => {
+    // 用 override-aware 函数取当前成员名单
+    const full = getTrainingPlanForDate(plan.shift_date);
+    const fixedIds = new Set((full?.fixedStaff||[]).map(f=>String(f.staff_id)));
+    // 组员（排除固定成员和教员）
+    const members = (full?.group?.members||[]).filter(m=>!fixedIds.has(String(m.id)));
+    // 固定成员也加进来（他们也参与培训）
+    const fixedMembers = (full?.fixedStaff||[]).map(f=>({id:String(f.staff_id),name:f.real_name||f.name}));
+    const allMembers = [...members.map(m=>({id:String(m.id),name:m.real_name||m.name})), ...fixedMembers];
+
+    // 已评价的成员（含评价内容）
+    const evals = db.prepare('SELECT staff_id, comment FROM training_evaluations WHERE plan_id=?').all(plan.id);
+    const evalMap = new Map(evals.map(e=>[String(e.staff_id), e.comment||'']));
+
+    const membersWithStatus = allMembers.map(m=>({
+      id: m.id, name: m.name, evaluated: evalMap.has(m.id),
+      comment: evalMap.get(m.id) || '',
+    }));
+
+    const group = full?.group;
+    return {
+      id: plan.id,
+      shift_date: plan.shift_date,
+      plan_type: plan.plan_type,
+      group_name: group?.name || '',
+      completed_items: JSON.parse(plan.completed_items || '[]'),
+      total: allMembers.length,
+      done: evals.length,
+      members: membersWithStatus,
+    };
+  });
+
+  res.json(result);
+});
+
+// 本月成员完成情况（按小组分组，每人显示培训项点完成进度）
+app.get('/api/admin/month-member-completion', adminAuth, (req, res) => {
+  const month = req.query.month || new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'}).slice(0,7);
+  const [yearStr, monthStr] = month.split('-');
+
+  // 本月年度计划项点总数
+  const yearPlanRow = db.prepare('SELECT sessions_json FROM training_year_plan WHERE year=? AND month=?').get(parseInt(yearStr), parseInt(monthStr));
+  const monthItems = JSON.parse(yearPlanRow?.sessions_json || '[]');
+  const totalItems = monthItems.length; // Y（本月总项点数）
+
+  // 本月所有培训计划（排除轮空，包含中旬会）
+  const plans = db.prepare(
+    "SELECT id, shift_date, plan_type, completed_items FROM monthly_training_plans WHERE year_month=? AND plan_type NOT IN ('轮空') ORDER BY shift_date"
+  ).all(month);
+
+  // 计算每人已完成项点数
+  const personDone = {}; // staffId -> Set of completed item names
+  for (const plan of plans) {
+    const completedItems = JSON.parse(plan.completed_items || '[]');
+    if (completedItems.length === 0) continue; // 未设置项点，不计入进度
+
+    const full = getTrainingPlanForDate(plan.shift_date);
+    if (!full) continue;
+    const fixedIds = new Set((full.fixedStaff||[]).map(f=>String(f.staff_id)));
+
+    let allParticipants;
+    if (plan.plan_type === '中旬会') {
+      // 中旬会：全员参与，取所有小组成员 + 固定成员
+      const allGroupMembers = db.prepare(
+        'SELECT tgm.staff_id FROM training_group_members tgm WHERE tgm.is_fixed=0'
+      ).all();
+      allParticipants = [
+        ...allGroupMembers.map(m=>String(m.staff_id)).filter(id=>!fixedIds.has(id)),
+        ...(full.fixedStaff||[]).map(f=>String(f.staff_id))
+      ];
+    } else {
+      const members = (full.group?.members||[]).filter(m=>!fixedIds.has(String(m.id)));
+      allParticipants = [
+        ...members.map(m=>String(m.id)),
+        ...(full.fixedStaff||[]).map(f=>String(f.staff_id))
+      ];
+    }
+
+    const evals = db.prepare('SELECT staff_id FROM training_evaluations WHERE plan_id=?').all(plan.id);
+    const evaluatedIds = new Set(evals.map(e=>String(e.staff_id)));
+    for (const sid of allParticipants) {
+      if (evaluatedIds.has(sid)) {
+        if (!personDone[sid]) personDone[sid] = new Set();
+        for (const item of completedItems) personDone[sid].add(item);
+      }
+    }
+  }
+
+  // 4个小组及其成员（含教员名，排除豁免/CP人员）
+  const groups = db.prepare(
+    'SELECT g.*, COALESCE(s.real_name, s.name) as instructor_name FROM training_groups g LEFT JOIN staff s ON s.id=g.instructor_id ORDER BY g.id'
+  ).all();
+  const groupMembers = db.prepare(
+    'SELECT tgm.group_id, tgm.staff_id, s.real_name, s.name, s.is_exempt, COALESCE(s.is_cp,0) as is_cp FROM training_group_members tgm JOIN staff s ON s.id=tgm.staff_id WHERE tgm.is_fixed=0 ORDER BY tgm.group_id, s.id'
+  ).all();
+
+  const result = groups.map(g => ({
+    id: g.id,
+    name: g.name,
+    instructor_name: g.instructor_name || null,
+    members: groupMembers
+      .filter(m => m.group_id === g.id && !m.is_exempt && !m.is_cp)
+      .map(m => {
+        const doneSet = personDone[String(m.staff_id)];
+        const done = doneSet ? doneSet.size : 0;
+        return {id:String(m.staff_id), name:m.real_name||m.name, total:totalItems, done};
+      })
+  }));
+
+  // 固定成员
+  const fixedStaff = db.prepare(
+    'SELECT f.staff_id, s.real_name, s.name FROM training_fixed_members f JOIN staff s ON f.staff_id=s.id'
+  ).all().map(f => {
+    const doneSet = personDone[String(f.staff_id)];
+    const done = doneSet ? doneSet.size : 0;
+    return {id:String(f.staff_id), name:f.real_name||f.name, total:totalItems, done};
+  });
+
+  res.json({groups: result, fixed: fixedStaff, totalItems, monthItems});
+});
+
 app.get('/api/admin/weak-questions', adminAuth, (req, res) => {
   const cycle = getCurrentCycle();
   if (!cycle) return res.json([]);
@@ -1036,7 +1412,7 @@ app.get('/api/admin/weak-questions', adminAuth, (req, res) => {
 
 app.get('/api/admin/members', adminAuth, (req, res) => {
   const members = db.prepare(`
-    SELECT s.id, s.real_name, s.phone_tail, s.is_exempt, s.is_tester, COALESCE(s.is_cp,0) as is_cp,
+    SELECT s.id, s.real_name, s.phone_tail, s.is_exempt, s.is_tester, COALESCE(s.is_cp,0) as is_cp, COALESCE(s.is_leader,0) as is_leader, COALESCE(s.is_instructor,0) as is_instructor,
            COUNT(DISTINCT date(ss.created_at)) as answer_days,
            ROUND(AVG(ss.total_score),1) as avg_score,
            MAX(ss.total_score) as best_score,
@@ -1099,10 +1475,28 @@ app.put('/api/settings', adminAuth, (req, res) => {
 // ─── Personal Answers History ──────────────────────────────────────────────
 app.get('/api/me/:staffId/answers', (req, res) => {
   const rows = db.prepare(`
-    SELECT question_text, answer_text, score, level, category, created_at
-    FROM answers WHERE staff_id=? ORDER BY created_at DESC LIMIT 50
+    SELECT a.question_text, a.answer_text, a.score, a.level, a.category, a.created_at, s.q_count
+    FROM answers a JOIN sessions s ON s.id=a.session_id
+    WHERE a.staff_id=? ORDER BY a.created_at DESC LIMIT 50
   `).all(req.params.staffId);
   res.json(rows);
+});
+
+app.get('/api/me/:staffId/sessions', (req, res) => {
+  const sessions = db.prepare(`
+    SELECT s.id, s.total_score, s.q_count, s.tab_switch_count, s.is_practice, s.created_at,
+           c.label as cycle_label
+    FROM sessions s LEFT JOIN cycles c ON c.id=s.cycle_id
+    WHERE s.staff_id=? AND s.completed=1 AND COALESCE(s.hidden,0)=0 AND COALESCE(s.is_deleted,0)=0
+    ORDER BY s.created_at DESC LIMIT 30
+  `).all(req.params.staffId);
+  const result = sessions.map(s => ({
+    ...s,
+    answers: db.prepare(
+      'SELECT question_text, answer_text, score, level, category FROM answers WHERE session_id=? ORDER BY id ASC'
+    ).all(s.id)
+  }));
+  res.json(result);
 });
 
 // ─── Monitor API（只读，供 OpenClaw cron 调用）─────────────────────────────
@@ -1265,26 +1659,31 @@ app.post('/api/admin/dingtalk/push', adminAuth, async (req, res) => {
   const cycle = getCurrentCycle();
   const cycleId = cycle?.id || null;
   const completed = cycleId ? db.prepare(`
-    SELECT DISTINCT s.staff_id, COALESCE(st.real_name, s.staff_name) as name
+    SELECT DISTINCT s.staff_id, COALESCE(st.real_name, s.staff_name) as name,
+      st.is_exempt, st.is_instructor, st.is_leader
     FROM sessions s
     LEFT JOIN staff st ON st.id = s.staff_id
     WHERE s.cycle_id=?
       AND s.completed=1 AND s.q_count>=3
       AND COALESCE(s.is_practice,0)=0
       AND COALESCE(s.is_deleted,0)=0
-      AND st.is_exempt=0 AND COALESCE(st.is_cp,0)=0
+      AND COALESCE(st.is_cp,0)=0
     ORDER BY s.created_at ASC
   `).all(cycleId) : [];
 
   const completedIds = completed.map(r => r.staff_id);
-  const pendingRows = db.prepare(`
+  // 未完成：只列必答人员（非免答、非班组长、非CP）
+  const allRequired = db.prepare(`
     SELECT id, COALESCE(real_name, name) as name
     FROM staff
-    WHERE is_exempt=0 AND COALESCE(is_cp,0)=0
+    WHERE is_exempt=0 AND COALESCE(is_leader,0)=0 AND COALESCE(is_cp,0)=0
     ORDER BY id
-  `).all().filter(s => !completedIds.includes(s.id));
-  const total = completedIds.length + pendingRows.length;
-  const count = completed.length;
+  `).all();
+  const pendingRows = allRequired.filter(s => !completedIds.includes(s.id));
+  const total = allRequired.length; // 分母只算必答人员（不含免答/班组长）
+  // 已完成：所有完成者都显示（含免答/班组长），但分子只算必答人员
+  const completedRequired = completed.filter(r => !r.is_exempt && !r.is_leader);
+  const count = completedRequired.length;
 
   const now = new Date();
   const dateStr = now.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric' });
@@ -1335,6 +1734,397 @@ app.post('/api/admin/dingtalk/push', adminAuth, async (req, res) => {
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
+});
+
+// ─── DingTalk: 抽问开始通知 ────────────────────────────────────────────────
+app.post('/api/admin/dingtalk/notify-start', adminAuth, async (req, res) => {
+  const webhook = process.env.DINGTALK_WEBHOOK;
+  const secret = process.env.DINGTALK_SECRET;
+  if (!webhook || !secret) return res.status(500).json({ error: '未配置钉钉Webhook' });
+
+  const { ids, mode, count, bank_id, bank_ids, scope } = req.body;
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric' });
+  const todayShift = getTodayShift();
+  const shiftLabel = todayShift ? ` · ${todayShift}` : '';
+  const publicUrl = process.env.PUBLIC_URL || '';
+  const scopeLabel = scope === 'shift' ? '本套班' : '今日';
+
+  // 构建答题范围描述
+  let rangeDesc = '';
+  if (mode === 'emergency') {
+    rangeDesc = `应急故障处置题库随机 ${count || 3} 题`;
+  } else if (mode === 'random') {
+    if (bank_ids?.length > 0) {
+      const placeholders = bank_ids.map(() => '?').join(',');
+      const bks = db.prepare(`SELECT name FROM question_banks WHERE id IN (${placeholders})`).all(...bank_ids);
+      const names = bks.map(b => b.name);
+      rangeDesc = names.length > 1
+        ? `${names.join('、')} 多题库混合随机 ${count || 3} 题`
+        : `${names[0] || '指定题库'} 随机 ${count || 3} 题`;
+    } else if (bank_id) {
+      const bk = db.prepare('SELECT name FROM question_banks WHERE id=?').get(bank_id);
+      rangeDesc = `${bk?.name || '指定题库'} 随机 ${count || 3} 题`;
+    } else if (Array.isArray(ids) && ids.length > 0) {
+      rangeDesc = `题池随机 ${count || 3} 题`;
+    }
+  } else if (mode === 'manual' && Array.isArray(ids) && ids.length > 0) {
+    rangeDesc = `指定 ${ids.length} 道题目`;
+  }
+
+  const lines = [];
+  lines.push(`📢 管理员已发布${scopeLabel}答题，请大家按时完成！`);
+  lines.push('');
+  lines.push(`📝 本期答题范围：${rangeDesc}`);
+  if (publicUrl) {
+    lines.push('');
+    lines.push(`🔗 答题入口：${publicUrl}`);
+  }
+
+  const timestamp = Date.now();
+  const sign = crypto.createHmac('sha256', secret).update(`${timestamp}\n${secret}`).digest('base64');
+  const url = `${webhook}&timestamp=${timestamp}&sign=${encodeURIComponent(sign)}`;
+
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ msgtype: 'text', text: { content: lines.join('\n') } })
+    });
+    const data = await resp.json();
+    if (data.errcode !== 0) return res.status(500).json({ ok: false, error: data.errmsg });
+    logAdmin('钉钉通知', `抽问开始通知已发送，共${questions.length}题`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ─── DingTalk: 培训计划通知（次日预告 / 当天提醒）─────────────────────────────
+
+// 辅助：查某日期的早班培训计划详情（含换人覆盖）
+function getTrainingPlanForDate(dateStr) {
+  const plan = db.prepare("SELECT * FROM monthly_training_plans WHERE shift_date=? AND plan_type NOT IN ('轮空')").get(dateStr);
+  if (!plan) return null;
+
+  if (plan.group_id) {
+    const group = db.prepare('SELECT * FROM training_groups WHERE id=?').get(plan.group_id);
+    if (group) {
+      // 教员：直接从 staff 表取，不依赖 members join
+      if (group.instructor_id) {
+        const ins = db.prepare('SELECT real_name, name FROM staff WHERE id=?').get(group.instructor_id);
+        group.instructor_name = ins?.real_name || ins?.name || null;
+      }
+
+      // 基础组员（排除教员自身）
+      const baseMembers = db.prepare(`
+        SELECT s.id, s.real_name, s.name
+        FROM training_group_members tgm JOIN staff s ON tgm.staff_id = s.id
+        WHERE tgm.group_id = ? AND tgm.staff_id != ?
+      `).all(group.id, group.instructor_id || 0);
+
+      // 应用换人覆盖
+      const overrides = db.prepare(
+        'SELECT staff_id, action FROM training_plan_member_overrides WHERE plan_id=?'
+      ).all(plan.id);
+      const removedIds = new Set(overrides.filter(o=>o.action==='remove').map(o=>String(o.staff_id)));
+      const addedIds   = overrides.filter(o=>o.action==='add').map(o=>String(o.staff_id));
+
+      let members = baseMembers.filter(m => !removedIds.has(String(m.id)));
+      const addedStaff = [];
+      if (addedIds.length > 0) {
+        const added = db.prepare(
+          `SELECT id, real_name, name FROM staff WHERE id IN (${addedIds.map(()=>'?').join(',')})`
+        ).all(...addedIds);
+        members = [...members, ...added];
+        addedStaff.push(...added);
+      }
+      group.members = members;
+
+      // 构建人员调整备注：add→调整至本计划日期，remove→查找其被add进的计划日期
+      const adjustNotes = [];
+      for (const s of addedStaff) {
+        adjustNotes.push({ name: s.real_name || s.name, date: dateStr });
+      }
+      for (const rid of removedIds) {
+        const rs = db.prepare('SELECT real_name, name FROM staff WHERE id=?').get(rid);
+        if (!rs) continue;
+        const dest = db.prepare(`
+          SELECT mtp.shift_date FROM training_plan_member_overrides o
+          JOIN monthly_training_plans mtp ON mtp.id = o.plan_id
+          WHERE o.staff_id=? AND o.action='add' AND mtp.id != ?
+          ORDER BY mtp.shift_date LIMIT 1
+        `).get(rid, plan.id);
+        adjustNotes.push({ name: rs.real_name || rs.name, date: dest?.shift_date || null });
+      }
+      plan.adjustNotes = adjustNotes;
+    }
+    plan.group = group || null;
+  }
+
+  // 固定成员
+  plan.fixedStaff = db.prepare(`
+    SELECT f.staff_id, s.real_name, s.name
+    FROM training_fixed_members f JOIN staff s ON f.staff_id = s.id
+  `).all();
+
+  // 中旬会：全员参与（所有非CP非测试人员）+ 请假名单
+  if (plan.plan_type === '中旬会') {
+    const allStaff = db.prepare(`
+      SELECT id, real_name, name, is_leader, is_instructor
+      FROM staff
+      WHERE COALESCE(is_cp,0)=0 AND COALESCE(is_tester,0)=0
+      ORDER BY id
+    `).all();
+    const leaderOrder = ['韩颖', '艾凌风', '胡鑫'];
+    const rawLeaders = allStaff.filter(s => s.is_leader);
+    plan.zhxhLeaders = [...leaderOrder.map(n => rawLeaders.find(l => (l.real_name||l.name)===n)).filter(Boolean),
+      ...rawLeaders.filter(l => !leaderOrder.includes(l.real_name||l.name))];
+    plan.zhxhMembers  = allStaff.filter(s => !s.is_leader);
+    plan.zhxhTotal    = allStaff.length;
+    // 请假名单（notes JSON）
+    let leavers = [];
+    try { leavers = JSON.parse(plan.notes || '[]').filter(e => e.type === '请假'); } catch(e) {}
+    plan.zhxhLeavers = leavers; // [{staffId, staffName}]
+  }
+
+  return plan;
+}
+
+// 格式化培训计划为钉钉消息行
+// ── Magic link ─────────────────────────────────────────────────────────────
+function generateMagicToken(staffId, targetScreen = 'home', hoursValid = 48) {
+  // 清理过期 token
+  db.prepare('DELETE FROM magic_tokens WHERE expires_at < ?').run(Date.now());
+  const token = crypto.randomBytes(20).toString('hex');
+  const expiresAt = Date.now() + hoursValid * 3600 * 1000;
+  db.prepare('INSERT INTO magic_tokens (token, staff_id, target_screen, expires_at) VALUES (?,?,?,?)')
+    .run(token, String(staffId), targetScreen, expiresAt);
+  return token;
+}
+
+// 教员生成自己的快捷入口链接
+app.post('/api/magic-link', workshopEditAuth, (req, res) => {
+  const staffId = req.instructorId || null;
+  if (!staffId) return res.status(400).json({ error: '需要教员身份' });
+  const target = req.body?.target || 'workshop';
+  const token = generateMagicToken(staffId, target);
+  const base = process.env.PUBLIC_URL || 'https://peixun.zealerhan.cn';
+  res.json({ ok: true, url: `${base}/go?t=${token}` });
+});
+
+// 跳转落地页（服务端渲染，写 sessionStorage 后重定向到 SPA）
+app.get('/go', (req, res) => {
+  const { t } = req.query;
+  const fail = () => res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><script>alert('链接已过期，请重新登录');location.href='/';<\/script></body></html>`);
+  if (!t) return res.redirect('/');
+  const row = db.prepare('SELECT * FROM magic_tokens WHERE token=?').get(t);
+  if (!row || row.expires_at < Date.now()) return fail();
+  const staff = db.prepare('SELECT id, real_name, name, is_exempt, is_tester, is_instructor FROM staff WHERE id=?').get(row.staff_id);
+  if (!staff) return fail();
+  const userData = JSON.stringify({
+    staffId: staff.id,
+    name: staff.real_name || staff.name || staff.id,
+    isExempt: !!staff.is_exempt,
+    isTester: !!staff.is_tester,
+    isInstructor: !!staff.is_instructor,
+  });
+  const screen = row.target_screen || 'home';
+  res.send(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>跳转中…</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{margin:0;background:#07101f;display:flex;align-items:center;justify-content:center;height:100vh;color:#94a3b8;font-family:sans-serif;font-size:14px;}</style>
+</head><body><p>正在跳转…</p>
+<script>
+  try {
+    sessionStorage.setItem('magic_user', ${JSON.stringify(userData)});
+    sessionStorage.setItem('magic_nav', ${JSON.stringify(screen)});
+    localStorage.setItem('quiz_last_login', JSON.stringify({staffId:${JSON.stringify(staff.id)}}));
+  } catch(e){}
+  location.replace('/');
+<\/script></body></html>`);
+});
+
+function formatTrainingLines(plan, dateLabel, mode) {
+  const lines = [];
+  const g = plan.group;
+  const typeMap = { '培训': '实操培训', '理论': '理论培训', '中旬会': '中旬会' };
+  const typeText = typeMap[plan.plan_type] || plan.plan_type;
+  const location = plan.location || '工人村';
+  const isZhxh = plan.plan_type === '中旬会';
+
+  lines.push(`📅 ${dateLabel}`);
+  lines.push(`📍 ${isZhxh ? '' : (g?.name || '') + ' · '}${typeText} · ${location}`);
+  lines.push('');
+
+  if (isZhxh) {
+    const leaveNames  = new Set((plan.zhxhLeavers || []).map(l => l.staffName));
+    const leaderNames = (plan.zhxhLeaders || []).map(l => l.real_name || l.name);
+    const memberNames = (plan.zhxhMembers || []).map(m => m.real_name || m.name);
+    const total       = plan.zhxhTotal || (leaderNames.length + memberNames.length);
+    const attending   = memberNames.filter(n => !leaveNames.has(n));
+    const leaderAttending = leaderNames.filter(n => !leaveNames.has(n));
+    const actualCount = leaderAttending.length + attending.length;
+
+    if (leaderNames.length > 0) lines.push(`班组长：${leaderNames.join(' ')}`);
+    if (attending.length > 0)   lines.push(`👥 ${attending.join('、')}`);
+    if (leaveNames.size > 0)    lines.push(`🏖 请假：${[...leaveNames].join('、')}`);
+    lines.push(`应到 ${total} 人，实到 ${actualCount} 人`);
+  } else if (g) {
+    const fixedIds = new Set((plan.fixedStaff || []).map(f => f.staff_id));
+    const normalMembers = (g.members || []).filter(m => !fixedIds.has(m.id));
+    const fixedNames = (plan.fixedStaff || []).map(f => f.real_name || f.name);
+
+    // 教员 + 班组长 同一行
+    const roleParts = [];
+    if (g.instructor_name) roleParts.push(`教员 ${g.instructor_name}`);
+    if (plan.leader_name)  roleParts.push(`班组长 ${plan.leader_name}`);
+    if (roleParts.length)  lines.push(roleParts.join('　　'));
+
+    // 组员 + 固定成员
+    const memberParts = [];
+    if (normalMembers.length > 0) memberParts.push(`👥 ${normalMembers.map(m => m.real_name || m.name).join('、')}`);
+    if (fixedNames.length > 0)    memberParts.push(`📌 ${fixedNames.join('、')}`);
+    if (memberParts.length)        lines.push(memberParts.join('　　'));
+
+    // 人员调整备注
+    if (plan.adjustNotes && plan.adjustNotes.length > 0) {
+      const noteStr = plan.adjustNotes.map(n => {
+        if (!n.date) return `${n.name}（调整中）`;
+        const [, mo, d] = n.date.split('-');
+        return `${n.name}→${parseInt(mo)}月${parseInt(d)}日`;
+      }).join('，');
+      lines.push(`📝 ${noteStr}`);
+    }
+  }
+
+  lines.push('');
+  if (mode === 'preview') {
+    const leaveContact = isZhxh ? '班组长' : '教员';
+    lines.push(`⚠️ 如需请假，请在今晚 18:00 前联系${leaveContact}登记。`);
+  } else if (mode === 'reminder') {
+    const verb = isZhxh ? '参加中旬会' : `前往${location}参加实操培训`;
+    lines.push(`🚀 请以上人员退勤后尽快${verb}！`);
+  }
+  return lines;
+}
+
+// ── 教员群实时推送（纯文本）──────────────────────────────────────────────────
+async function sendGroupPush(text) {
+  const webhook = process.env.DINGTALK_GROUP_WEBHOOK;
+  const secret  = process.env.DINGTALK_GROUP_SECRET;
+  if (!webhook || !secret) return;
+  try {
+    const timestamp = Date.now();
+    const sign = crypto.createHmac('sha256', secret).update(`${timestamp}\n${secret}`).digest('base64');
+    const url = `${webhook}&timestamp=${timestamp}&sign=${encodeURIComponent(sign)}`;
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ msgtype: 'text', text: { content: text } }),
+    });
+  } catch(e) { /* 推送失败不影响主流程 */ }
+}
+
+// 格式化日期为 "4月13日"
+function fmtDate(dateStr) {
+  if (!dateStr) return '';
+  const [, m, d] = dateStr.split('-');
+  return `${parseInt(m)}月${parseInt(d)}日`;
+}
+
+// 获取计划的当前成员名单（应用 overrides 后）
+function getPlanMemberNames(planId) {
+  const plan = db.prepare('SELECT * FROM monthly_training_plans WHERE id=?').get(planId);
+  if (!plan) return [];
+  const full = getTrainingPlanForDate(plan.shift_date);
+  if (!full) return [];
+  const fixedIds = new Set((full.fixedStaff||[]).map(f=>String(f.staff_id)));
+  const members = (full.group?.members||[]).filter(m=>!fixedIds.has(String(m.id)));
+  return members.map(m=>m.real_name||m.name);
+}
+
+// 公共：发钉钉 ActionCard 消息
+async function sendDingTalkCard({ title, bodyLines, plan, logTag }) {
+  const webhook = process.env.DINGTALK_WEBHOOK;
+  const secret  = process.env.DINGTALK_SECRET;
+  if (!webhook || !secret) throw new Error('未配置钉钉Webhook');
+
+  const BASE = process.env.PUBLIC_URL || 'https://peixun.zealerhan.cn';
+  const instructorId = plan?.group?.instructor_id;
+
+  // 为教员生成专属免登链接（48h有效）
+  const instrToken = instructorId ? generateMagicToken(String(instructorId), 'workshop') : null;
+  const workshopUrl = instrToken ? `${BASE}/go?t=${instrToken}` : `${BASE}/?_nav=workshop`;
+
+  const btns = [
+    { title: '📱 培训系统', actionURL: `${BASE}/?_nav=home` },
+    { title: '📋 月度任务', actionURL: workshopUrl },
+  ];
+
+  const text = bodyLines.join('\n');
+  const timestamp = Date.now();
+  const sign = crypto.createHmac('sha256', secret).update(`${timestamp}\n${secret}`).digest('base64');
+  const url = `${webhook}&timestamp=${timestamp}&sign=${encodeURIComponent(sign)}`;
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      msgtype: 'actionCard',
+      actionCard: { title, text, btns, btnOrientation: '1' },
+    }),
+  });
+  const data = await resp.json();
+  if (data.errcode !== 0) throw new Error(data.errmsg);
+  logAdmin('钉钉通知', logTag);
+}
+
+// 夜班 15:00：推送次日早班培训预告
+app.post('/api/admin/dingtalk/notify-training-preview', adminAuth, async (req, res) => {
+  const tomorrow = new Date(Date.now() + 86400000);
+  const tomorrowStr = tomorrow.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+  const tomorrowShift = db.prepare('SELECT shift FROM shift_calendar WHERE date=?').get(tomorrowStr)?.shift || '';
+
+  if (tomorrowShift !== '早班') {
+    return res.json({ ok: true, skipped: true, reason: `明日班次为"${tomorrowShift}"，非早班，不推送` });
+  }
+
+  const plan = getTrainingPlanForDate(tomorrowStr);
+  if (!plan) return res.json({ ok: true, skipped: true, reason: '明日无培训计划' });
+
+  const dow = ['日','一','二','三','四','五','六'][tomorrow.getDay()];
+  const dateLabel = `${tomorrow.getMonth()+1}月${tomorrow.getDate()}日（周${dow}）`;
+  const bodyLines = formatTrainingLines(plan, dateLabel, 'preview');
+
+  try {
+    await sendDingTalkCard({ title: '🔔 明日早班培训提醒', bodyLines, plan, logTag: `次日培训预告：${tomorrowStr}` });
+    res.json({ ok: true, date: tomorrowStr });
+  } catch(e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+// 早班 08:30：推送当天培训提醒
+app.post('/api/admin/dingtalk/notify-training-reminder', adminAuth, async (req, res) => {
+  const forceDate = req.query.force; // 测试用，跳过班次检查
+  const todayStr = forceDate || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+  const todayShift = forceDate ? '早班' : getTodayShift();
+  if (todayShift !== '早班') {
+    return res.json({ ok: true, skipped: true, reason: `今日班次为"${todayShift}"，非早班，不推送` });
+  }
+
+  const plan = getTrainingPlanForDate(todayStr);
+  if (!plan) return res.json({ ok: true, skipped: true, reason: '该日期无培训计划' });
+
+  const d = new Date(todayStr + 'T00:00:00+08:00');
+  const dow = ['日','一','二','三','四','五','六'][d.getDay()];
+  const dateLabel = `${d.getMonth()+1}月${d.getDate()}日（周${dow}）`;
+  const bodyLines = formatTrainingLines(plan, dateLabel, 'reminder');
+
+  try {
+    await sendDingTalkCard({ title: '📣 今日早班培训通知', bodyLines, plan, logTag: `当天培训提醒：${todayStr}` });
+    res.json({ ok: true, date: todayStr });
+  } catch(e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 // ─── Batch: delete today's sessions ────────────────────────────────────────
@@ -1479,14 +2269,32 @@ app.get('/api/admin/pinned-questions', adminAuth, (req, res) => {
     } else {
       pinned.questions = [];
     }
+    if (pinned.bank_id) {
+      const bank = db.prepare('SELECT name FROM question_banks WHERE id=?').get(pinned.bank_id);
+      pinned.bank_name = bank?.name || null;
+    }
+    if (pinned.bank_ids?.length > 0) {
+      const placeholders = pinned.bank_ids.map(() => '?').join(',');
+      const bks = db.prepare(`SELECT id, name FROM question_banks WHERE id IN (${placeholders})`).all(...pinned.bank_ids);
+      pinned.bank_names = bks.map(b => b.name);
+    }
     res.json(pinned);
   } catch { res.json({ ids: [], scope: 'none', bank_fallback_id: null, questions: [] }); }
 });
 app.put('/api/admin/pinned-questions', adminAuth, (req, res) => {
-  const { ids, scope, bank_fallback_id } = req.body;
-  const val = JSON.stringify({ ids: ids || [], scope: scope || 'none', bank_fallback_id: bank_fallback_id || null, created_date: new Date().toISOString().slice(0, 10) });
+  const { ids, scope, bank_fallback_id, mode, count, bank_id, bank_ids } = req.body;
+  const val = JSON.stringify({
+    ids: ids || [],
+    scope: scope || 'none',
+    bank_fallback_id: bank_fallback_id || null,
+    mode: mode || 'manual',
+    count: count || 3,
+    bank_id: bank_id || null,
+    bank_ids: bank_ids || [],
+    created_date: new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'})
+  });
   db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run('pinned_questions', val);
-  logAdmin('设置手动选题', `${ids?.length||0}题 scope=${scope}`);
+  logAdmin('设置手动选题', `${ids?.length||0}题 scope=${scope} bank_ids=${JSON.stringify(bank_ids||[])}`);
   res.json({ ok: true });
 });
 
@@ -1545,7 +2353,7 @@ app.post('/api/admin/banks/import', adminAuth, upload.single('file'), async (req
 });
 
 // ─── 智能出题：Word/PDF/图片 → AI识别 → 生成题目 ────────────────────────────
-async function callQwenText(KEY, prompt, maxTokens = 3000) {
+async function callQwenText(KEY, prompt, maxTokens = 4000) {
   const resp = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${KEY}` },
@@ -1553,7 +2361,7 @@ async function callQwenText(KEY, prompt, maxTokens = 3000) {
       model: 'qwen-plus',
       messages: [{ role: 'user', content: prompt }],
       max_tokens: maxTokens,
-      temperature: 0.3
+      temperature: 0.1
     })
   });
   const data = await resp.json();
@@ -1590,32 +2398,39 @@ function isIncidentReport(text) {
 }
 
 function buildIncidentPrompt(text) {
-  return `你是武汉地铁乘务安全培训专家。以下是一份地铁安全事件/事故分析报告。请生成 1 道考核题目。
+  return `你是武汉地铁乘务安全培训专家。以下是一份地铁安全事件/事故分析报告原文。请严格依据原文内容生成 1 道考核题目，不得添加原文中没有的信息，不得凭推断或常识补充内容。
 
 【题目格式】
-根据报告内容，提炼出该事件的简短名称（格式：线路/地点+事件类型，如"1号线越信号事件"、"三金潭车辆段脱轨事件"），生成如下题目：
+从报告中提炼事件简短名称（格式：线路/地点+事件类型），生成题目：
 "请简要概述[事件简短名称]，口述事件简要经过、乘务员存在问题、整改措施及反思。"
 
-【答案要点要求】
-按以下顺序，每条用分号分隔：
-1. 简要经过：日期（年月日）+ 线路/地点 + 车号（不写人名）+ 一句话概括发生了什么（不要写精确时分秒，只写日期即可）
-2. 乘务员存在的问题：从报告提取违规操作/失误行为，逐条列出（每条一个分号，不要包含具体时间戳）
-3. 整改措施及反思：从报告整改/反思部分提取，逐条列出（每条一个分号）
+【参考答案要求】严格从原文摘取，按以下顺序用分号分隔，每条一个要点：
+1. 简要经过：原文中的日期（年月日）+ 线路/地点 + 车号 + 一句话事件概要（不写人名，不写精确时分秒）
+2. 乘务员存在的问题：从原文"存在问题"/"不安全行为"等部分逐条摘取，每条一个分号
+3. 整改措施及反思：从原文"整改"/"反思"/"措施"部分逐条摘取，每条一个分号
 
-【重要】答案要点中不要出现任何"HH:MM:SS"格式的精确时间，时间信息只需保留到日期或事件阶段（如"动车时"、"退行中"）
+【严格禁止】：① 不得添加原文没有的问题或措施 ② 不得出现"HH:MM:SS"格式时间 ③ 不得写具体人名
 
-只返回JSON数组（只有1个元素），格式：
+只返回JSON数组（1个元素），格式：
 [{"text":"题目内容","reference":"要点1;要点2;要点3","keywords":"关键词1,关键词2","category":"安全事件"}]
 
-报告内容：
-${text.slice(0, 4000)}`;
+报告原文：
+${text.slice(0, 8000)}`;
 }
 
 function buildGeneralPrompt(text, count) {
-  return `你是武汉地铁乘务培训专家，根据以下文本内容生成 ${count} 道业务考核题目。每道题必须是简答题（口述操作步骤或要点）。只返回JSON数组，格式：[{"text":"题目内容","reference":"参考答案，各步骤用分号分隔","keywords":"关键词1,关键词2","category":"分类名称"}]
+  return `你是武汉地铁乘务培训专家。以下是一份培训材料原文。请严格依据原文内容生成 ${count} 道简答考核题目，只考查原文中明确出现的知识点和操作步骤，不得添加原文中没有的内容。
 
-文本内容：
-${text.slice(0, 4000)}`;
+【出题要求】
+- 每道题考查一个具体操作步骤或知识要点
+- 参考答案必须是原文中的原话或直接摘取，不得凭常识补充
+- 答案各步骤/要点用分号分隔
+- 关键词从原文摘取2~4个核心词
+
+只返回JSON数组，格式：[{"text":"题目内容","reference":"步骤1;步骤2;步骤3","keywords":"关键词1,关键词2","category":"分类名称"}]
+
+培训材料原文：
+${text.slice(0, 8000)}`;
 }
 
 app.post('/api/admin/banks/parse-doc', adminAuth, upload.single('file'), async (req, res) => {
@@ -1733,7 +2548,8 @@ app.get('/api/admin/leaderboard/cycle', adminAuth, (req, res) => {
            COALESCE(st.is_tester,0) as is_tester,
            COALESCE(st.is_cp,0) as is_cp,
            COALESCE(st.is_exempt,0) as is_exempt,
-           (SELECT avatar FROM staff WHERE id=s.staff_id LIMIT 1) as avatar
+           COALESCE(st.is_instructor,0) as is_instructor,
+           COALESCE(st.is_leader,0) as is_leader
     FROM sessions s LEFT JOIN staff st ON st.id=s.staff_id
     WHERE s.cycle_id=? AND s.completed=1 AND s.q_count>=3
       AND COALESCE(s.is_deleted,0)=0 AND COALESCE(s.is_practice,0)=0
@@ -1756,10 +2572,13 @@ app.get('/api/admin/leaderboard/alltime', adminAuth, (req, res) => {
            SUM(ca.cycle_pts) as total_points,
            COUNT(DISTINCT ca.cycle_id) as cycle_count,
            (SELECT avatar FROM staff WHERE id=ca.staff_id LIMIT 1) as avatar,
-           COALESCE((SELECT is_tester FROM staff WHERE id=ca.staff_id LIMIT 1),0) as is_tester,
-           COALESCE((SELECT is_cp FROM staff WHERE id=ca.staff_id LIMIT 1),0) as is_cp,
-           COALESCE((SELECT is_exempt FROM staff WHERE id=ca.staff_id LIMIT 1),0) as is_exempt
-    FROM cycle_avg ca GROUP BY ca.staff_id ORDER BY total_points DESC LIMIT 50
+           COALESCE(st.is_tester,0) as is_tester,
+           COALESCE(st.is_cp,0) as is_cp,
+           COALESCE(st.is_exempt,0) as is_exempt,
+           COALESCE(st.is_instructor,0) as is_instructor,
+           COALESCE(st.is_leader,0) as is_leader
+    FROM cycle_avg ca LEFT JOIN staff st ON st.id=ca.staff_id
+    GROUP BY ca.staff_id ORDER BY total_points DESC LIMIT 50
   `).all();
   res.json(rows);
 });
@@ -1829,6 +2648,195 @@ app.get('/api/export', adminAuth, async (req, res) => {
   await wb.xlsx.write(res); res.end();
 });
 
+// ─── Workshop Excel Export ────────────────────────────────────────────────
+app.get('/api/export/workshop/months', adminAuth, (req, res) => {
+  const rows = db.prepare("SELECT DISTINCT year_month FROM monthly_training_plans ORDER BY year_month DESC").all();
+  res.json(rows.map(r => r.year_month));
+});
+
+// 返回所有培训计划列表（用于勾选导出，教员/管理员均可查）
+app.get('/api/export/workshop/plans', workshopEditAuth, (req, res) => {
+  const rows = db.prepare(`
+    SELECT p.id, p.year_month, p.shift_date, p.plan_type,
+           tg.name AS group_name,
+           s.real_name AS instructor_name
+    FROM monthly_training_plans p
+    LEFT JOIN training_groups tg ON tg.id = p.group_id
+    LEFT JOIN staff s ON s.id = tg.instructor_id
+    WHERE p.plan_type != '轮空'
+    ORDER BY p.shift_date DESC, p.id DESC
+  `).all();
+  res.json(rows);
+});
+
+app.get('/api/export/workshop', adminAuth, async (req, res) => {
+  const month = req.query.month;
+  const idsParam = req.query.ids; // 逗号分隔的 plan id 列表
+  if (!month && !idsParam) return res.status(400).json({ error: '请指定月份或计划ID' });
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = '武汉地铁5号线乘务工班组';
+  const hStyle = { fill:{type:'pattern',pattern:'solid',fgColor:{argb:'FF1B3A6E'}}, font:{color:{argb:'FFFFFFFF'},bold:true,size:11}, alignment:{vertical:'middle',horizontal:'center',wrapText:true} };
+
+  // Sheet1: 培训日程
+  const ws1 = wb.addWorksheet('培训日程', { views:[{state:'frozen',ySplit:1}] });
+  ws1.columns = [
+    {header:'日期',key:'shift_date',width:12},{header:'类型',key:'plan_type',width:8},
+    {header:'小组',key:'group_name',width:10},{header:'教员',key:'instructor',width:8},
+    {header:'班组长',key:'leader',width:8},{header:'地点',key:'location',width:10},
+    {header:'变更记录',key:'change_log',width:32},{header:'备注',key:'notes',width:20},
+  ];
+  ws1.getRow(1).eachCell(c=>Object.assign(c,hStyle)); ws1.getRow(1).height=26;
+
+  let plans;
+  if (idsParam) {
+    const ids = idsParam.split(',').map(Number).filter(Boolean);
+    if (ids.length === 0) return res.status(400).json({ error: '无有效ID' });
+    plans = db.prepare(`SELECT * FROM monthly_training_plans WHERE id IN (${ids.map(()=>'?').join(',')}) ORDER BY shift_date`).all(...ids);
+  } else {
+    plans = db.prepare("SELECT * FROM monthly_training_plans WHERE year_month=? ORDER BY shift_date").all(month);
+  }
+  const groups = db.prepare("SELECT g.*, s.real_name as ins_name FROM training_groups g LEFT JOIN staff s ON s.id=g.instructor_id").all();
+  const groupMap = {}; groups.forEach(g=>{ groupMap[g.id]=g; });
+
+  plans.forEach(p => {
+    const g = p.group_id ? groupMap[p.group_id] : null;
+    let notesStr = p.notes || '';
+    // 中旬会 notes 是 JSON，解析一下
+    if (p.plan_type === '中旬会' && notesStr) {
+      try { const arr = JSON.parse(notesStr); notesStr = arr.map(e=>`${e.staffName} ${e.type}`).join('；'); } catch(e) {}
+    }
+    const row = ws1.addRow({
+      shift_date: p.shift_date, plan_type: p.plan_type,
+      group_name: g?.name || '', instructor: g?.ins_name || '',
+      leader: p.leader_name || '', location: p.location || '',
+      change_log: p.change_log || '', notes: notesStr,
+    });
+    row.height = 28; row.eachCell(c=>{ c.alignment={vertical:'middle',wrapText:true}; });
+    // 类型色
+    const typeColor = p.plan_type==='轮空'?'FFE5E7EB':p.plan_type==='中旬会'?'FFFFF3CD':p.plan_type==='理论'?'FFE0F2FE':'FFD1FAE5';
+    row.getCell('plan_type').fill = {type:'pattern',pattern:'solid',fgColor:{argb:typeColor}};
+    row.getCell('plan_type').font = {bold:true};
+  });
+
+  // Sheet2: 出勤记录
+  const ws2 = wb.addWorksheet('出勤签到', { views:[{state:'frozen',ySplit:1}] });
+  ws2.columns = [
+    {header:'日期',key:'shift_date',width:12},{header:'工号',key:'staff_id',width:10},
+    {header:'姓名',key:'staff_name',width:8},
+    {header:'教员确认',key:'instructor_confirmed',width:10},{header:'确认时间',key:'confirm_time',width:18},
+    {header:'确认人',key:'confirmed_by',width:8},
+  ];
+  ws2.getRow(1).eachCell(c=>Object.assign(c,hStyle)); ws2.getRow(1).height=26;
+
+  const planIds = plans.map(p=>p.id);
+  if (planIds.length > 0) {
+    const attendance = db.prepare(`
+      SELECT a.*, p.shift_date, COALESCE(s.real_name, s.name, a.staff_id) as staff_name
+      FROM training_attendance a
+      JOIN monthly_training_plans p ON p.id=a.plan_id
+      LEFT JOIN staff s ON s.id=a.staff_id
+      WHERE a.plan_id IN (${planIds.map(()=>'?').join(',')})
+      ORDER BY p.shift_date, a.staff_id
+    `).all(...planIds);
+    attendance.forEach(a => {
+      const row = ws2.addRow({
+        shift_date: a.shift_date, staff_id: a.staff_id, staff_name: a.staff_name,
+        instructor_confirmed: a.instructor_confirmed ? '已确认' : '待确认',
+        confirm_time: a.confirm_time || '', confirmed_by: a.confirmed_by || '',
+      });
+      row.height = 24; row.eachCell(c=>{ c.alignment={vertical:'middle',horizontal:'center'}; });
+      if (a.instructor_confirmed) row.getCell('instructor_confirmed').fill = {type:'pattern',pattern:'solid',fgColor:{argb:'FFD1FAE5'}};
+    });
+  }
+
+  // Sheet3: 培训点评
+  const ws3 = wb.addWorksheet('培训点评', { views:[{state:'frozen',ySplit:1}] });
+  ws3.columns = [
+    {header:'日期',key:'shift_date',width:12},{header:'工号',key:'staff_id',width:10},
+    {header:'姓名',key:'staff_name',width:8},{header:'点评内容',key:'comment',width:45},
+    {header:'评价人',key:'evaluated_by',width:8},{header:'评价时间',key:'evaluated_at',width:18},
+  ];
+  ws3.getRow(1).eachCell(c=>Object.assign(c,hStyle)); ws3.getRow(1).height=26;
+
+  if (planIds.length > 0) {
+    const evals = db.prepare(`
+      SELECT e.*, p.shift_date
+      FROM training_evaluations e
+      JOIN monthly_training_plans p ON p.id=e.plan_id
+      WHERE e.plan_id IN (${planIds.map(()=>'?').join(',')})
+      ORDER BY p.shift_date, e.staff_id
+    `).all(...planIds);
+    evals.forEach(e => {
+      const row = ws3.addRow({ shift_date: e.shift_date, staff_id: e.staff_id, staff_name: e.staff_name||e.staff_id, comment: e.comment||'', evaluated_by: e.evaluated_by||'', evaluated_at: e.evaluated_at||'' });
+      row.height = 28; row.eachCell(c=>{ c.alignment={vertical:'middle',wrapText:true}; });
+    });
+  }
+
+  // Sheet4: 现场照片
+  const ws4 = wb.addWorksheet('现场照片', { views:[{state:'frozen',ySplit:1}] });
+  ws4.columns = [
+    {header:'日期',key:'shift_date',width:12},{header:'教员',key:'instructor_name',width:10},
+    {header:'小组',key:'group_name',width:10},{header:'上传时间',key:'uploaded_at',width:18},
+    {header:'现场照片',key:'photo',width:32},
+  ];
+  ws4.getRow(1).eachCell(c=>Object.assign(c,hStyle)); ws4.getRow(1).height=26;
+
+  if (planIds.length > 0) {
+    const photos = db.prepare(`
+      SELECT tp.filename, tp.uploaded_at, tp.uploaded_by,
+             mtp.shift_date, mtp.group_id,
+             tg.name AS group_name,
+             s.real_name AS instructor_name
+      FROM training_photos tp
+      JOIN monthly_training_plans mtp ON mtp.id = tp.plan_id
+      LEFT JOIN training_groups tg ON tg.id = mtp.group_id
+      LEFT JOIN staff s ON s.id = tg.instructor_id
+      WHERE tp.plan_id IN (${planIds.map(()=>'?').join(',')})
+      ORDER BY mtp.shift_date, tp.uploaded_at
+    `).all(...planIds);
+    const IMG_W = 220, IMG_H = 165; // 嵌入图片尺寸（像素）
+    for (const ph of photos) {
+      const row = ws4.addRow({
+        shift_date: ph.shift_date, instructor_name: ph.instructor_name||'', group_name: ph.group_name||'',
+        uploaded_at: ph.uploaded_at||'',
+      });
+      row.height = Math.round(IMG_H * 0.75) + 4; // pt ≈ px * 0.75
+      row.eachCell(c=>{ c.alignment={vertical:'middle',horizontal:'center'}; });
+      // 用 sharp 压缩为 jpeg 后嵌入
+      const imgPath = path.join(PHOTO_DIR, ph.filename);
+      if (fs.existsSync(imgPath)) {
+        try {
+          const buf = await sharp(imgPath)
+            .resize(IMG_W * 2, IMG_H * 2, { fit:'inside', withoutEnlargement:true })
+            .jpeg({ quality: 80 })
+            .toBuffer();
+          const imgId = wb.addImage({ buffer: buf, extension: 'jpeg' });
+          const rowIdx = row.number - 1; // 0-based
+          ws4.addImage(imgId, { tl:{ col:4, row:rowIdx }, ext:{ width:IMG_W, height:IMG_H }, editAs:'oneCell' });
+        } catch(e) { row.getCell('photo').value = `（图片处理失败: ${ph.filename}）`; }
+      } else {
+        row.getCell('photo').value = '（文件不存在）';
+      }
+    }
+    if (photos.length === 0) {
+      ws4.addRow({shift_date:'（所选计划暂无现场照片）'});
+    }
+  }
+
+  let fileLabel;
+  if (idsParam && plans.length > 0) {
+    const dates = plans.map(p=>p.shift_date).sort();
+    fileLabel = dates.length===1 ? `车间培训记录_${dates[0]}` : `车间培训记录_${dates[0]}至${dates[dates.length-1]}`;
+  } else {
+    fileLabel = `车间培训记录_${month}`;
+  }
+  const encodedLabel = encodeURIComponent(fileLabel);
+  res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition',`attachment; filename*=UTF-8''${encodedLabel}.xlsx`);
+  await wb.xlsx.write(res); res.end();
+});
+
 // ─── QR Code ──────────────────────────────────────────────────────────────
 app.get('/api/qrcode', async (req, res) => {
   let url = process.env.PUBLIC_URL;
@@ -1878,196 +2886,700 @@ app.post('/api/tts', async (req, res) => {
   });
   ws.on('error', e => res.status(500).json({error:e.message}));
 });
-app.get('*',(req,res)=>res.sendFile(path.join(__dirname,'..','dist','index.html')));
+// ─── 培训小组 API（GET 必须在 catch-all 之前）──────────────────────────────────
+// 全局固定培训人员列表
+app.get('/api/admin/training-fixed-members', adminAuth, (req, res) => {
+  const rows = db.prepare('SELECT staff_id FROM training_fixed_members').all();
+  res.json(rows.map(r => r.staff_id));
+});
 
-
-// ─── 讯飞 IAT 鉴权URL生成 ────────────────────────────────────────────────────
-// ─── 讯飞 IAT 文件上传识别 ───────────────────────────────────────────────────
-app.post('/api/iat', upload.single('audio'), async (req, res) => {
-  const appId = process.env.XFYUN_APP_ID;
-  const apiKey = process.env.XFYUN_API_KEY;
-  const apiSecret = process.env.XFYUN_API_SECRET;
-  if (!appId || !apiKey || !apiSecret) return res.status(500).json({error:'讯飞未配置'});
-  const iatStart = Date.now(); console.log('[IAT REQ] 收到请求，文件大小:', req.file?.size, '类型:', req.file?.mimetype);
-  if (!req.file) return res.status(400).json({error:'no audio'});
-  require('fs').writeFileSync('/tmp/last_upload.bin', req.file.buffer);
-  console.log('[IAT] 已保存到/tmp/last_upload.bin');
-
-  // 生成鉴权URL
-  const host = 'iat-api.xfyun.cn';
-  const date = new Date().toUTCString();
-  const signStr = `host: ${host}\ndate: ${date}\nGET /v2/iat HTTP/1.1`;
-  const sign = crypto.createHmac('sha256', apiSecret).update(signStr).digest('base64');
-  const auth = Buffer.from(`api_key="${apiKey}", algorithm="hmac-sha256", headers="host date request-line", signature="${sign}"`).toString('base64');
-  const wsUrl = `wss://${host}/v2/iat?authorization=${auth}&date=${encodeURIComponent(date)}&host=${host}`;
-
-  // 把webm音频转为PCM（16k单声道）
-  const ts = Date.now();
-  const tmpIn = `/tmp/iat_in_${ts}`;
-  const tmpOut = `/tmp/iat_out_${ts}.raw`;
-  fs.writeFileSync(tmpIn, req.file.buffer);
-
-  // WAV格式直接跳过ffmpeg，其他格式才转换
-  const isWav = req.file.mimetype === 'audio/wav' || req.file.originalname?.endsWith('.wav');
-  let audioBuffer;
-  if(isWav){
-    // WAV文件：跳过文件头（44字节），直接取PCM数据
-    audioBuffer = req.file.buffer.slice(44);
-    console.log('[IAT] WAV直接使用PCM，大小:', audioBuffer.length);
-    try { fs.unlinkSync(tmpIn); } catch(e){}
-  } else {
-    // 其他格式：ffmpeg转换
-    audioBuffer = await new Promise((resolve) => {
-      const ff = spawn('/opt/homebrew/bin/ffmpeg', ['-y','-i',tmpIn,'-vn','-ar','16000','-ac','1','-f','s16le',tmpOut], {stdio:'pipe'});
-      ff.on('close', (code) => {
-        try { fs.unlinkSync(tmpIn); } catch(e){}
-        if(code === 0 && fs.existsSync(tmpOut)){
-          resolve(fs.readFileSync(tmpOut));
-        } else {
-          console.log('[IAT] ffmpeg失败code:', code, '用原始buffer');
-          resolve(req.file.buffer);
-        }
-      });
-      ff.on('error', () => {
-        try { fs.unlinkSync(tmpIn); } catch(e){}
-        resolve(req.file.buffer);
-      });
-      setTimeout(() => { ff.kill(); resolve(req.file.buffer); }, 10000);
-    });
+// 查询所有培训小组（含成员）
+app.get('/api/admin/training-groups', adminAuth, (req, res) => {
+  const groups = db.prepare('SELECT * FROM training_groups ORDER BY sort_order, id').all();
+  const members = db.prepare(`
+    SELECT tgm.group_id, tgm.is_fixed, s.id, s.name, s.real_name, s.is_exempt, s.is_cp
+    FROM training_group_members tgm
+    JOIN staff s ON tgm.staff_id = s.id
+  `).all();
+  const membersByGroup = {};
+  for (const m of members) {
+    if (!membersByGroup[m.group_id]) membersByGroup[m.group_id] = [];
+    membersByGroup[m.group_id].push(m);
   }
-
-  return new Promise((resolve) => {
-    const ws = new WebSocket(wsUrl);
-    let fullText = '';
-    const sentences = {};
-    let timer = setTimeout(() => {
-      ws.close();
-      try { fs.unlinkSync(tmpOut); } catch(e){}
-      console.log('[IAT TIMEOUT] 耗时:', Date.now()-iatStart, 'ms'); res.json({text: fullText || '', error: 'timeout'});
-      resolve();
-    }, 15000);
-
-    ws.on('open', () => {
-      // 分帧发送音频
-      const frameSize = 8192;
-      let offset = 0;
-      const sendFrame = () => {
-        if (offset >= audioBuffer.length) {
-          ws.send(JSON.stringify({data:{status:2,format:'audio/L16;rate=16000',encoding:'raw',audio:''}}));
-          return;
-        }
-        const frame = audioBuffer.slice(offset, offset + frameSize);
-        const status = offset === 0 ? 0 : 1;
-        if (offset === 0) {
-          ws.send(JSON.stringify({
-            common:{app_id:appId},
-            business:{language:'zh_cn',domain:'iat',accent:'mandarin',dwa:'wpgs',ptt:0,nunum:1,vad_eos:5000},
-            data:{status:0,format:'audio/L16;rate=16000',encoding:'raw',audio:frame.toString('base64')}
-          }));
-        } else {
-          ws.send(JSON.stringify({data:{status:1,format:'audio/L16;rate=16000',encoding:'raw',audio:frame.toString('base64')}}));
-        }
-        offset += frameSize;
-        setTimeout(sendFrame, 40);
-      };
-      sendFrame();
-    });
-
-    ws.on('message', (data) => {
-      try {
-        const msg = JSON.parse(data);
-        console.log('[IAT]', JSON.stringify({code:msg.code,status:msg.data?.status,has_result:!!msg.data?.result,ws_len:msg.data?.result?.ws?.length,ls:msg.data?.result?.ls}));
-        if (msg.code !== 0) { console.log('[IAT ERROR]', msg.message, msg.code); return; }
-        const result = msg.data?.result;
-        if (!result) return;
-        console.log('[IAT WS]', JSON.stringify(result.ws));
-        const sn = result.sn;
-        const pgs = result.pgs;
-        const ws_arr = result.ws || [];
-        const text = ws_arr.map(w => w.cw?.[0]?.w || '').join('');
-        if (pgs === 'rpl') { const rg = result.rg||[]; for(let i=rg[0];i<=rg[1];i++) delete sentences[i]; }
-        sentences[sn] = text;
-        fullText = Object.keys(sentences).sort((a,b)=>a-b).map(k=>sentences[k]).join('');
-        if (result.ls) { clearTimeout(timer); ws.close();
-          clearTimeout(timer);
-          ws.close();
-          try { fs.unlinkSync(tmpOut); } catch(e){}
-          res.json({text: fullText});
-          resolve();
-        }
-      } catch(e){}
-    });
-
-    ws.on('error', (e) => {
-      clearTimeout(timer);
-      try { fs.unlinkSync(tmpOut); } catch(e){}
-      res.json({text:'', error: e.message});
-      resolve();
-    });
-  });
+  res.json(groups.map(g => ({ ...g, members: membersByGroup[g.id] || [] })));
 });
 
-app.get('/api/iat-token', (req, res) => {
-  const appId = process.env.XFYUN_APP_ID;
-  const apiKey = process.env.XFYUN_API_KEY;
-  const apiSecret = process.env.XFYUN_API_SECRET;
-  if (!appId || !apiKey || !apiSecret) return res.status(500).json({error:'讯飞未配置'});
-  const host = 'iat-api.xfyun.cn';
-  const date = new Date().toUTCString();
-  const signStr = `host: ${host}\ndate: ${date}\nGET /v2/iat HTTP/1.1`;
-  const sign = crypto.createHmac('sha256', apiSecret).update(signStr).digest('base64');
-  const auth = Buffer.from(`api_key="${apiKey}", algorithm="hmac-sha256", headers="host date request-line", signature="${sign}"`).toString('base64');
-  const wsUrl = `wss://${host}/v2/iat?authorization=${auth}&date=${encodeURIComponent(date)}&host=${host}`;
-  res.json({url: wsUrl, appId});
-});
+// ─── 月度培训计划 API ──────────────────────────────────────────────────────────
 
-// ─── 阿里云实时语音识别 WebSocket代理 ────────────────────────────────────────
-const ALI_APPKEY = process.env.ALI_APPKEY;
-const ALI_AK_ID  = process.env.ALI_AK_ID;
-const ALI_AK_SEC = process.env.ALI_AK_SEC;
-
-async function getAliToken() {
-  return new Promise((resolve, reject) => {
-    const now = Math.floor(Date.now()/1000);
-    const params = new URLSearchParams({
-      AccessKeyId: ALI_AK_ID,
-      Action: 'CreateToken',
-      Format: 'JSON',
-      RegionId: 'cn-shanghai',
-      SignatureMethod: 'HMAC-SHA1',
-      SignatureNonce: Math.random().toString(36).slice(2),
-      SignatureVersion: '1.0',
-      Timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
-      Version: '2019-02-28',
-    });
-    const sorted = [...params.entries()].sort(([a],[b])=>a.localeCompare(b));
-    const canonicalStr = sorted.map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
-    const strToSign = 'GET&%2F&' + encodeURIComponent(canonicalStr);
-    const crypto = require('crypto');
-    const sig = crypto.createHmac('sha1', ALI_AK_SEC+'&').update(strToSign).digest('base64');
-    params.set('Signature', sig);
-    const url = `https://nls-meta.cn-shanghai.aliyuncs.com/?${params.toString()}`;
-    https.get(url, res => {
-      let data = '';
-      res.on('data', d => data += d);
-      res.on('end', () => {
-        try {
-          const j = JSON.parse(data);
-          if (j.Token?.Id) resolve(j.Token.Id);
-          else reject(new Error('Token获取失败: ' + data));
-        } catch(e) { reject(e); }
-      });
-    }).on('error', reject);
-  });
+function getMonthEarlyShifts(yearMonth) {
+  return db.prepare(
+    "SELECT date FROM shift_calendar WHERE shift='早班' AND date LIKE ? ORDER BY date"
+  ).all(yearMonth + '-%').map(r => r.date);
 }
 
-// 缓存Token，有效期约10分钟
-let aliTokenCache = { token: null, expireAt: 0 };
+function getWeekday(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.getDay(); // 0=日,1=一,...,6=六
+}
+
+function getLocation(dateStr) {
+  const wd = getWeekday(dateStr);
+  // 周一(1)周三(3)周四(4)周六(6) → 青菱；周二(2)周五(5)周日(0) → 工人村
+  return [1,3,4,6].includes(wd) ? '青菱车场' : '工人村';
+}
+
+function generatePlan(yearMonth) {
+  const dates = getMonthEarlyShifts(yearMonth);
+  const groups = db.prepare('SELECT * FROM training_groups ORDER BY sort_order, id').all();
+  const leaders = db.prepare("SELECT id, real_name, name FROM staff WHERE is_leader=1 ORDER BY real_name, name").all();
+  const setting = db.prepare('SELECT safety_date, start_group_id, start_leader_idx FROM training_plan_settings WHERE year_month=?').get(yearMonth);
+
+  // 中旬会日期：自定义 or 默认（11~20日第一个工作日早班）
+  let zhongxunDate = setting?.safety_date || null;
+  if (!zhongxunDate) {
+    const candidates = dates.filter(d => {
+      const day = parseInt(d.slice(8));
+      const wd = getWeekday(d);
+      return day >= 11 && day <= 20 && wd !== 0 && wd !== 6;
+    });
+    zhongxunDate = candidates[0] || null;
+  }
+
+  // 起始小组
+  const startGroupId = setting?.start_group_id || (groups[0]?.id || null);
+  let groupIdx = groups.length > 0 ? groups.findIndex(g => g.id == startGroupId) : 0;
+  if (groupIdx < 0) groupIdx = 0;
+
+  // 起始班组长序号（仅计入"培训"行，中旬会/轮空不消耗）
+  const startLeaderIdx = setting?.start_leader_idx ?? 0;
+  let leaderPos = 0;
+
+  const rows = [];
+  for (const date of dates) {
+    const wd = getWeekday(date);
+    const isWeekend = wd === 0 || wd === 6;
+    const isZhongxun = date === zhongxunDate;
+    let planType, groupId, leaderName = null;
+    if (isWeekend) {
+      planType = '轮空'; groupId = null;
+    } else if (isZhongxun) {
+      planType = '中旬会'; groupId = null; // 不消耗 groupIdx / leaderPos
+    } else {
+      planType = '培训';
+      groupId = groups.length > 0 ? groups[groupIdx % groups.length].id : null;
+      if (leaders.length > 0) {
+        const leader = leaders[(startLeaderIdx + leaderPos) % leaders.length];
+        leaderName = leader.real_name || leader.name;
+      }
+      groupIdx++;
+      leaderPos++;
+    }
+    rows.push({ year_month: yearMonth, shift_date: date, location: getLocation(date),
+      plan_type: planType, group_id: groupId, leader_name: leaderName, is_type_custom: 0, notes: null });
+  }
+  return rows;
+}
+
+function buildPlanResponse(yearMonth) {
+  const plans = db.prepare('SELECT * FROM monthly_training_plans WHERE year_month=? ORDER BY shift_date').all(yearMonth);
+  const groups = db.prepare('SELECT * FROM training_groups ORDER BY sort_order, id').all();
+  const allStaff = db.prepare('SELECT id, real_name, name FROM staff').all();
+  const staffMap = {};
+  for (const s of allStaff) staffMap[s.id] = { id: s.id, real_name: s.real_name, name: s.name };
+  const members = db.prepare('SELECT tgm.group_id, tgm.is_fixed, s.id, s.real_name, s.name FROM training_group_members tgm JOIN staff s ON tgm.staff_id=s.id').all();
+  const fixedStaff = db.prepare('SELECT f.staff_id, s.real_name, s.name FROM training_fixed_members f JOIN staff s ON f.staff_id=s.id').all();
+  const leaderStaff = db.prepare("SELECT id, real_name, name FROM staff WHERE is_leader=1 ORDER BY real_name, name").all();
+  const membersByGroup = {};
+  for (const m of members) {
+    if (!membersByGroup[m.group_id]) membersByGroup[m.group_id] = [];
+    membersByGroup[m.group_id].push(m);
+  }
+  const groupMap = {};
+  for (const g of groups) {
+    groupMap[g.id] = {
+      ...g,
+      instructor_name: g.instructor_id ? ((staffMap[g.instructor_id]?.real_name || staffMap[g.instructor_id]?.name) || null) : null,
+      members: membersByGroup[g.id] || []
+    };
+  }
+  // 成员覆盖（替换/延后记录）
+  const planIds = plans.map(p => p.id);
+  const overrides = planIds.length > 0
+    ? db.prepare(`SELECT o.*, s.real_name, s.name FROM training_plan_member_overrides o JOIN staff s ON s.id=o.staff_id WHERE o.plan_id IN (${planIds.map(()=>'?').join(',')})`).all(...planIds)
+    : [];
+  const overridesByPlan = {};
+  for (const o of overrides) {
+    if (!overridesByPlan[o.plan_id]) overridesByPlan[o.plan_id] = { added: [], removed: [] };
+    overridesByPlan[o.plan_id][o.action === 'add' ? 'added' : 'removed'].push({ id: o.staff_id, real_name: o.real_name, name: o.name, note: o.note });
+  }
+  const setting = db.prepare('SELECT safety_date, start_group_id, start_leader_idx FROM training_plan_settings WHERE year_month=?').get(yearMonth);
+  return {
+    plans: plans.map(p => ({
+      ...p,
+      group: p.group_id ? (groupMap[p.group_id] || null) : null,
+      memberOverrides: overridesByPlan[p.id] || { added: [], removed: [] }
+    })),
+    groups: Object.values(groupMap), // 含 instructor_name 和 members
+    fixedStaff,
+    leaderStaff,
+    allStaff,
+    safetyDate: setting?.safety_date || null,
+    startGroupId: setting?.start_group_id || null,
+    startLeaderIdx: setting?.start_leader_idx ?? 0,
+  };
+}
+
+// 获取（或自动生成）月度培训计划
+app.get('/api/workshop/training-plan', (req, res) => {
+  const yearMonth = req.query.month || new Date().toISOString().slice(0, 7);
+  const existing = db.prepare('SELECT COUNT(*) as c FROM monthly_training_plans WHERE year_month=?').get(yearMonth).c;
+  if (existing === 0) {
+    const rows = generatePlan(yearMonth);
+    const ins = db.prepare('INSERT OR IGNORE INTO monthly_training_plans (year_month,shift_date,location,plan_type,group_id,leader_name,is_type_custom,notes) VALUES (?,?,?,?,?,?,?,?)');
+    db.transaction(() => rows.forEach(r => ins.run(r.year_month,r.shift_date,r.location,r.plan_type,r.group_id,r.leader_name,r.is_type_custom,r.notes)))();
+  }
+  res.json(buildPlanResponse(yearMonth));
+});
+
+// 更新月度设置（中旬会日期 + 起始小组 + 起始班组长）并重新生成
+app.put('/api/admin/training-plan/settings', adminAuth, (req, res) => {
+  const { month, safety_date, start_group_id, start_leader_idx } = req.body;
+  const yearMonth = month || new Date().toISOString().slice(0, 7);
+  const existing = db.prepare('SELECT year_month FROM training_plan_settings WHERE year_month=?').get(yearMonth);
+  if (existing) {
+    const parts = [], vals = [];
+    if (safety_date !== undefined) { parts.push('safety_date=?'); vals.push(safety_date); }
+    if (start_group_id !== undefined) { parts.push('start_group_id=?'); vals.push(start_group_id); }
+    if (start_leader_idx !== undefined) { parts.push('start_leader_idx=?'); vals.push(start_leader_idx); }
+    if (parts.length) db.prepare(`UPDATE training_plan_settings SET ${parts.join(',')} WHERE year_month=?`).run(...vals, yearMonth);
+  } else {
+    db.prepare('INSERT INTO training_plan_settings (year_month,safety_date,start_group_id,start_leader_idx) VALUES (?,?,?,?)').run(yearMonth, safety_date||null, start_group_id||null, start_leader_idx??0);
+  }
+  db.prepare('DELETE FROM monthly_training_plans WHERE year_month=?').run(yearMonth);
+  const rows = generatePlan(yearMonth);
+  const ins = db.prepare('INSERT OR IGNORE INTO monthly_training_plans (year_month,shift_date,location,plan_type,group_id,leader_name,is_type_custom,notes) VALUES (?,?,?,?,?,?,?,?)');
+  db.transaction(() => rows.forEach(r => ins.run(r.year_month,r.shift_date,r.location,r.plan_type,r.group_id,r.leader_name,r.is_type_custom,r.notes)))();
+  res.json({ ok: true });
+});
+
+// 重新生成本月计划
+app.post('/api/admin/training-plan/regenerate', adminAuth, (req, res) => {
+  const yearMonth = (req.body.month) || new Date().toISOString().slice(0, 7);
+  db.prepare('DELETE FROM monthly_training_plans WHERE year_month=?').run(yearMonth);
+  const rows = generatePlan(yearMonth);
+  const ins = db.prepare('INSERT OR IGNORE INTO monthly_training_plans (year_month,shift_date,location,plan_type,group_id,leader_name,is_type_custom,notes) VALUES (?,?,?,?,?,?,?,?)');
+  db.transaction(() => rows.forEach(r => ins.run(r.year_month,r.shift_date,r.location,r.plan_type,r.group_id,r.leader_name,r.is_type_custom,r.notes)))();
+  res.json({ ok: true });
+});
+
+// 互换两行的小组和类型
+app.put('/api/admin/training-plan/swap', workshopEditAuth, (req, res) => {
+  const { id1, id2 } = req.body;
+  const p1 = db.prepare('SELECT id, group_id, plan_type, leader_name FROM monthly_training_plans WHERE id=?').get(id1);
+  const p2 = db.prepare('SELECT id, group_id, plan_type, leader_name FROM monthly_training_plans WHERE id=?').get(id2);
+  if (!p1 || !p2) return res.status(404).json({ error: '记录不存在' });
+  db.transaction(() => {
+    db.prepare('UPDATE monthly_training_plans SET group_id=?, plan_type=?, leader_name=?, is_type_custom=1 WHERE id=?').run(p2.group_id, p2.plan_type, p2.leader_name, id1);
+    db.prepare('UPDATE monthly_training_plans SET group_id=?, plan_type=?, leader_name=?, is_type_custom=1 WHERE id=?').run(p1.group_id, p1.plan_type, p1.leader_name, id2);
+  })();
+  res.json({ ok: true });
+});
+
+// 修改单行
+app.put('/api/admin/training-plan/:id', workshopEditAuth, (req, res) => {
+  const { group_id, plan_type, leader_name, notes, location, log_entry } = req.body;
+  const upParts = [], upVals = [];
+  if (group_id !== undefined) { upParts.push('group_id=?'); upVals.push(group_id); }
+  if (plan_type !== undefined) { upParts.push('plan_type=?'); upVals.push(plan_type); }
+  if (leader_name !== undefined) { upParts.push('leader_name=?'); upVals.push(leader_name || null); }
+  if (notes !== undefined) { upParts.push('notes=?'); upVals.push(notes || null); }
+  if (location !== undefined) { upParts.push('location=?'); upVals.push(location); }
+  if (log_entry) {
+    const existing = db.prepare('SELECT change_log FROM monthly_training_plans WHERE id=?').get(req.params.id);
+    const prev = existing?.change_log || '';
+    const newLog = prev ? `${prev}\n${log_entry}` : log_entry;
+    upParts.push('change_log=?'); upVals.push(newLog);
+  }
+  if (!upParts.length) return res.json({ ok: true });
+  upParts.push('is_type_custom=1');
+  db.prepare(`UPDATE monthly_training_plans SET ${upParts.join(',')} WHERE id=?`).run(...upVals, req.params.id);
+  res.json({ ok: true });
+});
+
+// 更新计划的已完成项点
+app.patch('/api/workshop/training-plan/:id/completed-items', workshopEditAuth, (req, res) => {
+  const { items } = req.body; // string[]
+  db.prepare('UPDATE monthly_training_plans SET completed_items=? WHERE id=?')
+    .run(JSON.stringify(Array.isArray(items)?items:[]), req.params.id);
+  res.json({ ok: true });
+});
+
+// ─── 成员调换：替换（两人互换）────────────────────────────────────────────────
+app.post('/api/admin/training-plan/member-swap', workshopEditAuth, (req, res) => {
+  const { staff_id_a, plan_id_a, staff_id_b, plan_id_b, note } = req.body;
+  if (!staff_id_a || !plan_id_a || !staff_id_b || !plan_id_b) return res.status(400).json({ error: '参数不完整' });
+  const now = new Date().toISOString();
+  const upsert = db.prepare(`INSERT INTO training_plan_member_overrides (plan_id,staff_id,action,note,created_at)
+    VALUES (?,?,?,?,?) ON CONFLICT(plan_id,staff_id) DO UPDATE SET action=excluded.action,note=excluded.note,created_at=excluded.created_at`);
+  db.transaction(() => {
+    upsert.run(plan_id_a, staff_id_a, 'remove', note || null, now);
+    upsert.run(plan_id_b, staff_id_a, 'add',    note || null, now);
+    upsert.run(plan_id_b, staff_id_b, 'remove', note || null, now);
+    upsert.run(plan_id_a, staff_id_b, 'add',    note || null, now);
+  })();
+  // 追加变更日志
+  const dateA = db.prepare('SELECT shift_date FROM monthly_training_plans WHERE id=?').get(plan_id_a)?.shift_date || '';
+  const dateB = db.prepare('SELECT shift_date FROM monthly_training_plans WHERE id=?').get(plan_id_b)?.shift_date || '';
+  const nameA = db.prepare('SELECT real_name,name FROM staff WHERE id=?').get(staff_id_a);
+  const nameB = db.prepare('SELECT real_name,name FROM staff WHERE id=?').get(staff_id_b);
+  const na = nameA?.real_name||nameA?.name||''; const nb = nameB?.real_name||nameB?.name||'';
+  const today = new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'});
+  const logA = db.prepare('SELECT change_log FROM monthly_training_plans WHERE id=?').get(plan_id_a);
+  const logB = db.prepare('SELECT change_log FROM monthly_training_plans WHERE id=?').get(plan_id_b);
+  db.prepare('UPDATE monthly_training_plans SET change_log=? WHERE id=?').run((logA?.change_log?logA.change_log+'\n':'')+`${today} ${na}与${nb}互换（${dateB.slice(5)}）`, plan_id_a);
+  db.prepare('UPDATE monthly_training_plans SET change_log=? WHERE id=?').run((logB?.change_log?logB.change_log+'\n':'')+`${today} ${nb}与${na}互换（${dateA.slice(5)}）`, plan_id_b);
+  res.json({ ok: true });
+
+  // 实时推送到教员群
+  const opId = req.instructorId;
+  const opStaff = opId ? db.prepare('SELECT real_name,name FROM staff WHERE id=?').get(opId) : null;
+  const opName = opStaff?.real_name || opStaff?.name || '管理员';
+  const now2 = new Date().toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit'});
+  const membersA = getPlanMemberNames(plan_id_a).join('、');
+  const membersB = getPlanMemberNames(plan_id_b).join('、');
+  const lines2 = [
+    `${now2}  教员 ${opName}`,
+    `将 ${na}调整到${fmtDate(dateB)}培训，${nb}调整到${fmtDate(dateA)}培训`,
+    ``,
+    `调整后${fmtDate(dateA)}培训人员为：${membersA}`,
+    `调整后${fmtDate(dateB)}培训人员为：${membersB}`,
+  ];
+  sendGroupPush(lines2.join('\n'));
+});
+
+// ─── 成员调换：延后（移到另一日期）──────────────────────────────────────────
+app.post('/api/admin/training-plan/member-postpone', workshopEditAuth, (req, res) => {
+  const { staff_id, from_plan_id, to_plan_id, note } = req.body;
+  if (!staff_id || !from_plan_id || !to_plan_id) return res.status(400).json({ error: '参数不完整' });
+  const now = new Date().toISOString();
+  const upsert = db.prepare(`INSERT INTO training_plan_member_overrides (plan_id,staff_id,action,note,created_at)
+    VALUES (?,?,?,?,?) ON CONFLICT(plan_id,staff_id) DO UPDATE SET action=excluded.action,note=excluded.note,created_at=excluded.created_at`);
+  db.transaction(() => {
+    upsert.run(from_plan_id, staff_id, 'remove', note || null, now);
+    upsert.run(to_plan_id,   staff_id, 'add',    note || null, now);
+  })();
+  const dateFrom = db.prepare('SELECT shift_date FROM monthly_training_plans WHERE id=?').get(from_plan_id)?.shift_date || '';
+  const dateTo   = db.prepare('SELECT shift_date FROM monthly_training_plans WHERE id=?').get(to_plan_id)?.shift_date || '';
+  const nm = db.prepare('SELECT real_name,name FROM staff WHERE id=?').get(staff_id);
+  const n = nm?.real_name||nm?.name||'';
+  const today = new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'});
+  const logFrom = db.prepare('SELECT change_log FROM monthly_training_plans WHERE id=?').get(from_plan_id);
+  const logTo   = db.prepare('SELECT change_log FROM monthly_training_plans WHERE id=?').get(to_plan_id);
+  db.prepare('UPDATE monthly_training_plans SET change_log=? WHERE id=?').run((logFrom?.change_log?logFrom.change_log+'\n':'')+`${today} ${n}延后至${dateTo.slice(5)}`, from_plan_id);
+  db.prepare('UPDATE monthly_training_plans SET change_log=? WHERE id=?').run((logTo?.change_log?logTo.change_log+'\n':'')+`${today} ${n}从${dateFrom.slice(5)}延后加入`, to_plan_id);
+  res.json({ ok: true });
+
+  // 实时推送到教员群
+  const opId2 = req.instructorId;
+  const opStaff2 = opId2 ? db.prepare('SELECT real_name,name FROM staff WHERE id=?').get(opId2) : null;
+  const opName2 = opStaff2?.real_name || opStaff2?.name || '管理员';
+  const now3 = new Date().toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit'});
+  const membersTo = getPlanMemberNames(to_plan_id).join('、');
+  const lines3 = [
+    `${now3}  教员 ${opName2}`,
+    `将 ${n} 从${fmtDate(dateFrom)}调整到${fmtDate(dateTo)}培训`,
+    ``,
+    `调整后${fmtDate(dateTo)}培训人员为：${membersTo}`,
+  ];
+  sendGroupPush(lines3.join('\n'));
+});
+
+// ─── 培训计划导入文件 API ──────────────────────────────────────────────────────
+
+db.exec(`CREATE TABLE IF NOT EXISTS training_import_files (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  filename TEXT NOT NULL,
+  original_name TEXT,
+  uploaded_at TEXT DEFAULT (datetime('now','localtime')),
+  parse_status TEXT DEFAULT 'pending',
+  parsed_json TEXT
+)`);
+// 补充字段（兼容旧表）
+try { db.exec(`ALTER TABLE training_import_files ADD COLUMN parse_status TEXT DEFAULT 'pending'`); } catch(e) {}
+try { db.exec(`ALTER TABLE training_import_files ADD COLUMN parsed_json TEXT`); } catch(e) {}
+
+// 年度培训计划（可编辑，每月一行）
+db.exec(`CREATE TABLE IF NOT EXISTS training_year_plan (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  year INTEGER NOT NULL,
+  month INTEGER NOT NULL,
+  sessions_json TEXT DEFAULT '[]',
+  updated_at TEXT DEFAULT (datetime('now','localtime')),
+  UNIQUE(year, month)
+)`);
+
+db.exec(`CREATE TABLE IF NOT EXISTS magic_tokens (
+  token TEXT PRIMARY KEY,
+  staff_id TEXT NOT NULL,
+  target_screen TEXT DEFAULT 'home',
+  expires_at INTEGER NOT NULL,
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+
+const IMPORT_DIR = path.join(__dirname, '..', 'data', 'training-imports');
+if (!fs.existsSync(IMPORT_DIR)) fs.mkdirSync(IMPORT_DIR, { recursive: true });
+app.use('/training-imports', express.static(IMPORT_DIR));
+
+const importUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+
+app.get('/api/admin/training-imports', adminAuth, (req, res) => {
+  res.json(db.prepare('SELECT id,filename,original_name,uploaded_at,parse_status FROM training_import_files ORDER BY uploaded_at DESC').all());
+});
+
+app.post('/api/admin/training-imports', adminAuth, importUpload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: '无文件' });
+  const ext = path.extname(req.file.originalname) || '';
+  const filename = `import_${Date.now()}${ext}`;
+  fs.writeFileSync(path.join(IMPORT_DIR, filename), req.file.buffer);
+  const id = db.prepare('INSERT INTO training_import_files (filename, original_name) VALUES (?,?)').run(filename, req.file.originalname).lastInsertRowid;
+  res.json({ ok: true, id, filename, original_name: req.file.originalname, parse_status: 'pending' });
+});
+
+app.delete('/api/admin/training-imports/:id', adminAuth, (req, res) => {
+  const row = db.prepare('SELECT filename FROM training_import_files WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: '不存在' });
+  try { fs.unlinkSync(path.join(IMPORT_DIR, row.filename)); } catch(e) {}
+  db.prepare('DELETE FROM training_import_files WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// AI 解析培训计划文件
+app.post('/api/admin/training-imports/:id/parse', adminAuth, async (req, res) => {
+  const row = db.prepare('SELECT * FROM training_import_files WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: '不存在' });
+  const KEY = process.env.DASHSCOPE_API_KEY;
+  if (!KEY) return res.status(503).json({ error: '未配置DASHSCOPE_API_KEY' });
+
+  db.prepare("UPDATE training_import_files SET parse_status='processing' WHERE id=?").run(row.id);
+  res.json({ ok: true, message: '解析中，请稍后刷新' });
+
+  // 后台异步解析
+  (async () => {
+    try {
+      const filePath = path.join(IMPORT_DIR, row.filename);
+      const ext = path.extname(row.filename).toLowerCase();
+      let messages;
+
+      const PROMPT = `这是一份年度培训计划表，表格列为：月份、培训项点、课程类型、培训类型、培训课时。
+请逐行提取所有内容，返回JSON数组，每条格式：
+{"month":1,"item":"培训项点的完整文字内容","trainType":"示范"}
+trainType只能是以下之一：示范、实操、理论、实践、其他
+month是1到12的数字。item是培训项点列的完整文字，不要省略。
+只返回JSON数组，不要任何说明文字，不要markdown代码块。`;
+
+      if (['.jpg','.jpeg','.png','.gif','.webp','.bmp','.heic'].includes(ext)) {
+        const buf = fs.readFileSync(filePath);
+        const b64 = buf.toString('base64');
+        const mime = ext==='.png'?'image/png':ext==='.gif'?'image/gif':ext==='.webp'?'image/webp':'image/jpeg';
+        messages = [{ role: 'user', content: [
+          { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } },
+          { type: 'text', text: PROMPT }
+        ]}];
+      } else if (['.xlsx','.xls'].includes(ext)) {
+        const wb = new ExcelJS.Workbook();
+        await wb.xlsx.readFile(filePath);
+        let text = '';
+        wb.eachSheet(ws => { ws.eachRow(r => { text += r.values.slice(1).join('\t') + '\n'; }); });
+        messages = [{ role: 'user', content: `${PROMPT}\n\n表格文本：\n${text.slice(0,4000)}` }];
+      } else if (ext === '.pdf') {
+        const pdfParse = require('pdf-parse');
+        const buf = fs.readFileSync(filePath);
+        const data = await pdfParse(buf);
+        messages = [{ role: 'user', content: `${PROMPT}\n\n文档文本：\n${data.text.slice(0,4000)}` }];
+      } else if (['.doc','.docx'].includes(ext)) {
+        const mammoth = require('mammoth');
+        const buf = fs.readFileSync(filePath);
+        const result = await mammoth.extractRawText({ buffer: buf });
+        messages = [{ role: 'user', content: `${PROMPT}\n\n文档文本：\n${result.value.slice(0,4000)}` }];
+      } else {
+        db.prepare("UPDATE training_import_files SET parse_status='error',parsed_json=? WHERE id=?").run('不支持的文件格式', row.id);
+        return;
+      }
+
+      const model = messages[0].content?.[0]?.type === 'image_url' ? 'qwen-vl-plus' : 'qwen-plus';
+      const resp = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${KEY}` },
+        body: JSON.stringify({ model, messages, max_tokens: 3000, temperature: 0.1 })
+      });
+      const data = await resp.json();
+      const raw = (data.choices?.[0]?.message?.content || '[]').replace(/```json|```/g,'').trim();
+      const sessions = JSON.parse(raw);
+
+      if (!Array.isArray(sessions)) throw new Error('返回格式错误');
+
+      // 写入 training_year_plan 表（新格式：item + trainType）
+      const byMonth = {};
+      sessions.forEach(s => {
+        const m = parseInt(s.month);
+        if (!m || m < 1 || m > 12) return;
+        if (!byMonth[m]) byMonth[m] = [];
+        byMonth[m].push({ item: (s.item||'').trim(), trainType: s.trainType||'实操' });
+      });
+      const upsert = db.prepare(`INSERT INTO training_year_plan (year,month,sessions_json,updated_at) VALUES (?,?,?,datetime('now','localtime'))
+        ON CONFLICT(year,month) DO UPDATE SET sessions_json=excluded.sessions_json, updated_at=excluded.updated_at`);
+      const year = new Date().getFullYear();
+      db.transaction(() => {
+        Object.entries(byMonth).forEach(([m, rows]) => upsert.run(year, parseInt(m), JSON.stringify(rows)));
+      })();
+
+      db.prepare("UPDATE training_import_files SET parse_status='done',parsed_json=? WHERE id=?").run(JSON.stringify(sessions), row.id);
+    } catch(e) {
+      db.prepare("UPDATE training_import_files SET parse_status='error',parsed_json=? WHERE id=?").run(e.message, row.id);
+    }
+  })();
+});
+
+// 年度计划 CRUD
+app.get('/api/admin/training-year-plan', (req, res) => {  // 只读不鉴权，供首页展示
+  const year = parseInt(req.query.year) || new Date().getFullYear();
+  const rows = db.prepare('SELECT * FROM training_year_plan WHERE year=? ORDER BY month').all(year);
+  res.json(rows.map(r => ({ ...r, sessions: JSON.parse(r.sessions_json||'[]') })));
+});
+
+app.put('/api/admin/training-year-plan/:year/:month', adminAuth, (req, res) => {
+  const { year, month } = req.params;
+  const { sessions } = req.body;
+  db.prepare(`INSERT INTO training_year_plan (year,month,sessions_json,updated_at) VALUES (?,?,?,datetime('now','localtime'))
+    ON CONFLICT(year,month) DO UPDATE SET sessions_json=excluded.sessions_json, updated_at=excluded.updated_at`)
+    .run(parseInt(year), parseInt(month), JSON.stringify(sessions||[]));
+  res.json({ ok: true });
+});
+
+// ─── 现场照片 API ─────────────────────────────────────────────────────────────
+
+const photoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+// 上传照片
+app.post('/api/workshop/training-plan/:planId/photos', workshopEditAuth, photoUpload.single('photo'), (req, res) => {
+  const planId = parseInt(req.params.planId);
+  if (!req.file) return res.status(400).json({ error: '无文件' });
+  const ext = req.file.originalname.split('.').pop() || 'jpg';
+  const filename = `${planId}_${Date.now()}.${ext}`;
+  fs.writeFileSync(path.join(PHOTO_DIR, filename), req.file.buffer);
+  const uploadedBy = req.headers['x-instructor-id'] || 'admin';
+  db.prepare('INSERT INTO training_photos (plan_id,filename,uploaded_by) VALUES (?,?,?)').run(planId, filename, uploadedBy);
+  res.json({ ok: true, filename, url: `/training-photos/${filename}` });
+});
+
+// 查询照片列表
+app.get('/api/workshop/training-plan/:planId/photos', (req, res) => {
+  const planId = parseInt(req.params.planId);
+  const photos = db.prepare('SELECT * FROM training_photos WHERE plan_id=? ORDER BY uploaded_at').all(planId);
+  res.json(photos.map(p => ({ ...p, url: `/training-photos/${p.filename}` })));
+});
+
+// 删除照片
+app.delete('/api/workshop/training-plan/photos/:id', workshopEditAuth, (req, res) => {
+  const row = db.prepare('SELECT filename FROM training_photos WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: '不存在' });
+  try { fs.unlinkSync(path.join(PHOTO_DIR, row.filename)); } catch(e) {}
+  db.prepare('DELETE FROM training_photos WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// 相册：所有照片带培训计划信息
+app.get('/api/workshop/photos', (req, res) => {
+  const rows = db.prepare(`
+    SELECT tp.id AS photo_id, tp.plan_id, tp.filename, tp.uploaded_at,
+           mtp.shift_date AS plan_date, mtp.plan_type, mtp.group_id,
+           tg.name AS group_name,
+           s.real_name AS instructor_name
+    FROM training_photos tp
+    LEFT JOIN monthly_training_plans mtp ON mtp.id = tp.plan_id
+    LEFT JOIN training_groups tg ON tg.id = mtp.group_id
+    LEFT JOIN staff s ON s.id = tg.instructor_id
+    ORDER BY mtp.shift_date DESC, tp.uploaded_at ASC
+  `).all();
+  res.json(rows.map(r => ({ ...r, url: `/training-photos/${r.filename}` })));
+});
+
+// ─── 培训点评 API ─────────────────────────────────────────────────────────────
+
+// 查询某计划的点评
+app.get('/api/workshop/training-plan/:planId/evaluations', (req, res) => {
+  const planId = parseInt(req.params.planId);
+  const rows = db.prepare('SELECT * FROM training_evaluations WHERE plan_id=? ORDER BY evaluated_at').all(planId);
+  res.json(rows);
+});
+
+// 保存/更新点评
+app.put('/api/workshop/training-plan/:planId/evaluations/:staffId', workshopEditAuth, (req, res) => {
+  const planId = parseInt(req.params.planId);
+  const staffId = req.params.staffId;
+  const { staff_name, comment } = req.body;
+  const evaluatedBy = req.headers['x-instructor-id'] || 'admin';
+  db.prepare(`INSERT INTO training_evaluations (plan_id,staff_id,staff_name,comment,evaluated_by,evaluated_at)
+    VALUES (?,?,?,?,?,datetime('now','localtime'))
+    ON CONFLICT(plan_id,staff_id) DO UPDATE SET comment=excluded.comment,evaluated_by=excluded.evaluated_by,evaluated_at=excluded.evaluated_at`)
+    .run(planId, staffId, staff_name || staffId, comment || '', evaluatedBy);
+  res.json({ ok: true });
+});
+
+// ─── 打卡 & 教员确认 API ──────────────────────────────────────────────────────
+
+// 查询本人本月打卡状态
+app.get('/api/workshop/my-status', (req, res) => {
+  const { month, staff_id } = req.query;
+  if (!staff_id) return res.status(400).json({ error: 'staff_id required' });
+  const yearMonth = month || new Date().toISOString().slice(0,7);
+  const plans = db.prepare('SELECT id, shift_date, plan_type, group_id, leader_name, location, completed_items FROM monthly_training_plans WHERE year_month=? ORDER BY shift_date').all(yearMonth);
+  const attendance = db.prepare('SELECT plan_id, checked_in, checkin_time, instructor_confirmed, confirm_time FROM training_attendance WHERE staff_id=?').all(staff_id);
+  const attMap = {};
+  for (const a of attendance) attMap[a.plan_id] = a;
+  // 固定成员
+  const isFixed = !!db.prepare('SELECT 1 FROM training_fixed_members WHERE staff_id=?').get(staff_id);
+  // 我所在的小组
+  const myGroup = db.prepare('SELECT group_id FROM training_group_members WHERE staff_id=?').get(staff_id);
+  const myGroupId = myGroup?.group_id || null;
+  // 我的姓名（用于 leader_name 比对）
+  const myStaff = db.prepare('SELECT real_name, name FROM staff WHERE id=?').get(staff_id);
+  const myName = myStaff?.real_name || myStaff?.name || '';
+  const result = plans.map(p => {
+    const isLeaderRow = !!(p.leader_name && p.leader_name === myName);
+    const relevant = p.plan_type === '中旬会' || isFixed || isLeaderRow ||
+      (p.plan_type === '培训' && p.group_id && p.group_id === myGroupId);
+    const att = attMap[p.id] || {};
+    const completedItems = JSON.parse(p.completed_items || '[]');
+    return {
+      plan_id: p.id, shift_date: p.shift_date, plan_type: p.plan_type, location: p.location,
+      relevant,
+      checked_in: !!att.checked_in, checkin_time: att.checkin_time || null,
+      instructor_confirmed: !!att.instructor_confirmed, confirm_time: att.confirm_time || null,
+      completed_items: completedItems,
+    };
+  });
+  res.json(result);
+});
+
+// 打卡
+app.post('/api/workshop/checkin', (req, res) => {
+  const { plan_id, staff_id, lat, lng } = req.body;
+  if (!plan_id || !staff_id) return res.status(400).json({ error: 'plan_id, staff_id required' });
+  const plan = db.prepare('SELECT * FROM monthly_training_plans WHERE id=?').get(plan_id);
+  if (!plan) return res.status(404).json({ error: '培训记录不存在' });
+  const todayLocal = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+  if (plan.shift_date > todayLocal) return res.status(403).json({ error: `签到时间未到，请于 ${plan.shift_date} 当天签到` });
+  const now = new Date().toISOString();
+  db.prepare(`INSERT INTO training_attendance (plan_id,staff_id,checked_in,checkin_time,checkin_lat,checkin_lng,instructor_confirmed)
+    VALUES (?,?,1,?,?,?,0)
+    ON CONFLICT(plan_id,staff_id) DO UPDATE SET checked_in=1, checkin_time=excluded.checkin_time, checkin_lat=excluded.checkin_lat, checkin_lng=excluded.checkin_lng`
+  ).run(plan_id, staff_id, now, lat||null, lng||null);
+  res.json({ ok: true, checkin_time: now });
+});
+
+// 教员确认
+app.post('/api/workshop/instructor-confirm', (req, res) => {
+  const { plan_id, staff_id, confirmed_by } = req.body;
+  if (!plan_id || !staff_id) return res.status(400).json({ error: 'plan_id, staff_id required' });
+  const now = new Date().toISOString();
+  db.prepare(`INSERT INTO training_attendance (plan_id,staff_id,checked_in,instructor_confirmed,confirm_time,confirmed_by)
+    VALUES (?,?,0,1,?,?)
+    ON CONFLICT(plan_id,staff_id) DO UPDATE SET instructor_confirmed=1, confirm_time=excluded.confirm_time, confirmed_by=excluded.confirmed_by`
+  ).run(plan_id, staff_id, now, confirmed_by||null);
+  res.json({ ok: true, confirm_time: now });
+});
+
+
+// ─── 培训小组 API（POST/PUT/DELETE）──────────────────────────────────────────
+
+// 新建小组
+app.post('/api/admin/training-groups', adminAuth, (req, res) => {
+  const { name, instructor_id, sort_order = 0 } = req.body;
+  if (!name) return res.status(400).json({ error: '小组名不能为空' });
+  const r = db.prepare('INSERT INTO training_groups (name, instructor_id, sort_order) VALUES (?, ?, ?)').run(name, instructor_id || null, sort_order);
+  res.json({ id: r.lastInsertRowid, name, instructor_id, sort_order });
+});
+
+// 修改小组（名称/教员/排序）
+app.put('/api/admin/training-groups/:id', adminAuth, (req, res) => {
+  const { name, instructor_id, sort_order } = req.body;
+  const g = db.prepare('SELECT id FROM training_groups WHERE id=?').get(req.params.id);
+  if (!g) return res.status(404).json({ error: '小组不存在' });
+  db.prepare('UPDATE training_groups SET name=COALESCE(?,name), instructor_id=?, sort_order=COALESCE(?,sort_order) WHERE id=?')
+    .run(name || null, instructor_id !== undefined ? instructor_id : g.instructor_id, sort_order ?? null, req.params.id);
+  res.json({ ok: true });
+});
+
+// 删除小组
+app.delete('/api/admin/training-groups/:id', adminAuth, (req, res) => {
+  db.prepare('DELETE FROM training_group_members WHERE group_id=?').run(req.params.id);
+  db.prepare('DELETE FROM training_groups WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// 设置小组成员（全量替换），支持 is_fixed 标记
+// 请求体：{ members: [{staff_id, is_fixed}] }
+app.put('/api/admin/training-groups/:id/members', adminAuth, (req, res) => {
+  const { members } = req.body;
+  if (!Array.isArray(members)) return res.status(400).json({ error: 'members 须为数组' });
+  const del = db.prepare('DELETE FROM training_group_members WHERE group_id=?');
+  const ins = db.prepare('INSERT OR REPLACE INTO training_group_members (group_id, staff_id, is_fixed) VALUES (?, ?, ?)');
+  db.transaction(() => {
+    del.run(req.params.id);
+    for (const { staff_id, is_fixed } of members) ins.run(req.params.id, staff_id, is_fixed ? 1 : 0);
+  })();
+  res.json({ ok: true });
+});
+
+// 设置/取消教员标记
+app.put('/api/admin/staff/:id/instructor', adminAuth, (req, res) => {
+  const { is_instructor } = req.body;
+  db.prepare('UPDATE staff SET is_instructor=? WHERE id=?').run(is_instructor ? 1 : 0, req.params.id);
+  res.json({ ok: true });
+});
+
+app.put('/api/admin/staff/:id/leader', adminAuth, (req, res) => {
+  const { is_leader } = req.body;
+  db.prepare('UPDATE staff SET is_leader=? WHERE id=?').run(is_leader ? 1 : 0, req.params.id);
+  res.json({ ok: true });
+});
+
+// ─── 阿里云 NLS Token（缓存，每次有效期约24h）────────────────────────────────
+const ALI_APPKEY = process.env.ALI_APPKEY;
+let _aliTokenCache = { token: null, expireTime: 0 };
+
 async function getCachedAliToken() {
-  if (aliTokenCache.token && Date.now() < aliTokenCache.expireAt) return aliTokenCache.token;
-  const token = await getAliToken();
-  aliTokenCache = { token, expireAt: Date.now() + 9 * 60 * 1000 };
-  return token;
+  const now = Math.floor(Date.now() / 1000);
+  if (_aliTokenCache.token && _aliTokenCache.expireTime > now + 60) {
+    return _aliTokenCache.token;
+  }
+  const akId = process.env.ALI_AK_ID;
+  const akSec = process.env.ALI_AK_SEC;
+  if (!akId || !akSec) throw new Error('未配置阿里云AccessKey');
+  const date = new Date().toUTCString();
+  const contentMD5 = crypto.createHash('md5').update('').digest('base64');
+  const accept = 'application/json';
+  const resource = '/pop/2018-05-18/tokens';
+  // NLS meta 签名格式: Method\nAccept\nContent-MD5\nContent-Type\nDate\nResource
+  const stringToSign = `POST\n${accept}\n${contentMD5}\napplication/x-www-form-urlencoded\n${date}\n${resource}`;
+  const signature = crypto.createHmac('sha1', akSec).update(stringToSign).digest('base64');
+  const resp = await fetch('https://nls-meta.cn-shanghai.aliyuncs.com' + resource, {
+    method: 'POST',
+    headers: {
+      'Accept': accept,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-MD5': contentMD5,
+      'Date': date,
+      'Authorization': `Dataplus ${akId}:${signature}`,
+    },
+    body: '',
+  });
+  const data = await resp.json();
+  if (!data.Token?.Id) throw new Error('Token获取失败: ' + JSON.stringify(data));
+  _aliTokenCache = { token: data.Token.Id, expireTime: data.Token.ExpireTime };
+  console.log('[ALI-NLS] Token刷新成功，有效至', new Date(data.Token.ExpireTime * 1000).toLocaleString());
+  return _aliTokenCache.token;
 }
 
 const wss = new WebSocket.Server({ noServer: true });
@@ -2075,8 +3587,8 @@ wss.on('connection', async (clientWs) => {
   let aliWs = null;
   let taskId = require('crypto').randomBytes(16).toString('hex');
   let msgId  = () => require('crypto').randomBytes(16).toString('hex');
-  let started = false;
   let finalText = '';
+  let audioQueue = []; // 缓冲 aliWs 连上前的音频包
 
   try {
     const token = await getCachedAliToken();
@@ -2098,10 +3610,13 @@ wss.on('connection', async (clientWs) => {
           enable_intermediate_result: true,
           enable_punctuation_prediction: true,
           enable_inverse_text_normalization: true,
-          speech_noise_threshold: 0.7,
           max_sentence_silence: 800,
         }
       }));
+      // 补发缓冲的早期音频包
+      while (audioQueue.length > 0) {
+        aliWs.send(audioQueue.shift());
+      }
     });
 
     aliWs.on('message', (data) => {
@@ -2145,33 +3660,42 @@ wss.on('connection', async (clientWs) => {
 
   // 前端发来的消息
   clientWs.on('message', (data) => {
-    if (!aliWs || aliWs.readyState !== WebSocket.OPEN) return;
-    if (typeof data === 'string' || data instanceof Buffer && data[0] === 123) {
+    if (!aliWs) return;
+    const isJson = typeof data === 'string' || (data instanceof Buffer && data[0] === 123);
+    if (isJson) {
       // JSON控制指令
       try {
         const msg = JSON.parse(data.toString());
         if (msg.type === 'stop') {
-          aliWs.send(JSON.stringify({
-            header: {
-              message_id: msgId(),
-              task_id: taskId,
-              namespace: 'SpeechTranscriber',
-              name: 'StopTranscription',
-              appkey: ALI_APPKEY,
-            }
-          }));
-          // 超时保障：10秒内未收到 TranscriptionCompleted，强制返回已有内容
-          stopTimer = setTimeout(() => {
-            if (clientWs.readyState === WebSocket.OPEN) {
-              clientWs.send(JSON.stringify({ type: 'final', text: finalText }));
-            }
-            try { aliWs.close(); } catch(e) {}
-          }, 10000);
+          const sendStop = () => {
+            aliWs.send(JSON.stringify({
+              header: {
+                message_id: msgId(),
+                task_id: taskId,
+                namespace: 'SpeechTranscriber',
+                name: 'StopTranscription',
+                appkey: ALI_APPKEY,
+              }
+            }));
+            // 超时保障：10秒内未收到 TranscriptionCompleted，强制返回已有内容
+            stopTimer = setTimeout(() => {
+              if (clientWs.readyState === WebSocket.OPEN) {
+                clientWs.send(JSON.stringify({ type: 'final', text: finalText }));
+              }
+              try { aliWs.close(); } catch(e) {}
+            }, 10000);
+          };
+          if (aliWs.readyState === WebSocket.OPEN) sendStop();
+          else aliWs.once('open', sendStop); // aliWs 还没连上时等它连上再发 stop
         }
       } catch(e) {}
     } else {
-      // 二进制音频数据，直接转发
-      if (aliWs.readyState === WebSocket.OPEN) aliWs.send(data);
+      // 二进制音频数据
+      if (aliWs.readyState === WebSocket.OPEN) {
+        aliWs.send(data);
+      } else {
+        audioQueue.push(data); // 缓冲，等 aliWs open 后补发
+      }
     }
   });
 
