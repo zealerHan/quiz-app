@@ -1359,7 +1359,7 @@ app.get('/api/admin/month-member-completion', adminAuth, (req, res) => {
     name: g.name,
     instructor_name: g.instructor_name || null,
     members: groupMembers
-      .filter(m => m.group_id === g.id && !m.is_exempt && !m.is_cp)
+      .filter(m => m.group_id === g.id && !m.is_cp)
       .map(m => {
         const doneSet = personDone[String(m.staff_id)];
         const done = doneSet ? doneSet.size : 0;
@@ -3097,8 +3097,11 @@ app.put('/api/admin/training-plan/:id', workshopEditAuth, (req, res) => {
   if (log_entry) {
     const existing = db.prepare('SELECT change_log FROM monthly_training_plans WHERE id=?').get(req.params.id);
     const prev = existing?.change_log || '';
-    const newLog = prev ? `${prev}\n${log_entry}` : log_entry;
-    upParts.push('change_log=?'); upVals.push(newLog);
+    const lines = prev ? prev.split('\n') : [];
+    if (lines.length === 0 || lines[lines.length - 1] !== log_entry) {
+      lines.push(log_entry);
+    }
+    upParts.push('change_log=?'); upVals.push(lines.join('\n'));
   }
   if (!upParts.length) return res.json({ ok: true });
   upParts.push('is_type_custom=1');
@@ -3413,6 +3416,66 @@ app.get('/api/workshop/training-plan/:planId/evaluations', (req, res) => {
   res.json(rows);
 });
 
+// 查询某人某月的培训完成情况（按项点维度）
+app.get('/api/workshop/member-month-items', (req, res) => {
+  const { staff_id, month } = req.query;
+  if (!staff_id || !month) return res.status(400).json({ error: '缺少参数' });
+  const yearNum = parseInt(month.slice(0, 4));
+  const monthNum = parseInt(month.slice(5, 7));
+  // 本月年度计划项点
+  const yearPlanRow = db.prepare('SELECT sessions_json FROM training_year_plan WHERE year=? AND month=?').get(yearNum, monthNum);
+  const yearItems = JSON.parse(yearPlanRow?.sessions_json || '[]');
+  // 本月所有非轮空/非中旬会日程，关联小组和教员名
+  const plans = db.prepare(`
+    SELECT p.id, p.shift_date, p.completed_items,
+           g.name AS group_name, s.real_name AS instructor_name
+    FROM monthly_training_plans p
+    LEFT JOIN training_groups g ON p.group_id = g.id
+    LEFT JOIN staff s ON g.instructor_id = s.id
+    WHERE p.year_month=? AND p.plan_type NOT IN ('轮空','中旬会')
+    ORDER BY p.shift_date
+  `).all(month);
+  // 该人在本月各场次的点评记录
+  const evalMap = {};
+  for (const p of plans) {
+    const ev = db.prepare('SELECT comment, evaluated_at, evaluated_by FROM training_evaluations WHERE plan_id=? AND staff_id=?').get(p.id, staff_id);
+    if (ev) evalMap[p.id] = { ...ev, shift_date: p.shift_date, group_name: p.group_name, instructor_name: p.instructor_name };
+  }
+  // 缓存 evaluated_by (staff_id) → real_name
+  const nameCache = {};
+  const lookupName = (id) => {
+    if (!id || id === 'admin') return null;
+    if (nameCache[id] !== undefined) return nameCache[id];
+    const s = db.prepare('SELECT real_name FROM staff WHERE id=?').get(id);
+    nameCache[id] = s?.real_name || null;
+    return nameCache[id];
+  };
+  // 按项点聚合：找本月最早包含该项点且此人已被确认的场次
+  const items = yearItems.map(it => {
+    let found = null;
+    for (const plan of plans) {
+      const completed = JSON.parse(plan.completed_items || '[]');
+      if (completed.includes(it.item) && evalMap[plan.id]) {
+        found = evalMap[plan.id];
+        break;
+      }
+    }
+    if (!found) return { item: it.item, confirmed: false, has_comment: false, comment: '', session_date: null, confirmed_by: null, is_retroactive: false };
+    const evalDate = (found.evaluated_at || '').slice(0, 10);
+    const isRetroactive = !!(evalDate && evalDate !== found.shift_date);
+    let confirmedBy;
+    if (isRetroactive) {
+      const name = lookupName(found.evaluated_by);
+      confirmedBy = name ? `${name}补` : '补录';
+    } else {
+      confirmedBy = [found.group_name, found.instructor_name].filter(Boolean).join('·');
+    }
+    return { item: it.item, confirmed: true, has_comment: !!(found.comment), comment: found.comment || '', session_date: found.shift_date, confirmed_by: confirmedBy, is_retroactive: isRetroactive };
+  });
+  const done = items.filter(i => i.confirmed).length;
+  res.json({ items, total: items.length, done });
+});
+
 // 保存/更新点评
 app.put('/api/workshop/training-plan/:planId/evaluations/:staffId', workshopEditAuth, (req, res) => {
   const planId = parseInt(req.params.planId);
@@ -3424,6 +3487,14 @@ app.put('/api/workshop/training-plan/:planId/evaluations/:staffId', workshopEdit
     ON CONFLICT(plan_id,staff_id) DO UPDATE SET comment=excluded.comment,evaluated_by=excluded.evaluated_by,evaluated_at=excluded.evaluated_at`)
     .run(planId, staffId, staff_name || staffId, comment || '', evaluatedBy);
   res.json({ ok: true });
+});
+
+// 撤销点评（教员误确认后取消）
+app.delete('/api/workshop/training-plan/:planId/evaluations/:staffId', workshopEditAuth, (req, res) => {
+  const planId = parseInt(req.params.planId);
+  const staffId = req.params.staffId;
+  const r = db.prepare('DELETE FROM training_evaluations WHERE plan_id=? AND staff_id=?').run(planId, staffId);
+  res.json({ ok: true, removed: r.changes });
 });
 
 // ─── 打卡 & 教员确认 API ──────────────────────────────────────────────────────

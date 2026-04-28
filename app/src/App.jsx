@@ -2728,6 +2728,10 @@ function WorkshopScreen({ user, onBack }) {
   const [startLeaderInput, setStartLeaderInput] = useState('');
   const [confirmingId, setConfirmingId] = useState(null);
   const [zhxhExpanded, setZhxhExpanded] = useState(new Set()); // 中旬会展开全员名单的 plan id 集合
+  const [memberCheckModal, setMemberCheckModal] = useState(null);
+  // {planId, staffId, staffName, shiftDate, isFuture, readOnly, monthItems:[], monthDone, monthTotal, planItems:[], selectedItems:[], comment:'', step:'check'|'comment', saving:false, tippedItem:null}
+  const [memberCheckLoading, setMemberCheckLoading] = useState(false);
+  const [retroMode, setRetroMode] = useState(false); // 修改/补录模式：已过日期卡片全展开可点击
 
   const isInstructor = !!(user?.isInstructor);
   const hasEditPerm = !!(adminPwd || isInstructor); // 有权限（不管当前是否在编辑模式）
@@ -2738,6 +2742,23 @@ function WorkshopScreen({ user, onBack }) {
     if (adminPwd) h['x-admin-password'] = adminPwd;
     if (isInstructor && !adminPwd) h['x-instructor-id'] = String(user.staffId);
     return h;
+  };
+
+  // 点击人员按钮的统一处理：震动 + 日期判断 + 打开对应弹窗
+  const handleMemberClick = async (m, p, evMap, monthPlanItems, currentItems, allM) => {
+    if (navigator.vibrate) navigator.vibrate(30);
+    const today = new Date().toLocaleDateString('sv-SE', {timeZone:'Asia/Shanghai'});
+    const isFuture = p.shift_date > today;
+    const staffId = m.id || m.staff_id;
+    const staffName = m.real_name || m.name;
+    const curMonth = p.shift_date.slice(0,7);
+    const readOnly = isFuture || !hasEditPerm || (!retroMode && !isMyRow(p));
+    const hasEvaluated = !!evMap[staffId];
+    setMemberCheckLoading(true);
+    setMemberCheckModal({planId:p.id, staffId, staffName, shiftDate:p.shift_date, isFuture, readOnly, hasEvaluated, monthItems:[], monthDone:0, monthTotal:0, planItems:currentItems, selectedItems:[...currentItems], comment:evMap[staffId]?.comment||'', step:'check', saving:false, tippedItem:null});
+    const data = await apiJson(`/api/workshop/member-month-items?staff_id=${staffId}&month=${curMonth}`).catch(()=>null);
+    setMemberCheckLoading(false);
+    setMemberCheckModal(prev => prev ? ({...prev, monthItems:data?.items||[], monthDone:data?.done||0, monthTotal:data?.total||0}) : null);
   };
 
   const load = async (m) => {
@@ -2825,6 +2846,13 @@ function WorkshopScreen({ user, onBack }) {
     if (!window.confirm(`重新生成 ${monthLabel(month)} 培训计划？已有修改会丢失。`)) return;
     await api('/api/admin/training-plan/regenerate', { method: 'POST', headers: hdrs(), body: JSON.stringify({ month }) });
     load(month);
+  };
+
+  // 生成变更日志前缀：日期 时间 操作人
+  const logNow = () => {
+    const tz = new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Shanghai'}));
+    const pad = n => String(n).padStart(2,'0');
+    return `${tz.getFullYear()}/${pad(tz.getMonth()+1)}/${pad(tz.getDate())} ${pad(tz.getHours())}:${pad(tz.getMinutes())} ${user?.name||'admin'}`;
   };
 
   // 通用保存单字段变更
@@ -3035,7 +3063,7 @@ function WorkshopScreen({ user, onBack }) {
       setLunKongConfirm({ planId: p.id, prevType: p.plan_type, noteInput: '' });
       setActiveField(null);
     } else {
-      const now = new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'});
+      const now = logNow();
       patchRow(p.id, { plan_type: newType }, `${now} 培训方式改为"${newType}"`);
     }
   };
@@ -3044,7 +3072,7 @@ function WorkshopScreen({ user, onBack }) {
   const confirmLunKong = async () => {
     if (!lunKongConfirm) return;
     const { planId, noteInput } = lunKongConfirm;
-    const now = new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'});
+    const now = logNow();
     await patchRow(planId, { plan_type: '轮空', group_id: null, leader_name: null, notes: noteInput || null },
       `${now} 设为轮空${noteInput ? `（${noteInput}）` : ''}`);
     setLunKongConfirm(null);
@@ -3183,53 +3211,48 @@ function WorkshopScreen({ user, onBack }) {
 
         {/* ══ 板块三：本月早班培训计划 ══ */}
         <div>
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
-            <div style={{display:'flex',alignItems:'center',gap:6}}>
-              <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600}}>{monthLabel(month)} 早班培训计划</div>
-              {isInstructor && <span style={{fontSize:10,padding:'1px 6px',borderRadius:4,background:'rgba(59,130,246,0.15)',border:'1px solid rgba(59,130,246,0.3)',color:'#93c5fd'}}>教员</span>}
-            </div>
-            <div style={{display:'flex',gap:5,alignItems:'center'}}>
-              {/* 相册 */}
-              <button onClick={async()=>{
-                setPhotoAlbum({photos:[],loading:true});
-                const photos = await apiJson('/api/workshop/photos').catch(()=>[]);
-                setPhotoAlbum({photos:Array.isArray(photos)?photos:[],loading:false});
-              }} style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid rgba(148,163,184,0.3)',background:'rgba(148,163,184,0.06)',color:'#94a3b8',cursor:'pointer',fontFamily:'inherit'}}>
-                🖼 相册
+          <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
+            <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600}}>{monthLabel(month)} 早班培训计划</div>
+            {isInstructor && <span style={{fontSize:10,padding:'1px 6px',borderRadius:4,background:'rgba(59,130,246,0.15)',border:'1px solid rgba(59,130,246,0.3)',color:'#93c5fd'}}>教员</span>}
+          </div>
+          <div style={{display:'flex',gap:5,alignItems:'center',flexWrap:'wrap',marginBottom:8}}>
+            {/* 相册 */}
+            <button onClick={async()=>{
+              setPhotoAlbum({photos:[],loading:true});
+              const photos = await apiJson('/api/workshop/photos').catch(()=>[]);
+              setPhotoAlbum({photos:Array.isArray(photos)?photos:[],loading:false});
+            }} style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid rgba(148,163,184,0.3)',background:'rgba(148,163,184,0.06)',color:'#94a3b8',cursor:'pointer',fontFamily:'inherit'}}>
+              🖼 相册
+            </button>
+
+            {/* 确认/评论（补录）模式 */}
+            {hasEditPerm && !wsEditMode && (
+              <button onClick={()=>setRetroMode(v=>!v)}
+                style={{fontSize:10,padding:'3px 8px',borderRadius:5,
+                  border:`1px solid ${retroMode?'rgba(251,191,36,0.6)':'rgba(251,191,36,0.35)'}`,
+                  background:retroMode?'rgba(251,191,36,0.18)':'rgba(251,191,36,0.07)',
+                  color:'#fbbf24',cursor:'pointer',fontFamily:'inherit',fontWeight:retroMode?700:400}}>
+                {retroMode ? '📝 补录中' : '📝 确认/评论'}
               </button>
+            )}
 
-
-              {/* 教员：生成快捷入口链接 */}
-              {isInstructor && !wsEditMode && (
-                <button onClick={async()=>{
-                  try {
-                    const r = await fetch('/api/magic-link',{method:'POST',headers:{'Content-Type':'application/json','x-instructor-id':user?.staffId||''},body:JSON.stringify({target:'workshop'})});
-                    const d = await r.json();
-                    if (d.url) { await navigator.clipboard.writeText(d.url); alert('快捷链接已复制（48小时有效）\n粘贴到钉钉收藏即可一键直达'); }
-                  } catch { alert('复制失败，请手动复制'); }
-                }} style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid rgba(251,191,36,0.35)',background:'rgba(251,191,36,0.07)',color:'#fbbf24',cursor:'pointer',fontFamily:'inherit'}}>
-                  🔗 快捷入口
+            {/* 组员管理 / 保存（有权限） */}
+            {hasEditPerm ? (
+              wsEditMode ? (
+                <button onClick={()=>{ setWsEditMode(false); setExpandedCards(new Set()); setActiveField(null); }}
+                  style={{fontSize:10,padding:'3px 10px',borderRadius:5,border:'none',background:'#22c55e',color:'#07101f',cursor:'pointer',fontFamily:'inherit',fontWeight:700}}>
+                  保存
                 </button>
-              )}
-
-              {/* 编辑 / 保存（有权限） */}
-              {hasEditPerm ? (
-                wsEditMode ? (
-                  <button onClick={()=>{ setWsEditMode(false); setExpandedCards(new Set()); setActiveField(null); }}
-                    style={{fontSize:10,padding:'3px 10px',borderRadius:5,border:'none',background:'#22c55e',color:'#07101f',cursor:'pointer',fontFamily:'inherit',fontWeight:700}}>
-                    保存
-                  </button>
-                ) : (
-                  <button onClick={()=>setWsEditMode(true)}
-                    style={{fontSize:10,padding:'3px 10px',borderRadius:5,border:'1px solid rgba(34,197,94,0.4)',background:'rgba(34,197,94,0.08)',color:'#22c55e',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
-                    ✎ 编辑
-                  </button>
-                )
               ) : (
-                <button onClick={()=>setShowAdminInput(v=>!v)}
-                  style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid #1b3255',background:'transparent',color:'#475569',cursor:'pointer',fontFamily:'inherit'}}>解锁</button>
-              )}
-            </div>
+                <button onClick={()=>{ setWsEditMode(true); setRetroMode(false); }}
+                  style={{fontSize:10,padding:'3px 10px',borderRadius:5,border:'1px solid rgba(34,197,94,0.4)',background:'rgba(34,197,94,0.08)',color:'#22c55e',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
+                  ✎ 组员管理
+                </button>
+              )
+            ) : (
+              <button onClick={()=>setShowAdminInput(v=>!v)}
+                style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid #1b3255',background:'transparent',color:'#475569',cursor:'pointer',fontFamily:'inherit'}}>解锁</button>
+            )}
           </div>
 
           {/* 编辑模式提示 + 管理员设置/重排按钮 */}
@@ -3267,7 +3290,10 @@ function WorkshopScreen({ user, onBack }) {
                 const rowOpacity = mine ? 1 : 0.55;
 
                 // 非编辑模式下，非相关卡显示为折叠行
-                const isIndividuallyExpanded = expandedCards.has(p.id);
+                // retroMode 时已过日期的卡片强制展开
+                const today2 = new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'});
+                const isPast = p.shift_date < today2;
+                const isIndividuallyExpanded = expandedCards.has(p.id) || (retroMode && isPast);
                 if (!wsEditMode && !mine && !isIndividuallyExpanded) {
                   return (
                     <div key={p.id} style={{
@@ -3298,7 +3324,7 @@ function WorkshopScreen({ user, onBack }) {
                   if (!canEdit) return;
                   setActiveField(prev => (prev?.planId === p.id && prev?.field === field) ? null : { planId: p.id, field });
                 };
-                const now = new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'});
+                const now = logNow();
                 const LOCATIONS = ['工人村', '青菱车场', '复兴路'];
                 const TYPE_LABELS = {'培训':'实操','理论':'理论','轮空':'轮空','中旬会':'中旬会'};
 
@@ -3400,7 +3426,7 @@ function WorkshopScreen({ user, onBack }) {
                         let specialEntries = [];
                         try { specialEntries = JSON.parse(p.notes || '[]'); if(!Array.isArray(specialEntries)) specialEntries = []; } catch(e) { specialEntries = []; }
                         const ZHXH_SLOTS = 8;
-                        const now2 = new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'});
+                        const now2 = logNow();
                         const isZhxhExpanded = zhxhExpanded.has(p.id);
                         return (
                           <div style={{padding:'8px 12px',display:'flex',flexDirection:'column',gap:6}}>
@@ -3464,7 +3490,6 @@ function WorkshopScreen({ user, onBack }) {
                                         <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
                                           {grpMembers.map((m,mi)=>(
                                             <button key={mi} onClick={async()=>{
-                                              if(!hasEditPerm) return;
                                               const shiftYear = parseInt(p.shift_date.slice(0,4));
                                               const shiftMonth = parseInt(p.shift_date.slice(5,7));
                                               const yearPlanData = await apiJson(`/api/admin/training-year-plan?year=${shiftYear}`).catch(()=>[]);
@@ -3473,19 +3498,16 @@ function WorkshopScreen({ user, onBack }) {
                                               const evals = await apiJson(`/api/workshop/training-plan/${p.id}/evaluations`).catch(()=>[]);
                                               const evMap = {};
                                               (Array.isArray(evals)?evals:[]).forEach(e=>{ evMap[e.staff_id]=e; });
-                                              // 构建全员名单供 pick 步骤
                                               const allZhxhMembers = (plan.groups||[]).flatMap(gr=>{
                                                 const fids = new Set((plan.fixedStaff||[]).map(f=>f.staff_id));
                                                 return (gr.members||[]).filter(x=>!fids.has(x.id)).map(x=>({id:x.id,real_name:x.real_name||x.name}));
                                               });
                                               const fixedM = (plan.fixedStaff||[]).map(f=>({id:f.staff_id,real_name:f.real_name||f.name}));
                                               const allM = [...allZhxhMembers,...fixedM].filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i);
-                                              const targetMember = {staffId:m.id,staffName:m.real_name||m.name};
-                                              const step = currentItems.length>0 ? 'eval' : 'items';
-                                              setEvalModal({planId:p.id,shiftDate:p.shift_date,members:allM,step,target:step==='eval'?targetMember:null,comment:evMap[m.id]?.comment||'',saving:false,evaluations:evMap,yearPlanItems:monthPlanItems,selectedItems:currentItems.length>0?currentItems:monthPlanItems.map(i=>i.item)});
+                                              await handleMemberClick(m, p, evMap, monthPlanItems, currentItems, allM);
                                             }} style={{
                                               padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',
-                                              cursor:hasEditPerm?'pointer':'default',
+                                              cursor:'pointer',
                                               border:'1px solid #1e3a5f',
                                               background:'rgba(30,41,59,0.5)',color:'#b0bec5',fontWeight:400
                                             }}>{m.real_name||m.name}</button>
@@ -3513,11 +3535,9 @@ function WorkshopScreen({ user, onBack }) {
                                               const fids = new Set((plan.fixedStaff||[]).map(x=>x.staff_id));
                                               return (gr.members||[]).filter(x=>!fids.has(x.id)).map(x=>({id:x.id,real_name:x.real_name||x.name}));
                                             });
-                                            const fixedM = (plan.fixedStaff||[]).map(x=>({id:x.staff_id,real_name:x.real_name||x.name}));
-                                            const allM = [...allZhxhMembers,...fixedM].filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i);
-                                            const targetMember = {staffId:f.staff_id,staffName:f.real_name||f.name};
-                                            const step = currentItems.length>0 ? 'eval' : 'items';
-                                            setEvalModal({planId:p.id,shiftDate:p.shift_date,members:allM,step,target:step==='eval'?targetMember:null,comment:evMap[f.staff_id]?.comment||'',saving:false,evaluations:evMap,yearPlanItems:monthPlanItems,selectedItems:currentItems.length>0?currentItems:monthPlanItems.map(i=>i.item)});
+                                            const fixedM2 = (plan.fixedStaff||[]).map(x=>({id:x.staff_id,real_name:x.real_name||x.name}));
+                                            const allM = [...allZhxhMembers,...fixedM2].filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i);
+                                            await handleMemberClick({id:f.staff_id,real_name:f.real_name||f.name}, p, evMap, monthPlanItems, currentItems, allM);
                                           }} style={{
                                             padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',
                                             cursor:hasEditPerm?'pointer':'default',
@@ -3574,15 +3594,33 @@ function WorkshopScreen({ user, onBack }) {
                                   {Array.from({length:SLOTS}).map((_,i)=>{
                                     const m = effectiveMembers[i];
                                     const isSwapped = m?.isAdded;
+                                    const canRetro = retroMode && isPast && hasEditPerm && !canEdit;
                                     return m ? (
-                                      <button key={i} onClick={()=>{
+                                      <button key={i} onClick={async()=>{
+                                        if (canRetro) {
+                                          const ov2 = p.memberOverrides||{added:[],removed:[]};
+                                          const rids2 = new Set((ov2.removed||[]).map(r=>String(r.id||r.staff_id)));
+                                          const baseM2 = normalMembers.filter(x=>!rids2.has(String(x.id)));
+                                          const addedM2 = (ov2.added||[]).map(a=>({id:a.id||a.staff_id,real_name:a.real_name||a.staff_name||a.name}));
+                                          const fixedM2 = (plan.fixedStaff||[]).map(f=>({id:f.staff_id,real_name:f.real_name||f.name}));
+                                          const allM2 = [...baseM2,...addedM2,...fixedM2].filter((x,j,a)=>a.findIndex(y=>y.id===x.id)===j);
+                                          const evals2 = await apiJson(`/api/workshop/training-plan/${p.id}/evaluations`).catch(()=>[]);
+                                          const evMap2 = {}; (Array.isArray(evals2)?evals2:[]).forEach(e=>{ evMap2[e.staff_id]=e; });
+                                          const sy2 = parseInt(p.shift_date.slice(0,4)), sm2 = parseInt(p.shift_date.slice(5,7));
+                                          const ypd2 = await apiJson(`/api/admin/training-year-plan?year=${sy2}`).catch(()=>[]);
+                                          const mpi2 = (Array.isArray(ypd2)?ypd2:[]).find(r=>r.month===sm2)?.sessions||[];
+                                          const ci2 = (()=>{try{return JSON.parse(p.completed_items||'[]');}catch(e){return [];}})();
+                                          await handleMemberClick(m, p, evMap2, mpi2, ci2, allM2);
+                                          return;
+                                        }
                                         if(!canEdit) return;
                                         setMemberModal({planId:p.id,staffId:m.id,staffName:m.real_name||m.name,isAdded:isSwapped,step:'main',candidates:[],target:null});
                                       }} style={{
-                                        padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:canEdit?'pointer':'default',
-                                        border:`1px solid ${isSwapped?'#3b82f6':'#1e3a5f'}`,
-                                        background:isSwapped?'rgba(59,130,246,0.15)':'rgba(30,41,59,0.5)',
-                                        color:isSwapped?'#60a5fa':'#b0bec5',fontWeight:isSwapped?600:400
+                                        padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',
+                                        cursor:(canEdit||canRetro)?'pointer':'default',
+                                        border:`1px solid ${canRetro?'rgba(251,191,36,0.5)':isSwapped?'#3b82f6':'#1e3a5f'}`,
+                                        background:canRetro?'rgba(251,191,36,0.08)':isSwapped?'rgba(59,130,246,0.15)':'rgba(30,41,59,0.5)',
+                                        color:canRetro?'#fbbf24':isSwapped?'#60a5fa':'#b0bec5',fontWeight:canRetro||isSwapped?600:400
                                       }}>{m.real_name||m.name}</button>
                                     ) : (
                                       <span key={i} style={{display:'inline-block',width:28,height:20,border:'1px dashed rgba(100,130,180,0.45)',borderRadius:4,background:'rgba(27,50,85,0.2)'}}/>
@@ -3610,13 +3648,13 @@ function WorkshopScreen({ user, onBack }) {
                     {/* ── 变更记录 ── */}
                     {p.change_log && (
                       <div style={{padding:'5px 12px 7px',borderTop:'1px solid rgba(27,50,85,0.4)',background:'rgba(0,0,0,0.12)'}}>
-                        {p.change_log.split('\n').map((ln,i)=>(
+                        {p.change_log.split('\n').filter((ln,i,arr)=>i===0||arr[i-1]!==ln).map((ln,i)=>(
                           <div key={i} style={{fontSize:10,color:'#6b7280',lineHeight:1.7}}>• {ln}</div>
                         ))}
                       </div>
                     )}
 
-                    {/* ── 现场记录 & 确认点评 ── */}
+                    {/* ── 现场记录 & 确认点评（编辑模式） ── */}
                     {p.plan_type !== '轮空' && canEdit && (
                       <div style={{display:'flex',gap:6,padding:'7px 10px',borderTop:'1px solid rgba(27,50,85,0.35)',background:'rgba(0,0,0,0.1)'}}>
                         <button onClick={async()=>{
@@ -3636,7 +3674,6 @@ function WorkshopScreen({ user, onBack }) {
                             const evals = await apiJson(`/api/workshop/training-plan/${p.id}/evaluations`).catch(()=>[]);
                             const evMap = {};
                             (Array.isArray(evals)?evals:[]).forEach(e=>{ evMap[e.staff_id]=e; });
-                            // 加载本月年度计划项点
                             const shiftYear = parseInt(p.shift_date.slice(0,4));
                             const shiftMonth = parseInt(p.shift_date.slice(5,7));
                             const yearPlanData = await apiJson(`/api/admin/training-year-plan?year=${shiftYear}`).catch(()=>[]);
@@ -3752,7 +3789,7 @@ function WorkshopScreen({ user, onBack }) {
                 <button onClick={()=>setMemberModal(prev=>({...prev,step:'main',target:null}))} style={{flex:1,padding:'9px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>返回</button>
                 <button disabled={!memberModal.target} onClick={async()=>{
                   const {planId,staffId,target} = memberModal;
-                  const now = new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'});
+                  const now = logNow();
                   const r = await apiJson('/api/admin/training-plan/member-swap',{method:'POST',headers:hdrs(),body:JSON.stringify({
                     plan_id_a:planId, staff_id_a:staffId,
                     plan_id_b:target.planId, staff_id_b:target.id,
@@ -3809,7 +3846,7 @@ function WorkshopScreen({ user, onBack }) {
                   <button key={type} onClick={async()=>{
                     const newEntry = {staffId:memberModal.target.staffId,staffName:memberModal.target.staffName,type};
                     const newEntries = [...(memberModal.specialEntries||[]),newEntry];
-                    const now2 = new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'});
+                    const now2 = logNow();
                     const r = await apiJson(`/api/admin/training-plan/${memberModal.planId}`,{method:'PUT',headers:hdrs(),body:JSON.stringify({
                       notes:JSON.stringify(newEntries),
                       log_entry:`${now2} 登记：${memberModal.target.staffName} ${type}`
@@ -3854,7 +3891,7 @@ function WorkshopScreen({ user, onBack }) {
                 <button onClick={()=>setMemberModal(prev=>({...prev,step:'main',target:null}))} style={{flex:1,padding:'9px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>返回</button>
                 <button disabled={!memberModal.target} onClick={async()=>{
                   const {planId,staffId,target} = memberModal;
-                  const now = new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'});
+                  const now = logNow();
                   const r = await apiJson('/api/admin/training-plan/member-postpone',{method:'POST',headers:hdrs(),body:JSON.stringify({
                     from_plan_id:planId, to_plan_id:target.id, staff_id:staffId,
                     note:`${now} ${memberModal.staffName}延后至${target.shift_date?.slice(5)}`
@@ -3923,6 +3960,149 @@ function WorkshopScreen({ user, onBack }) {
         </div>
       )}
 
+      {/* 人员点击弹卡：本月完成情况 + 培训确认 */}
+      {memberCheckModal && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:205}} onClick={()=>setMemberCheckModal(null)}>
+          <div style={{background:'#0f2744',borderRadius:'14px 14px 0 0',padding:20,width:'100%',maxWidth:480,maxHeight:'82vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+
+            {/* 标题 */}
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+              <div>
+                <div style={{display:'flex',alignItems:'baseline',gap:6}}>
+                  <span style={{fontWeight:700,color:'#e2e8f0',fontSize:15}}>{memberCheckModal.staffName}</span>
+                  {!memberCheckLoading && memberCheckModal.monthTotal > 0 && (
+                    <span style={{color:'#60a5fa',fontSize:13,fontWeight:700}}>({memberCheckModal.monthDone}/{memberCheckModal.monthTotal})</span>
+                  )}
+                </div>
+                <div style={{fontSize:10,color:'#475569',marginTop:2}}>
+                  {memberCheckModal.isFuture ? `${memberCheckModal.shiftDate} 尚未开始` : `${memberCheckModal.shiftDate} 本月完成情况`}
+                </div>
+              </div>
+              <button onClick={()=>setMemberCheckModal(null)} style={{background:'none',border:'none',color:'#475569',fontSize:20,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
+            </div>
+
+            {memberCheckLoading ? (
+              <div style={{textAlign:'center',color:'#475569',padding:'30px 0',fontSize:13}}>加载中…</div>
+            ) : (memberCheckModal.monthItems||[]).length === 0 ? (
+              <div style={{textAlign:'center',color:'#475569',padding:'30px 0',fontSize:13}}>本月暂无培训项点</div>
+            ) : (<>
+              {/* 项点清单 */}
+              <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:5,marginBottom:12}}>
+                {(memberCheckModal.monthItems||[]).map((it,i)=>{
+                  const alreadyDone = it.confirmed; // confirmed in another (or same) plan
+                  const inPlan = (memberCheckModal.planItems||[]).includes(it.item);
+                  const isSelected = (memberCheckModal.selectedItems||[]).includes(it.item);
+                  const tipped = memberCheckModal.tippedItem === it.item;
+                  const fmtDate = it.session_date ? `${parseInt(it.session_date.slice(5,7))}月${parseInt(it.session_date.slice(8,10))}日` : '';
+                  const isInteractive = !memberCheckModal.readOnly && !alreadyDone;
+
+                  return (
+                    <div key={i} onClick={()=>{
+                      if (memberCheckModal.readOnly) {
+                        if (!alreadyDone) {
+                          setMemberCheckModal(prev=>({...prev,tippedItem:it.item}));
+                          setTimeout(()=>setMemberCheckModal(prev=>prev?({...prev,tippedItem:null}):prev),1500);
+                        }
+                        return;
+                      }
+                      if (alreadyDone) return; // 已在其他场次确认，不可改
+                      setMemberCheckModal(prev=>{
+                        const cur = prev.selectedItems||[];
+                        const next = cur.includes(it.item) ? cur.filter(x=>x!==it.item) : [...cur, it.item];
+                        return {...prev, selectedItems:next};
+                      });
+                    }} style={{
+                      display:'flex',alignItems:'flex-start',gap:10,
+                      padding:'9px 12px',borderRadius:8,cursor:isInteractive?'pointer':alreadyDone?'default':'pointer',
+                      border:`1px solid ${alreadyDone?'rgba(34,197,94,0.35)':isSelected?'rgba(96,165,250,0.4)':tipped?'rgba(251,191,36,0.4)':'rgba(27,50,85,0.7)'}`,
+                      background:alreadyDone?'rgba(34,197,94,0.06)':isSelected?'rgba(96,165,250,0.06)':tipped?'rgba(251,191,36,0.04)':'rgba(13,17,23,0.3)',
+                      transition:'border-color 0.15s,background 0.15s'
+                    }}>
+                      {/* 勾选框 / 状态图标 */}
+                      <div style={{flexShrink:0,marginTop:1,width:18,height:18,borderRadius:4,display:'flex',alignItems:'center',justifyContent:'center',
+                        border:alreadyDone?'none':'1px solid '+(isSelected?'#60a5fa':'#334155'),
+                        background:alreadyDone?'transparent':isSelected?'rgba(96,165,250,0.15)':'transparent',
+                        fontSize:12
+                      }}>
+                        {alreadyDone ? '✅' : isSelected ? '✓' : ''}
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,color:alreadyDone?'#86efac':isSelected?'#93c5fd':'#94a3b8',fontWeight:alreadyDone||isSelected?600:400,lineHeight:1.4}}>
+                          {it.item}
+                          {inPlan && !alreadyDone && <span style={{marginLeft:5,fontSize:9,color:'#475569',fontWeight:400}}>本次项点</span>}
+                        </div>
+                        {alreadyDone && fmtDate && (
+                          <div style={{fontSize:10,color:'#475569',marginTop:2}}>{fmtDate}{it.confirmed_by ? ` · ${it.confirmed_by}` : ''}</div>
+                        )}
+                        {tipped && <div style={{fontSize:10,color:'#fbbf24',marginTop:2}}>⏰ 未到培训时间</div>}
+                        {alreadyDone && it.has_comment && <div style={{fontSize:10,color:'#22c55e',marginTop:2}}>已填写评价</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* 评价输入框（step=comment 时显示） */}
+              {memberCheckModal.step === 'comment' && !memberCheckModal.readOnly && (
+                <textarea
+                  value={memberCheckModal.comment}
+                  onChange={e=>setMemberCheckModal(prev=>({...prev,comment:e.target.value}))}
+                  placeholder="填写本次培训情况、表现要点或改进建议…"
+                  rows={3}
+                  autoFocus
+                  style={{width:'100%',boxSizing:'border-box',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:8,padding:'10px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none',resize:'none',marginBottom:10}}
+                />
+              )}
+
+              {/* 底部按钮 */}
+              {!memberCheckModal.readOnly && (
+                <div style={{display:'flex',gap:8,flexShrink:0}}>
+                  {memberCheckModal.step === 'check' ? (<>
+                    {memberCheckModal.hasEvaluated && (
+                      <button disabled={memberCheckModal.saving} onClick={async()=>{
+                        if(!window.confirm(`撤销 ${memberCheckModal.staffName} 的本场培训确认？`)) return;
+                        setMemberCheckModal(prev=>({...prev,saving:true}));
+                        const {planId,staffId} = memberCheckModal;
+                        const r = await apiJson(`/api/workshop/training-plan/${planId}/evaluations/${staffId}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);
+                        setMemberCheckModal(null);
+                        if(r?.ok) load(month); else alert('撤销失败');
+                      }} style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid rgba(239,68,68,0.4)',background:'transparent',color:'#fca5a5',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberCheckModal.saving?0.6:1}}>
+                        撤销确认
+                      </button>
+                    )}
+                    <button onClick={()=>setMemberCheckModal(prev=>({...prev,step:'comment'}))} style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid rgba(148,163,184,0.25)',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>
+                      💬 评价
+                    </button>
+                    <button disabled={memberCheckModal.saving} onClick={async()=>{
+                      setMemberCheckModal(prev=>({...prev,saving:true}));
+                      const {planId,staffId,staffName,selectedItems,comment} = memberCheckModal;
+                      await apiJson(`/api/workshop/training-plan/${planId}/completed-items`,{method:'PATCH',headers:hdrs(),body:JSON.stringify({items:selectedItems||[]})}).catch(()=>{});
+                      const r = await apiJson(`/api/workshop/training-plan/${planId}/evaluations/${staffId}`,{method:'PUT',headers:hdrs(),body:JSON.stringify({staff_name:staffName,comment:comment||''})}).catch(()=>null);
+                      setMemberCheckModal(null);
+                      if(r?.ok) load(month);
+                    }} style={{flex:2,padding:'11px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#14532d,#16a34a)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberCheckModal.saving?0.6:1}}>
+                      {memberCheckModal.saving ? '保存中…' : `✅ 培训（${(memberCheckModal.selectedItems||[]).length}项）`}
+                    </button>
+                  </>) : (<>
+                    <button onClick={()=>setMemberCheckModal(prev=>({...prev,step:'check'}))} style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>返回</button>
+                    <button disabled={memberCheckModal.saving} onClick={async()=>{
+                      setMemberCheckModal(prev=>({...prev,saving:true}));
+                      const {planId,staffId,staffName,selectedItems,comment} = memberCheckModal;
+                      await apiJson(`/api/workshop/training-plan/${planId}/completed-items`,{method:'PATCH',headers:hdrs(),body:JSON.stringify({items:selectedItems||[]})}).catch(()=>{});
+                      const r = await apiJson(`/api/workshop/training-plan/${planId}/evaluations/${staffId}`,{method:'PUT',headers:hdrs(),body:JSON.stringify({staff_name:staffName,comment:comment||''})}).catch(()=>null);
+                      setMemberCheckModal(null);
+                      if(r?.ok) load(month);
+                    }} style={{flex:2,padding:'11px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#14532d,#16a34a)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberCheckModal.saving?0.6:1}}>
+                      {memberCheckModal.saving ? '保存中…' : '✅ 确认培训'}
+                    </button>
+                  </>)}
+                </div>
+              )}
+            </>)}
+          </div>
+        </div>
+      )}
+
       {/* 确认点评弹窗 */}
       {evalModal && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:210}} onClick={()=>setEvalModal(null)}>
@@ -3980,7 +4160,13 @@ function WorkshopScreen({ user, onBack }) {
                 {evalModal.members.map((m,i)=>{
                   const ev = evalModal.evaluations[m.id];
                   return (
-                    <button key={i} onClick={()=>setEvalModal(prev=>({...prev,step:'eval',target:{staffId:m.id,staffName:m.real_name||m.name},comment:ev?.comment||''}))} style={{
+                    <button key={i} onClick={async()=>{
+                      const staffId = m.id;
+                      const staffName = m.real_name || m.name;
+                      const curMonth = evalModal.shiftDate.slice(0,7);
+                      const data = await apiJson(`/api/workshop/member-month-items?staff_id=${staffId}&month=${curMonth}`).catch(()=>null);
+                      setEvalModal(prev=>({...prev,step:'eval',target:{staffId,staffName},comment:ev?.comment||'',memberItems:data?.items||[],memberTotal:data?.total||0,memberDone:data?.done||0}));
+                    }} style={{
                       padding:'10px 14px',borderRadius:8,border:`1px solid ${ev?'rgba(34,197,94,0.4)':'#1b3255'}`,
                       background:ev?'rgba(34,197,94,0.07)':'rgba(13,17,23,0.4)',
                       color:'#e2e8f0',fontFamily:'inherit',fontSize:13,cursor:'pointer',
@@ -4005,6 +4191,27 @@ function WorkshopScreen({ user, onBack }) {
                 <button onClick={()=>setEvalModal(null)} style={{background:'none',border:'none',color:'#475569',fontSize:18,cursor:'pointer',padding:0}}>×</button>
               </div>
               <div style={{fontSize:11,color:'#475569',marginBottom:14}}>本次培训确认与评价</div>
+              {(evalModal.memberItems||[]).length > 0 && (
+                <div style={{marginBottom:12,borderRadius:7,border:'1px solid rgba(27,50,85,0.7)',background:'rgba(0,0,0,0.2)',padding:'8px 10px'}}>
+                  <div style={{display:'flex',alignItems:'baseline',gap:6,marginBottom:6}}>
+                    <span style={{fontSize:10,color:'#60a5fa',fontWeight:600}}>本月完成情况</span>
+                    <span style={{fontSize:11,color:'#60a5fa',fontWeight:700}}>({evalModal.memberDone||0}/{evalModal.memberTotal||0})</span>
+                  </div>
+                  <div style={{display:'flex',flexDirection:'column',gap:3,maxHeight:110,overflowY:'auto'}}>
+                    {(evalModal.memberItems||[]).map((it,i)=>{
+                      const fmtDate = it.session_date ? `${parseInt(it.session_date.slice(5,7))}月${parseInt(it.session_date.slice(8,10))}日` : '';
+                      return (
+                        <div key={i} style={{display:'flex',alignItems:'center',gap:6}}>
+                          <span style={{fontSize:11,color:'#94a3b8',flex:1}}>{it.item}</span>
+                          <span style={{fontSize:12}}>{it.confirmed?'✅':'❌'}</span>
+                          {it.confirmed ? (it.has_comment ? <span style={{fontSize:12}}>✅</span> : <span style={{fontSize:9,color:'#475569'}}>未评价</span>) : <span style={{fontSize:12}}>❌</span>}
+                          {fmtDate && <span style={{fontSize:9,color:'#475569'}}>{fmtDate}</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <div style={{fontSize:11,color:'#94a3b8',marginBottom:6}}>培训评价（可不填）</div>
               <textarea
                 value={evalModal.comment}
@@ -4015,6 +4222,27 @@ function WorkshopScreen({ user, onBack }) {
               />
               <div style={{display:'flex',gap:8}}>
                 <button onClick={()=>setEvalModal(prev=>({...prev,step:'pick',target:null}))} style={{flex:1,padding:'10px',borderRadius:8,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>返回</button>
+                {evalModal.evaluations[evalModal.target.staffId] && (
+                  <button disabled={evalModal.saving} onClick={async()=>{
+                    if(!window.confirm(`撤销 ${evalModal.target.staffName} 的本场培训确认？`)) return;
+                    setEvalModal(prev=>({...prev,saving:true}));
+                    const {planId,target} = evalModal;
+                    const r = await apiJson(`/api/workshop/training-plan/${planId}/evaluations/${target.staffId}`,{
+                      method:'DELETE', headers:hdrs()
+                    }).catch(()=>null);
+                    if(r?.ok){
+                      const evals = await apiJson(`/api/workshop/training-plan/${planId}/evaluations`).catch(()=>[]);
+                      const evMap={};
+                      (Array.isArray(evals)?evals:[]).forEach(e=>{evMap[e.staff_id]=e;});
+                      setEvalModal(prev=>({...prev,saving:false,step:'pick',target:null,evaluations:evMap}));
+                    } else {
+                      setEvalModal(prev=>({...prev,saving:false}));
+                      alert('撤销失败');
+                    }
+                  }} style={{flex:1,padding:'10px',borderRadius:8,border:'1px solid rgba(239,68,68,0.4)',background:'transparent',color:'#fca5a5',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:evalModal.saving?0.6:1}}>
+                    撤销确认
+                  </button>
+                )}
                 <button disabled={evalModal.saving} onClick={async()=>{
                   setEvalModal(prev=>({...prev,saving:true}));
                   const {planId,target,comment} = evalModal;
