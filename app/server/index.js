@@ -126,6 +126,8 @@ try { db.exec('ALTER TABLE staff ADD COLUMN is_tester INTEGER DEFAULT 0'); } cat
 try { db.exec('ALTER TABLE staff ADD COLUMN is_cp INTEGER DEFAULT 0'); } catch(e) {}
 try { db.exec('ALTER TABLE staff ADD COLUMN avatar TEXT'); } catch(e) {}
 try { db.exec('ALTER TABLE sessions ADD COLUMN is_deleted INTEGER DEFAULT 0'); } catch(e) {}
+try { db.exec('ALTER TABLE questions ADD COLUMN options TEXT'); } catch(e) {} // 选择题选项 JSON: {A:"...",B:"...",C:"...",D:"..."}
+try { db.exec('ALTER TABLE questions ADD COLUMN type TEXT'); } catch(e) {} // 题型: choice_single|choice_multi|true_false|fill_blank|short_answer
 db.exec(`CREATE TABLE IF NOT EXISTS admin_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   action TEXT NOT NULL,
@@ -194,6 +196,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS training_plan_settings (
 try { db.exec('ALTER TABLE training_plan_settings ADD COLUMN start_group_id INTEGER'); } catch(e) {}
 try { db.exec('ALTER TABLE training_plan_settings ADD COLUMN start_leader_idx INTEGER DEFAULT 0'); } catch(e) {}
 try { db.exec("ALTER TABLE monthly_training_plans ADD COLUMN completed_items TEXT DEFAULT '[]'"); } catch(e) {}
+try { db.exec("ALTER TABLE monthly_training_plans ADD COLUMN instructor_id_override TEXT"); } catch(e) {}
 
 // 数据修复：2026-04-13 第三小组已有评价但 completed_items 未设置
 try {
@@ -431,8 +434,41 @@ async function pushTrainingEvalStatus() {
   await sendGroupPush(lines.join('\n'));
 }
 
-// 每分钟检查一次时间，在 12:30 和 16:30 各推送一次
+// 检查本套班是否已有有效抽问内容
+function hasActiveShiftQuiz() {
+  const pinnedVal = getSetting('pinned_questions');
+  if (!pinnedVal) return false;
+  try {
+    const pinned = JSON.parse(pinnedVal);
+    const cycle = getCurrentCycle();
+    const inCurrentCycle = !cycle?.start_date || !pinned.created_date || pinned.created_date >= cycle.start_date;
+    const hasContent = (pinned.ids?.length > 0) ||
+      (pinned.mode === 'random' && (pinned.bank_id || pinned.bank_ids?.length > 0)) ||
+      pinned.mode === 'emergency';
+    return inCurrentCycle && pinned.scope === 'shift' && hasContent;
+  } catch { return false; }
+}
+
+// 白班 11:00 / 夜班 17:30 未设抽问时向群推提醒
+async function checkAndRemindNoQuiz(triggerTime) {
+  const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+  const todayShift = db.prepare('SELECT shift FROM shift_calendar WHERE date=?').get(todayStr)?.shift || '';
+  if (triggerTime === '11:00' && todayShift !== '白班') return;
+  if (triggerTime === '17:30' && todayShift !== '夜班') return;
+  if (hasActiveShiftQuiz()) return; // 已设置，无需提醒
+
+  const publicUrl = process.env.PUBLIC_URL || '';
+  const lines = [
+    `⚠️ 提醒：本套班尚未设置抽问题目`,
+    `${todayShift}已开始，请管理员及时登录培训系统设置本套班抽问内容。`,
+  ];
+  if (publicUrl) lines.push(`🔗 ${publicUrl}`);
+  await sendGroupPush(lines.join('\n'));
+}
+
+// 每分钟检查一次时间，在 12:30 和 16:30 各推送培训进度；11:00 和 17:30 检查抽问设置
 let lastEvalPushDate = { '12:30': '', '16:30': '' };
+let lastNoQuizReminderDate = { '11:00': '', '17:30': '' };
 setInterval(() => {
   const now = new Date();
   const cst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
@@ -443,6 +479,10 @@ setInterval(() => {
   if ((hhmm === '12:30' || hhmm === '16:30') && lastEvalPushDate[hhmm] !== todayStr) {
     lastEvalPushDate[hhmm] = todayStr;
     pushTrainingEvalStatus().catch(() => {});
+  }
+  if ((hhmm === '11:00' || hhmm === '17:30') && lastNoQuizReminderDate[hhmm] !== todayStr) {
+    lastNoQuizReminderDate[hhmm] = todayStr;
+    checkAndRemindNoQuiz(hhmm).catch(() => {});
   }
 }, 60 * 1000);
 
@@ -471,6 +511,60 @@ function calcPoints(avgScore, qCount) {
   const base = Math.round(avgScore);
   return { base, bonus: 0, total: base };
 }
+
+// 根据题目内容判定题型
+// 返回 'choice_single'|'choice_multi'|'true_false'|'fill_blank'|'short_answer'
+function detectQuestionType(q) {
+  let options = null;
+  if (q.options) {
+    try { options = typeof q.options === 'string' ? JSON.parse(q.options) : q.options; } catch {}
+  }
+  const ref = String(q.reference || '').trim();
+  const text = String(q.text || '');
+
+  if (options && Object.keys(options).length >= 2) {
+    const optVals = Object.values(options).map(v => String(v).trim());
+    const optCount = Object.keys(options).length;
+    // 判断题：2 个选项 + 选项内容是 对/错 / 正确/错误 / 是/否 / T/F / Yes/No
+    const tfWords = ['对','错','正确','错误','是','否','true','false','t','f','yes','no'];
+    const allTF = optCount === 2 && optVals.every(v => tfWords.includes(v.toLowerCase()));
+    if (allTF) return 'true_false';
+    // 答案多个字母 → 多选；单个字母 → 单选
+    const letters = ref.toUpperCase().replace(/[^A-F]/g,'');
+    if (letters.length >= 2) return 'choice_multi';
+    return 'choice_single';
+  }
+  // 无选项：填空 vs 简答
+  // 填空特征：题目里有 ____ 或 （）/(  )/【】 占位 且 参考答案较短（≤30字）
+  const hasBlank = /_{2,}|（\s*）|\(\s*\)|【\s*】/.test(text);
+  if (hasBlank && ref.length > 0 && ref.length <= 30 && !ref.includes('；') && !ref.includes(';')) {
+    return 'fill_blank';
+  }
+  return 'short_answer';
+}
+const TYPE_LABEL = {
+  choice_single: '单选',
+  choice_multi:  '多选',
+  true_false:    '判断',
+  fill_blank:    '填空',
+  short_answer:  '简答',
+};
+
+// 回填 NULL 题型（启动时跑一次；新增/修改题目后随时调用）
+function backfillQuestionTypes() {
+  try {
+    const rows = db.prepare("SELECT id, text, reference, options FROM questions WHERE type IS NULL OR type=''").all();
+    if (rows.length === 0) return 0;
+    const upd = db.prepare('UPDATE questions SET type=? WHERE id=?');
+    let n = 0;
+    db.transaction(() => {
+      for (const r of rows) { upd.run(detectQuestionType(r), r.id); n++; }
+    })();
+    return n;
+  } catch(e) { console.error('[type-backfill] 失败:', e.message); return 0; }
+}
+const _bf = backfillQuestionTypes();
+if (_bf > 0) console.log(`[type-backfill] 启动回填 ${_bf} 道题`);
 function adminAuth(req, res, next) {
   const pwd = req.headers['x-admin-password'] || req.query.password;
   if (pwd !== ADMIN_PASSWORD) return res.status(401).json({ error: '密码错误' });
@@ -570,7 +664,10 @@ app.get('/api/questions', (req, res) => {
       try {
         const pinned = JSON.parse(pinnedVal);
         const todayStr = new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'});
-        const active = (pinned.scope === 'today' && pinned.created_date === todayStr) || pinned.scope === 'shift';
+        const cycle = getCurrentCycle();
+        // 跨套班失效：发布日早于本套班开始日 → 视为未发布
+        const inCurrentCycle = !cycle?.start_date || !pinned.created_date || pinned.created_date >= cycle.start_date;
+        const active = inCurrentCycle && ((pinned.scope === 'today' && pinned.created_date === todayStr) || pinned.scope === 'shift');
         if (active) {
           const count = pinned.count || 3;
           const mode = pinned.mode || (pinned.ids?.length > 0 ? 'manual' : 'emergency');
@@ -650,7 +747,30 @@ app.put('/api/questions/:id', adminAuth, (req, res) => {
 
 // ─── Banks API ─────────────────────────────────────────────────────────────
 app.get('/api/banks', (req, res) => {
+  backfillQuestionTypes(); // 兜底：保证有最新的题型分布
   const banks = db.prepare('SELECT b.*, COUNT(q.id) as q_count FROM question_banks b LEFT JOIN questions q ON q.bank_id=b.id AND q.active=1 GROUP BY b.id ORDER BY sort_order').all();
+  // 题型分布
+  const distRows = db.prepare(`
+    SELECT bank_id, type, COUNT(*) as c FROM questions
+    WHERE active=1 AND type IS NOT NULL
+    GROUP BY bank_id, type
+  `).all();
+  const byBank = {};
+  for (const r of distRows) {
+    (byBank[r.bank_id] = byBank[r.bank_id] || {})[r.type] = r.c;
+  }
+  for (const b of banks) {
+    const d = byBank[b.id] || {};
+    b.type_dist = d;
+    // 判断"混合"：> 1 种类型 (choice_single+choice_multi 视为同一类"选择")
+    const families = new Set();
+    for (const t of Object.keys(d)) {
+      if (t === 'choice_single' || t === 'choice_multi' || t === 'true_false') families.add('choice');
+      else if (t === 'fill_blank') families.add('fill');
+      else if (t === 'short_answer') families.add('short');
+    }
+    b.bank_type_summary = families.size > 1 ? 'mixed' : (families.size === 1 ? [...families][0] : 'empty');
+  }
   res.json(banks);
 });
 
@@ -679,15 +799,22 @@ app.put('/api/staff/:id/avatar', (req, res) => {
 
 // ─── Practice API ──────────────────────────────────────────────────────────
 app.get('/api/practice/questions', (req, res) => {
-  const { mode, count } = req.query;
-  const activeBankId = db.prepare('SELECT id FROM question_banks WHERE is_active=1 LIMIT 1').get()?.id || 1;
+  const { mode, count, bank_id } = req.query;
+  // bank_id 显式传入则用之（应急或题库选择）；否则回退当前激活题库
+  const targetBankId = bank_id
+    ? parseInt(bank_id)
+    : (db.prepare('SELECT id FROM question_banks WHERE is_active=1 LIMIT 1').get()?.id || 1);
   if (mode === 'sequential') {
-    const rows = db.prepare('SELECT * FROM questions WHERE bank_id=? AND active=1 ORDER BY id ASC').all(activeBankId);
-    return res.json({ questions: rows });
+    const rows = db.prepare('SELECT * FROM questions WHERE bank_id=? AND active=1 ORDER BY id ASC').all(targetBankId);
+    return res.json({ questions: rows, bankId: targetBankId });
+  }
+  if (mode === 'random_all') {
+    const rows = db.prepare('SELECT * FROM questions WHERE bank_id=? AND active=1 ORDER BY RANDOM()').all(targetBankId);
+    return res.json({ questions: rows, bankId: targetBankId });
   }
   const n = Math.min(parseInt(count) || 3, 20);
-  const rows = db.prepare('SELECT * FROM questions WHERE bank_id=? AND active=1 ORDER BY RANDOM() LIMIT ?').all(activeBankId, n);
-  res.json({ questions: rows });
+  const rows = db.prepare('SELECT * FROM questions WHERE bank_id=? AND active=1 ORDER BY RANDOM() LIMIT ?').all(targetBankId, n);
+  res.json({ questions: rows, bankId: targetBankId });
 });
 
 app.get('/api/practice/monthly-status/:staffId', (req, res) => {
@@ -1179,7 +1306,11 @@ app.get('/api/admin/overview', adminAuth, (req, res) => {
                     THEN ss.total_points ELSE NULL END) as points,
            MAX(CASE WHEN ss.completed=1 AND COALESCE(ss.q_count,0)>=3
                     AND COALESCE(ss.is_practice,0)=0 AND COALESCE(ss.is_deleted,0)=0
-                    THEN ss.created_at ELSE NULL END) as completed_at
+                    THEN ss.created_at ELSE NULL END) as completed_at,
+           MAX(CASE WHEN COALESCE(ss.completed,0)=0 AND COALESCE(ss.is_practice,0)=0
+                    AND COALESCE(ss.is_deleted,0)=0 AND ss.id IS NOT NULL
+                    THEN COALESCE((SELECT MAX(a.created_at) FROM answers a WHERE a.session_id=ss.id), ss.created_at)
+                    ELSE NULL END) as last_active_at
     FROM staff s
     LEFT JOIN sessions ss ON ss.staff_id=s.id AND ss.cycle_id=?
     WHERE s.is_exempt=0 AND COALESCE(s.is_cp,0)=0
@@ -1196,15 +1327,23 @@ app.get('/api/admin/overview', adminAuth, (req, res) => {
     return h > 9 || (h === 9 && m >= 30);
   })();
 
+  // 最近 10 分钟内有答题动作的视为"正在答题"，避免误判中断
+  const ANSWERING_GAP_MS = 10 * 60 * 1000;
+  const isRecentlyActive = (ts) => {
+    if (!ts) return false;
+    const t = new Date(ts.replace(' ', 'T')).getTime();
+    return !isNaN(t) && (Date.now() - t) < ANSWERING_GAP_MS;
+  };
   const allStaff = staffRows.map(r => {
     let status;
     if (r.completed_today) status = 'done';
+    else if (r.has_session && isRecentlyActive(r.last_active_at)) status = 'answering';
     else if (r.has_session && r.max_q > 0) status = 'interrupted';
     else if (r.has_session) status = 'browsed';
     else status = 'none';
     // 早班截止后未完成 → 标记逾期
     const overdue = isAfterMorningDeadline && status === 'none';
-    return { staff_id: r.staff_id, name: r.name, is_tester: r.is_tester, status, overdue, score: r.score, points: r.points, completed_at: r.completed_at };
+    return { staff_id: r.staff_id, name: r.name, is_tester: r.is_tester, status, overdue, score: r.score, points: r.points, completed_at: r.completed_at, last_active_at: r.last_active_at };
   });
   res.json({ todayComplete, totalStaff, catAvg, topWeak, cycle, cycleStats, incompleteList, allStaff });
 });
@@ -1308,8 +1447,8 @@ app.get('/api/admin/month-member-completion', adminAuth, (req, res) => {
     "SELECT id, shift_date, plan_type, completed_items FROM monthly_training_plans WHERE year_month=? AND plan_type NOT IN ('轮空') ORDER BY shift_date"
   ).all(month);
 
-  // 计算每人已完成项点数
-  const personDone = {}; // staffId -> Set of completed item names
+  // 计算每人已完成项点（保留场次/评价）
+  const personDone = {}; // staffId -> Map<itemName, {item, shift_date, comment}>
   for (const plan of plans) {
     const completedItems = JSON.parse(plan.completed_items || '[]');
     if (completedItems.length === 0) continue; // 未设置项点，不计入进度
@@ -1336,12 +1475,17 @@ app.get('/api/admin/month-member-completion', adminAuth, (req, res) => {
       ];
     }
 
-    const evals = db.prepare('SELECT staff_id FROM training_evaluations WHERE plan_id=?').all(plan.id);
-    const evaluatedIds = new Set(evals.map(e=>String(e.staff_id)));
+    const evals = db.prepare('SELECT staff_id, comment FROM training_evaluations WHERE plan_id=?').all(plan.id);
+    const evalMap = new Map(evals.map(e=>[String(e.staff_id), e.comment||'']));
     for (const sid of allParticipants) {
-      if (evaluatedIds.has(sid)) {
-        if (!personDone[sid]) personDone[sid] = new Set();
-        for (const item of completedItems) personDone[sid].add(item);
+      if (evalMap.has(sid)) {
+        if (!personDone[sid]) personDone[sid] = new Map();
+        for (const item of completedItems) {
+          // 同一项点出现多次时保留最早的场次
+          if (!personDone[sid].has(item)) {
+            personDone[sid].set(item, { item, shift_date: plan.shift_date, comment: evalMap.get(sid) });
+          }
+        }
       }
     }
   }
@@ -1354,27 +1498,25 @@ app.get('/api/admin/month-member-completion', adminAuth, (req, res) => {
     'SELECT tgm.group_id, tgm.staff_id, s.real_name, s.name, s.is_exempt, COALESCE(s.is_cp,0) as is_cp FROM training_group_members tgm JOIN staff s ON s.id=tgm.staff_id WHERE tgm.is_fixed=0 ORDER BY tgm.group_id, s.id'
   ).all();
 
+  const buildMember = (sid, name) => {
+    const doneMap = personDone[String(sid)];
+    const doneItems = doneMap ? Array.from(doneMap.values()) : [];
+    return { id: String(sid), name, total: totalItems, done: doneItems.length, doneItems };
+  };
+
   const result = groups.map(g => ({
     id: g.id,
     name: g.name,
     instructor_name: g.instructor_name || null,
     members: groupMembers
       .filter(m => m.group_id === g.id && !m.is_cp)
-      .map(m => {
-        const doneSet = personDone[String(m.staff_id)];
-        const done = doneSet ? doneSet.size : 0;
-        return {id:String(m.staff_id), name:m.real_name||m.name, total:totalItems, done};
-      })
+      .map(m => buildMember(m.staff_id, m.real_name || m.name))
   }));
 
   // 固定成员
   const fixedStaff = db.prepare(
     'SELECT f.staff_id, s.real_name, s.name FROM training_fixed_members f JOIN staff s ON f.staff_id=s.id'
-  ).all().map(f => {
-    const doneSet = personDone[String(f.staff_id)];
-    const done = doneSet ? doneSet.size : 0;
-    return {id:String(f.staff_id), name:f.real_name||f.name, total:totalItems, done};
-  });
+  ).all().map(f => buildMember(f.staff_id, f.real_name || f.name));
 
   res.json({groups: result, fixed: fixedStaff, totalItems, monthItems});
 });
@@ -1751,32 +1893,66 @@ app.post('/api/admin/dingtalk/notify-start', adminAuth, async (req, res) => {
   const publicUrl = process.env.PUBLIC_URL || '';
   const scopeLabel = scope === 'shift' ? '本套班' : '今日';
 
+  // 答题截止时间描述（早班日 09:30 截止）
+  const cycle = getCurrentCycle();
+  let deadlineDesc = '';
+  if (scope === 'shift' && cycle?.endStr) {
+    const ed = cycle.endStr; // "2026-05-29"（即早班日）
+    deadlineDesc = `${parseInt(ed.slice(5,7))}月${parseInt(ed.slice(8,10))}日 09:30前`;
+  } else {
+    // 今天生效：若早班则 09:30，否则提示今日内
+    const todayShiftNow = getTodayShift();
+    deadlineDesc = todayShiftNow === '早班' ? '今日 09:30前' : '今日内完成';
+  }
+
+  // 大类辅助
+  const bigCatSrv = c => {
+    if (c === '故障处置' || c === '应急处置') return '应急';
+    if (c === '安全事件') return '安全事件';
+    return '隐患排查';
+  };
+  const catBreakdown = qs => {
+    const map = {};
+    qs.forEach(q => { const c = bigCatSrv(q.category || ''); map[c] = (map[c] || 0) + 1; });
+    return ['应急','安全事件','隐患排查'].filter(k => map[k]).map(k => `${map[k]}题${k}`).join('，');
+  };
+
   // 构建答题范围描述
   let rangeDesc = '';
+  let questionLines = []; // 手动选题时逐题列出
   if (mode === 'emergency') {
-    rangeDesc = `应急故障处置题库随机 ${count || 3} 题`;
+    rangeDesc = `应急故障处置，随机 ${count || 3} 题`;
   } else if (mode === 'random') {
     if (bank_ids?.length > 0) {
       const placeholders = bank_ids.map(() => '?').join(',');
       const bks = db.prepare(`SELECT name FROM question_banks WHERE id IN (${placeholders})`).all(...bank_ids);
       const names = bks.map(b => b.name);
-      rangeDesc = names.length > 1
-        ? `${names.join('、')} 多题库混合随机 ${count || 3} 题`
-        : `${names[0] || '指定题库'} 随机 ${count || 3} 题`;
+      rangeDesc = `${names.join('、')}，随机 ${count || 3} 题`;
     } else if (bank_id) {
       const bk = db.prepare('SELECT name FROM question_banks WHERE id=?').get(bank_id);
-      rangeDesc = `${bk?.name || '指定题库'} 随机 ${count || 3} 题`;
+      rangeDesc = `${bk?.name || '指定题库'}，随机 ${count || 3} 题`;
     } else if (Array.isArray(ids) && ids.length > 0) {
-      rangeDesc = `题池随机 ${count || 3} 题`;
+      const placeholders = ids.map(() => '?').join(',');
+      const poolQs = db.prepare(`SELECT category FROM questions WHERE id IN (${placeholders})`).all(...ids);
+      const breakdown = catBreakdown(poolQs);
+      rangeDesc = `题池：${breakdown}，随机抽 ${count || 3} 题`;
     }
   } else if (mode === 'manual' && Array.isArray(ids) && ids.length > 0) {
-    rangeDesc = `指定 ${ids.length} 道题目`;
+    const placeholders = ids.map(() => '?').join(',');
+    const qs = db.prepare(`SELECT id, text FROM questions WHERE id IN (${placeholders})`).all(...ids);
+    const ordered = ids.map(id => qs.find(q => q.id === id)).filter(Boolean);
+    rangeDesc = `指定 ${ordered.length} 道题目`;
+    questionLines = ordered.map((q, i) => `  ${i + 1}. ${q.text}`);
   }
 
   const lines = [];
   lines.push(`📢 管理员已发布${scopeLabel}答题，请大家按时完成！`);
   lines.push('');
-  lines.push(`📝 本期答题范围：${rangeDesc}`);
+  lines.push(`📝 答题范围：${rangeDesc}`);
+  if (questionLines.length > 0) {
+    questionLines.forEach(l => lines.push(l));
+  }
+  lines.push(`⏰ 截止时间：${deadlineDesc}`);
   if (publicUrl) {
     lines.push('');
     lines.push(`🔗 答题入口：${publicUrl}`);
@@ -1811,18 +1987,31 @@ function getTrainingPlanForDate(dateStr) {
   if (plan.group_id) {
     const group = db.prepare('SELECT * FROM training_groups WHERE id=?').get(plan.group_id);
     if (group) {
-      // 教员：直接从 staff 表取，不依赖 members join
-      if (group.instructor_id) {
-        const ins = db.prepare('SELECT real_name, name FROM staff WHERE id=?').get(group.instructor_id);
+      // 应用 plan.instructor_id_override：有效教员 = override 优先，否则小组默认
+      const groupDefaultInstructorId = group.instructor_id;
+      const effectiveInstructorId = plan.instructor_id_override || groupDefaultInstructorId;
+      if (effectiveInstructorId) {
+        const ins = db.prepare('SELECT real_name, name FROM staff WHERE id=?').get(effectiveInstructorId);
+        group.instructor_id = effectiveInstructorId; // 让下游一并用 override
         group.instructor_name = ins?.real_name || ins?.name || null;
       }
 
-      // 基础组员（排除教员自身）
-      const baseMembers = db.prepare(`
-        SELECT s.id, s.real_name, s.name
-        FROM training_group_members tgm JOIN staff s ON tgm.staff_id = s.id
-        WHERE tgm.group_id = ? AND tgm.staff_id != ?
-      `).all(group.id, group.instructor_id || 0);
+      // 基础组员（同时排除"原默认教员"和"override 后的有效教员"，
+      // 避免互换后的另一位教员或被换走的教员仍出现在成员名单中）
+      const excludeIds = [groupDefaultInstructorId, effectiveInstructorId]
+        .filter(Boolean).map(String);
+      const placeholders = excludeIds.length ? excludeIds.map(()=>'?').join(',') : null;
+      const baseMembers = placeholders
+        ? db.prepare(`
+            SELECT s.id, s.real_name, s.name
+            FROM training_group_members tgm JOIN staff s ON tgm.staff_id = s.id
+            WHERE tgm.group_id = ? AND tgm.staff_id NOT IN (${placeholders})
+          `).all(group.id, ...excludeIds)
+        : db.prepare(`
+            SELECT s.id, s.real_name, s.name
+            FROM training_group_members tgm JOIN staff s ON tgm.staff_id = s.id
+            WHERE tgm.group_id = ?
+          `).all(group.id);
 
       // 应用换人覆盖
       const overrides = db.prepare(
@@ -1874,7 +2063,7 @@ function getTrainingPlanForDate(dateStr) {
     const allStaff = db.prepare(`
       SELECT id, real_name, name, is_leader, is_instructor
       FROM staff
-      WHERE COALESCE(is_cp,0)=0 AND COALESCE(is_tester,0)=0
+      WHERE COALESCE(is_cp,0)=0 AND (COALESCE(is_tester,0)=0 OR COALESCE(is_leader,0)=1)
       ORDER BY id
     `).all();
     const leaderOrder = ['韩颖', '艾凌风', '胡鑫'];
@@ -1954,9 +2143,10 @@ function formatTrainingLines(plan, dateLabel, mode) {
   const location = plan.location || '工人村';
   const isZhxh = plan.plan_type === '中旬会';
 
+  // 1. 日期
   lines.push(`📅 ${dateLabel}`);
+  // 2. 小组 + 培训类型 + 地点
   lines.push(`📍 ${isZhxh ? '' : (g?.name || '') + ' · '}${typeText} · ${location}`);
-  lines.push('');
 
   if (isZhxh) {
     const leaveNames  = new Set((plan.zhxhLeavers || []).map(l => l.staffName));
@@ -1976,19 +2166,22 @@ function formatTrainingLines(plan, dateLabel, mode) {
     const normalMembers = (g.members || []).filter(m => !fixedIds.has(m.id));
     const fixedNames = (plan.fixedStaff || []).map(f => f.real_name || f.name);
 
-    // 教员 + 班组长 同一行
+    // 3. 教员 + 班组长 一行
     const roleParts = [];
     if (g.instructor_name) roleParts.push(`教员 ${g.instructor_name}`);
     if (plan.leader_name)  roleParts.push(`班组长 ${plan.leader_name}`);
     if (roleParts.length)  lines.push(roleParts.join('　　'));
 
-    // 组员 + 固定成员
-    const memberParts = [];
-    if (normalMembers.length > 0) memberParts.push(`👥 ${normalMembers.map(m => m.real_name || m.name).join('、')}`);
-    if (fixedNames.length > 0)    memberParts.push(`📌 ${fixedNames.join('、')}`);
-    if (memberParts.length)        lines.push(memberParts.join('　　'));
+    // 4. 组员一行
+    if (normalMembers.length > 0) {
+      lines.push(`👥 ${normalMembers.map(m => m.real_name || m.name).join('、')}`);
+    }
+    // 5. 固定成员另起一行
+    if (fixedNames.length > 0) {
+      lines.push(`📌 固定成员：${fixedNames.join('、')}`);
+    }
 
-    // 人员调整备注
+    // 6. 备注（人员调整）另起一行
     if (plan.adjustNotes && plan.adjustNotes.length > 0) {
       const noteStr = plan.adjustNotes.map(n => {
         if (!n.date) return `${n.name}（调整中）`;
@@ -1999,13 +2192,28 @@ function formatTrainingLines(plan, dateLabel, mode) {
     }
   }
 
-  lines.push('');
   if (mode === 'preview') {
     const leaveContact = isZhxh ? '班组长' : '教员';
     lines.push(`⚠️ 如需请假，请在今晚 18:00 前联系${leaveContact}登记。`);
   } else if (mode === 'reminder') {
     const verb = isZhxh ? '参加中旬会' : `前往${location}参加实操培训`;
     lines.push(`🚀 请以上人员退勤后尽快${verb}！`);
+    // 底部追加本月培训项点（中旬会跳过）
+    if (!isZhxh) {
+      const parts = (plan.shift_date || '').split('-');
+      if (parts.length === 3) {
+        const itemsRow = db.prepare('SELECT sessions_json FROM training_year_plan WHERE year=? AND month=?')
+          .get(parseInt(parts[0]), parseInt(parts[1]));
+        const items = JSON.parse(itemsRow?.sessions_json || '[]');
+        if (items.length > 0) {
+          lines.push(`📚 本月培训项点（共${items.length}项）：`);
+          items.forEach(it => {
+            const t = it.trainType || '实操';
+            lines.push(`  · ${it.item}（${t}）`);
+          });
+        }
+      }
+    }
   }
   return lines;
 }
@@ -2063,7 +2271,8 @@ async function sendDingTalkCard({ title, bodyLines, plan, logTag }) {
     { title: '📋 月度任务', actionURL: workshopUrl },
   ];
 
-  const text = bodyLines.join('\n');
+  // 钉钉 actionCard 走 markdown 渲染，单 \n 不换行，必须用双换行分段
+  const text = bodyLines.join('\n\n');
   const timestamp = Date.now();
   const sign = crypto.createHmac('sha256', secret).update(`${timestamp}\n${secret}`).digest('base64');
   const url = `${webhook}&timestamp=${timestamp}&sign=${encodeURIComponent(sign)}`;
@@ -2258,10 +2467,17 @@ app.post('/api/admin/questions/batch-save', adminAuth, (req, res) => {
 
 // ─── 手动选题（管理员指定本次答题题目）───────────────────────────────────
 app.get('/api/admin/pinned-questions', adminAuth, (req, res) => {
+  const cycle = getCurrentCycle();
+  const cycleInfo = cycle ? { id: cycle.id, label: cycle.label, start_date: cycle.start_date } : null;
   const val = getSetting('pinned_questions');
-  if (!val) return res.json({ ids: [], scope: 'none', bank_fallback_id: null, questions: [] });
+  if (!val) return res.json({ ids: [], scope: 'none', bank_fallback_id: null, questions: [], cycle: cycleInfo });
   try {
     const pinned = JSON.parse(val);
+    // 跨套班失效：created_date 早于本套班开始日 → 视为未发布
+    if (cycle?.start_date && pinned.created_date && pinned.created_date < cycle.start_date) {
+      return res.json({ ids: [], scope: 'none', bank_fallback_id: null, questions: [], cycle: cycleInfo, stale: { created_date: pinned.created_date, mode: pinned.mode, count: pinned.count } });
+    }
+    pinned.cycle = cycleInfo;
     if (pinned.ids?.length > 0) {
       const placeholders = pinned.ids.map(() => '?').join(',');
       const qs = db.prepare(`SELECT id, text, category FROM questions WHERE id IN (${placeholders})`).all(...pinned.ids);
@@ -2291,7 +2507,8 @@ app.put('/api/admin/pinned-questions', adminAuth, (req, res) => {
     count: count || 3,
     bank_id: bank_id || null,
     bank_ids: bank_ids || [],
-    created_date: new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'})
+    created_date: new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'}),
+    created_at: new Date().toLocaleString('sv-SE',{timeZone:'Asia/Shanghai'}).replace('T',' ')
   });
   db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run('pinned_questions', val);
   logAdmin('设置手动选题', `${ids?.length||0}题 scope=${scope} bank_ids=${JSON.stringify(bank_ids||[])}`);
@@ -2301,6 +2518,8 @@ app.put('/api/admin/pinned-questions', adminAuth, (req, res) => {
 // ─── 题库 Excel/CSV 导入 ────────────────────────────────────────────────────
 app.post('/api/admin/banks/import', adminAuth, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: '请上传文件' });
+  // 调试用：保留最近一次上传文件到 /tmp 方便排查
+  try { require('fs').writeFileSync('/tmp/last-import.xlsx', req.file.buffer); } catch(_) {}
   const { bank_id, bank_name } = req.body;
   const ext = (req.file.originalname || '').toLowerCase();
   let rows = [];
@@ -2319,37 +2538,147 @@ app.post('/api/admin/banks/import', adminAuth, upload.single('file'), async (req
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(req.file.buffer);
       const ws = wb.worksheets[0];
-      const headers = [];
-      ws.getRow(1).eachCell(c => headers.push(String(c.value || '').trim()));
+      // ExcelJS 富文本单元格返回 {richText:[{text:'...'},...]}，公式单元格返回 {formula,result}
+      const cellStr = (v) => {
+        if (v === null || v === undefined) return '';
+        if (typeof v === 'object' && Array.isArray(v.richText))
+          return v.richText.map(rt => rt.text || '').join('');
+        if (typeof v === 'object' && v.result !== undefined) return String(v.result);
+        return String(v);
+      };
+      // 规范化表头：去空格、全角转半角
+      const normalize = s => cellStr(s).replace(/\s+/g,'').replace(/[Ａ-Ｚａ-ｚ]/g, c => String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+      // 找表头行：从第1行开始，往下找第一行能识别题目/答案的（最多扫描 5 行）
+      let headerRowIdx = 1, headers = [];
+      for (let r = 1; r <= Math.min(5, ws.rowCount); r++) {
+        const hs = [];
+        ws.getRow(r).eachCell({includeEmpty:true}, c => hs.push(normalize(c.value)));
+        const has题 = hs.some(h => /题目|问题|试题|题干|^text$|^question$/i.test(h));
+        const has答 = hs.some(h => /参考答案|标准答案|正确答案|答案|^reference$|^answer$/i.test(h));
+        if (has题 && has答) { headerRowIdx = r; headers = hs; break; }
+      }
+      if (headers.length === 0) {
+        // 没识别到表头，按第1行兜底
+        ws.getRow(1).eachCell({includeEmpty:true}, c => headers.push(normalize(c.value)));
+      }
       ws.eachRow((row, i) => {
-        if (i === 1) return;
+        if (i <= headerRowIdx) return;
         const obj = {};
-        headers.forEach((h, j) => obj[h] = String(row.getCell(j + 1).value || '').trim());
+        headers.forEach((h, j) => {
+          // 不能用 `v || ''`，否则数字 0 会被吞掉（答案为 0 起始时会丢题）
+          obj[h] = cellStr(row.getCell(j + 1).value).trim();
+        });
         if (Object.values(obj).some(v => v)) rows.push(obj);
       });
     }
   } catch(e) { return res.status(400).json({ error: '文件解析失败: ' + e.message }); }
 
   const getF = (obj, ...keys) => { for(const k of keys) if(obj[k]) return obj[k]; return ''; };
+
+  // 检测 MCQ：识别 A/B/C/D 字母列，或"选项/选择 + 数字/字母/中文"列
+  const headerKeys = rows.length > 0 ? Object.keys(rows[0]) : [];
+  const CN_NUM = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10 };
+  // 把表头标准化为 序号(整数)，返回 null 表示不是选项列
+  const headerToOrder = (h) => {
+    const t = h.trim();
+    // A-F 单字母
+    let m = t.match(/^([A-Fa-f])$/);
+    if (m) return m[1].toUpperCase().charCodeAt(0) - 64; // A=1
+    // 选项A / A选项 / 选择A / A选择
+    m = t.match(/^(?:选项|选择)?([A-Fa-f])(?:选项|选择)?$/);
+    if (m) return m[1].toUpperCase().charCodeAt(0) - 64;
+    // 选项1 / 选择1 / 1选项 / 1选择
+    m = t.match(/^(?:选项|选择)?(\d+)(?:选项|选择)?$/);
+    if (m) return parseInt(m[1]);
+    // 选项一 / 选择一 / 一选项 / 一选择
+    m = t.match(/^(?:选项|选择)?([一二三四五六七八九十])(?:选项|选择)?$/);
+    if (m) return CN_NUM[m[1]];
+    return null;
+  };
+  // 找所有选项列并按序号排序，前 6 个对应 A/B/C/D/E/F
+  const optionCols = headerKeys
+    .map(h => ({ header: h, order: headerToOrder(h) }))
+    .filter(x => x.order !== null)
+    .sort((a, b) => a.order - b.order);
+  // 检查必要字段：题目+答案在白名单里识别；选项列至少 3 个才算 MCQ
+  const headerHas题 = headerKeys.some(h => /题目|问题|试题|题干|^text$|^question$/i.test(h));
+  const headerHas答 = headerKeys.some(h => /参考答案|标准答案|正确答案|答案|^reference$|^answer$/i.test(h));
+  const isMCQ = headerHas题 && headerHas答 && optionCols.length >= 3;
+  // 序号最小的选项列对应 A，依次类推
+  const optA = optionCols[0]?.header, optB = optionCols[1]?.header, optC = optionCols[2]?.header, optD = optionCols[3]?.header;
+  const optE = optionCols[4]?.header, optF = optionCols[5]?.header;
+  // 用于答案归一化：用"列名编号的最小值"决定 0 起始还是 1 起始
+  // 选择0/1/2/3 → 答案 0 起始；选项1/2/3/4 → 答案 1 起始
+  // 纯字母列（A/B/C/D）默认 1 起始
+  let answerBase = 1;
+  if (isMCQ && optionCols[0]?.order === 0) answerBase = 0;
+
   let targetBankId = parseInt(bank_id) || 1;
   if (bank_name?.trim()) {
-    const r = db.prepare('INSERT INTO question_banks (name, q_type, default_count) VALUES (?,?,?)').run(bank_name.trim(), '简答', 3);
+    const r = db.prepare('INSERT INTO question_banks (name, q_type, default_count) VALUES (?,?,?)').run(bank_name.trim(), isMCQ ? '选择/判断' : '简答', isMCQ ? 10 : 3);
     targetBankId = r.lastInsertRowid;
-    logAdmin('新建题库', bank_name.trim());
+    logAdmin('新建题库', `${bank_name.trim()}${isMCQ?' [选择题]':''}`);
+  } else if (isMCQ) {
+    // 导入到已有题库时，如果识别为选择题，把题库类型同步过去
+    db.prepare("UPDATE question_banks SET q_type='选择/判断' WHERE id=?").run(targetBankId);
   }
-  const ins = db.prepare('INSERT INTO questions (bank_id, text, reference, keywords, category, difficulty) VALUES (?,?,?,?,?,?)');
+
+  const ins = db.prepare('INSERT INTO questions (bank_id, text, reference, keywords, category, difficulty, options, type) VALUES (?,?,?,?,?,?,?,?)');
   let count = 0;
+  const dropped = { noText: 0, noAnswer: 0, fewOptions: 0, answerOutOfRange: 0 };
   db.transaction(() => {
     rows.forEach(obj => {
-      const text = getF(obj, '题目', '问题', 'text', 'question');
-      const ref = getF(obj, '参考答案', '标准答案', '答案', 'reference', 'answer');
-      if (!text || !ref) return;
-      ins.run(targetBankId, text, ref, getF(obj, '关键词', 'keywords'), getF(obj, '分类', '类别', 'category') || '业务知识', getF(obj, '难度', 'difficulty') || '中等');
+      const text = getF(obj, '题目', '问题', '试题', '题干', 'text', 'question');
+      const refRaw = getF(obj, '参考答案', '标准答案', '正确答案', '答案', 'reference', 'answer');
+      if (!text) { dropped.noText++; return; }
+      if (!refRaw) { dropped.noAnswer++; return; }
+
+      let optionsJson = null;
+      if (isMCQ) {
+        const options = {};
+        if (optA && obj[optA]) options.A = obj[optA];
+        if (optB && obj[optB]) options.B = obj[optB];
+        if (optC && obj[optC]) options.C = obj[optC];
+        if (optD && obj[optD]) options.D = obj[optD];
+        if (optE && obj[optE]) options.E = obj[optE];
+        if (optF && obj[optF]) options.F = obj[optF];
+        if (Object.keys(options).length < 2) { dropped.fewOptions++; return; }
+        optionsJson = JSON.stringify(options);
+      }
+      // 选择题 reference 规范化为字母 A-F：支持 A/a / 数字（按 answerBase 0或1 起始）/ 一二三四五六
+      let ref = refRaw;
+      if (isMCQ) {
+        const s = String(refRaw).trim();
+        const letters = [];
+        for (const ch of s) {
+          if (/[A-Fa-f]/.test(ch)) letters.push(ch.toUpperCase());
+          else if (/\d/.test(ch)) {
+            const n = parseInt(ch);
+            const letterIdx = answerBase === 0 ? n + 1 : n; // 1→A, 2→B,... 或 0→A, 1→B...
+            if (letterIdx >= 1 && letterIdx <= 6) letters.push(String.fromCharCode(64 + letterIdx));
+          }
+          else if (CN_NUM[ch]) {
+            const n = CN_NUM[ch];
+            if (n >= 1 && n <= 6) letters.push(String.fromCharCode(64 + n));
+          }
+        }
+        ref = [...new Set(letters)].sort().join('');
+        if (!ref) { dropped.answerOutOfRange++; return; }
+      }
+
+      const qType = detectQuestionType({ text, reference: ref, options: optionsJson });
+      ins.run(targetBankId, text, ref, getF(obj, '关键词', 'keywords'), getF(obj, '分类', '类别', 'category') || '业务知识', getF(obj, '难度', 'difficulty') || '中等', optionsJson, qType);
       count++;
     });
   })();
-  logAdmin('导入题库', `题库ID=${targetBankId} 导入${count}题`);
-  res.json({ ok: true, count, bankId: targetBankId });
+  const droppedTotal = dropped.noText + dropped.noAnswer + dropped.fewOptions + dropped.answerOutOfRange;
+  const dropStr = droppedTotal > 0 ? ` 跳过${droppedTotal}题(无题干${dropped.noText}/无答案${dropped.noAnswer}/选项不足${dropped.fewOptions}/答案越界${dropped.answerOutOfRange})` : '';
+  const debugStr = (!isMCQ || count === 0) ? ` headers=[${headerKeys.join('|')}]` : '';
+  logAdmin('导入题库', `题库ID=${targetBankId} 导入${count}题${isMCQ?' [选择题]':''}${dropStr}${debugStr} answerBase=${answerBase}`);
+  res.json({
+    ok: true, count, bankId: targetBankId, isMCQ,
+    debug: { headers: headerKeys, totalRows: rows.length, sampleRow: rows[0] || null, detected: { A: !!optA, B: !!optB, C: !!optC, D: !!optD } },
+  });
 });
 
 // ─── 智能出题：Word/PDF/图片 → AI识别 → 生成题目 ────────────────────────────
@@ -2433,15 +2762,51 @@ function buildGeneralPrompt(text, count) {
 ${text.slice(0, 8000)}`;
 }
 
+function buildCustomQuestionsPrompt(text, questions, isIncident) {
+  const numbered = questions.map((q, i) => `${i + 1}. ${q}`).join('\n');
+  return `你是武汉地铁乘务培训助手。以下是一份原文，以及教员手工指定的题目。请严格依据原文，为每道题目提取参考答案。
+
+【严格要求】
+- 参考答案只能来自原文，不得凭推断或常识补充任何内容
+- 原文中找不到答案的题目，reference 留空字符串 ""
+- 每道题答案各要点用分号分隔，按原文出现顺序
+- 关键词从原文摘取 2~4 个核心词
+- category 字段：${isIncident ? '"安全事件"' : '根据题目内容选择 "安全事件" / "应急处置" / "业务知识" / "设备操作" / "规章制度" 之一'}
+${isIncident ? `- text 字段必须把事件上下文补进题目，避免答题人看到光秃秃的题目不知道在问哪个事件。
+  从原文提炼事件简短名称（格式：日期+线路/地点+车号+事件类型，例如"2026年4月30日C05三金潭冒进信号事件"），改写题目时把这个名称嵌入题目主语位置。
+  例如：教员题目"请简要描述事件发生的经过" → text 改写为"请简要描述[事件名称]发生的经过"。
+  教员题目"乘务员存在哪些问题" → text 改写为"在[事件名称]中，乘务员存在哪些问题"。
+- 涉及"事件经过"类问题，答案需包含：日期(年月日)+线路/地点+车号+一句话事件概要，不写人名，不写HH:MM:SS精确时间` : '- text 字段保持教员题目原文，不要改写'}
+
+教员指定的题目（共 ${questions.length} 道，必须按顺序全部返回）：
+${numbered}
+
+原文：
+${text.slice(0, 8000)}
+
+只返回 JSON 数组（${questions.length} 个元素，顺序与上面题目一一对应），格式：
+[{"text":"${isIncident ? '改写后的题目（含事件名称）' : '题目原文'}","reference":"要点1;要点2","keywords":"词1,词2","category":"分类"}]`;
+}
+
 app.post('/api/admin/banks/parse-doc', adminAuth, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: '请上传文件' });
   const KEY = process.env.DASHSCOPE_API_KEY;
   if (!KEY) return res.status(503).json({ error: '未配置DASHSCOPE_API_KEY' });
 
-  const { bank_id, bank_name, count = 5 } = req.body;
-  const ext = (req.file.originalname || '').toLowerCase();
-  const mime = req.file.mimetype || '';
-  const isImage = mime.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp)$/.test(ext);
+  const { bank_id, bank_name, count = 5, mode = 'auto', custom_questions, paste_text } = req.body;
+  let customList = [];
+  if (mode === 'custom') {
+    try {
+      const raw = typeof custom_questions === 'string' ? JSON.parse(custom_questions) : custom_questions;
+      customList = Array.isArray(raw) ? raw.map(s => String(s).trim()).filter(Boolean) : [];
+    } catch { return res.status(400).json({ error: '自定义题目格式错误' }); }
+    if (customList.length === 0) return res.status(400).json({ error: '自定义模式下至少需输入一道题目' });
+  }
+  // 支持直接粘贴文字（无需上传文件）
+  if (!req.file && !paste_text?.trim()) return res.status(400).json({ error: '请上传文件或粘贴内容' });
+  const ext = req.file ? (req.file.originalname || '').toLowerCase() : '';
+  const mime = req.file ? (req.file.mimetype || '') : '';
+  const isImage = req.file && (mime.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp)$/.test(ext));
 
   try {
     let extractedText = '';
@@ -2451,7 +2816,29 @@ app.post('/api/admin/banks/parse-doc', adminAuth, upload.single('file'), async (
       // 图片：直接用视觉模型识别内容并出题
       const base64 = req.file.buffer.toString('base64');
       const imgMime = mime.startsWith('image/') ? mime : 'image/jpeg';
-      const imgPrompt = `你是武汉地铁乘务安全培训专家。请识别图片中的文字内容，判断是否为安全事件/事故分析报告。
+      let imgPrompt;
+      if (mode === 'custom') {
+        const numbered = customList.map((q, i) => `${i + 1}. ${q}`).join('\n');
+        imgPrompt = `你是武汉地铁乘务培训助手。请识别图片中的文字内容，然后严格依据图片内容为每道题目提取参考答案。
+
+【严格要求】
+- 参考答案只能来自图片原文，不得凭推断或常识补充
+- 图片中找不到答案的题目，reference 留空字符串 ""
+- 答案各要点用分号分隔
+- 关键词从原文摘取 2~4 个核心词
+- docType 统一填 "custom"
+- 如果图片是安全事件/事故报告：text 字段必须把事件上下文补进题目（格式：日期+线路/地点+车号+事件类型）。
+  例如教员题目"请简要描述事件发生的经过" → 改写为"请简要描述[事件名称]发生的经过"。
+  教员题目"乘务员存在哪些问题" → 改写为"在[事件名称]中，乘务员存在哪些问题"。
+  如果图片不是事件报告，text 保持原文。
+
+教员题目（共 ${customList.length} 道，必须按顺序全部返回）：
+${numbered}
+
+只返回 JSON 数组（${customList.length} 个元素），格式：
+[{"text":"题目（事件类需含事件名称）","reference":"要点1;要点2","keywords":"词1,词2","category":"分类","docType":"custom"}]`;
+      } else {
+        imgPrompt = `你是武汉地铁乘务安全培训专家。请识别图片中的文字内容，判断是否为安全事件/事故分析报告。
 
 如果是安全事件报告，只生成1道题：
 - 题目格式："请简要概述[线路/地点+事件类型]，口述事件简要经过、乘务员存在问题、整改措施及反思。"
@@ -2461,6 +2848,7 @@ app.post('/api/admin/banks/parse-doc', adminAuth, upload.single('file'), async (
 如果是普通培训材料，生成 ${count} 道业务操作考核题目，docType填"general"。
 
 只返回JSON数组，格式：[{"text":"题目","reference":"参考答案（各要点用分号分隔）","keywords":"关键词1,关键词2","category":"分类名称","docType":"incident或general"}]`;
+      }
       rawJson = await callQwenVision(KEY, base64, imgMime, imgPrompt);
     } else if (ext.endsWith('.docx')) {
       const result = await mammoth.extractRawText({ buffer: req.file.buffer });
@@ -2485,6 +2873,9 @@ print(''.join(page.get_text() for page in doc))
         fs.unlink(tmpFile, () => {});
         throw e;
       }
+    } else if (!req.file && paste_text?.trim()) {
+      // 直接使用粘贴内容，跳过文件提取
+      extractedText = paste_text.trim();
     } else {
       return res.status(400).json({ error: '不支持的文件格式，请上传 Word(.docx)、PDF、或图片' });
     }
@@ -2492,9 +2883,11 @@ print(''.join(page.get_text() for page in doc))
     if (!isImage) {
       if (!extractedText?.trim()) return res.status(400).json({ error: '文件内容为空或无法提取文本' });
       const isIncident = isIncidentReport(extractedText);
-      const prompt = isIncident
-        ? buildIncidentPrompt(extractedText, parseInt(count))
-        : buildGeneralPrompt(extractedText, parseInt(count));
+      const prompt = mode === 'custom'
+        ? buildCustomQuestionsPrompt(extractedText, customList, isIncident)
+        : isIncident
+          ? buildIncidentPrompt(extractedText, parseInt(count))
+          : buildGeneralPrompt(extractedText, parseInt(count));
       rawJson = await callQwenText(KEY, prompt);
     }
 
@@ -2506,7 +2899,9 @@ print(''.join(page.get_text() for page in doc))
       return res.status(500).json({ error: 'AI未生成有效题目' });
 
     // 判断文档类型（用于前端提示）
-    const docType = questions[0]?.docType || (isIncidentReport(extractedText || '') ? 'incident' : 'general');
+    const docType = mode === 'custom'
+      ? 'custom'
+      : (questions[0]?.docType || (isIncidentReport(extractedText || '') ? 'incident' : 'general'));
     questions.forEach(q => delete q.docType);
 
     // 若指定了题库，直接保存
@@ -2983,9 +3378,9 @@ function generatePlan(yearMonth) {
 function buildPlanResponse(yearMonth) {
   const plans = db.prepare('SELECT * FROM monthly_training_plans WHERE year_month=? ORDER BY shift_date').all(yearMonth);
   const groups = db.prepare('SELECT * FROM training_groups ORDER BY sort_order, id').all();
-  const allStaff = db.prepare('SELECT id, real_name, name FROM staff').all();
+  const allStaff = db.prepare('SELECT id, real_name, name, is_instructor, is_leader FROM staff').all();
   const staffMap = {};
-  for (const s of allStaff) staffMap[s.id] = { id: s.id, real_name: s.real_name, name: s.name };
+  for (const s of allStaff) staffMap[s.id] = { id: s.id, real_name: s.real_name, name: s.name, is_instructor: !!s.is_instructor, is_leader: !!s.is_leader };
   const members = db.prepare('SELECT tgm.group_id, tgm.is_fixed, s.id, s.real_name, s.name FROM training_group_members tgm JOIN staff s ON tgm.staff_id=s.id').all();
   const fixedStaff = db.prepare('SELECT f.staff_id, s.real_name, s.name FROM training_fixed_members f JOIN staff s ON f.staff_id=s.id').all();
   const leaderStaff = db.prepare("SELECT id, real_name, name FROM staff WHERE is_leader=1 ORDER BY real_name, name").all();
@@ -3014,11 +3409,27 @@ function buildPlanResponse(yearMonth) {
   }
   const setting = db.prepare('SELECT safety_date, start_group_id, start_leader_idx FROM training_plan_settings WHERE year_month=?').get(yearMonth);
   return {
-    plans: plans.map(p => ({
-      ...p,
-      group: p.group_id ? (groupMap[p.group_id] || null) : null,
-      memberOverrides: overridesByPlan[p.id] || { added: [], removed: [] }
-    })),
+    plans: plans.map(p => {
+      const baseGroup = p.group_id ? (groupMap[p.group_id] || null) : null;
+      let group = baseGroup;
+      if (baseGroup && p.instructor_id_override) {
+        const ov = staffMap[p.instructor_id_override];
+        const baseInstId = baseGroup.instructor_id;
+        group = {
+          ...baseGroup,
+          instructor_id: p.instructor_id_override,
+          instructor_name: ov ? (ov.real_name || ov.name) : baseGroup.instructor_name,
+          // 原教员不再视为本计划的成员（已去别处上课）
+          members: (baseGroup.members || []).filter(m => String(m.id) !== String(baseInstId)),
+        };
+      }
+      return {
+        ...p,
+        instructor_overridden: !!p.instructor_id_override,
+        group,
+        memberOverrides: overridesByPlan[p.id] || { added: [], removed: [] }
+      };
+    }),
     groups: Object.values(groupMap), // 含 instructor_name 和 members
     fixedStaff,
     leaderStaff,
@@ -3087,13 +3498,14 @@ app.put('/api/admin/training-plan/swap', workshopEditAuth, (req, res) => {
 
 // 修改单行
 app.put('/api/admin/training-plan/:id', workshopEditAuth, (req, res) => {
-  const { group_id, plan_type, leader_name, notes, location, log_entry } = req.body;
+  const { group_id, plan_type, leader_name, notes, location, log_entry, instructor_id_override } = req.body;
   const upParts = [], upVals = [];
   if (group_id !== undefined) { upParts.push('group_id=?'); upVals.push(group_id); }
   if (plan_type !== undefined) { upParts.push('plan_type=?'); upVals.push(plan_type); }
   if (leader_name !== undefined) { upParts.push('leader_name=?'); upVals.push(leader_name || null); }
   if (notes !== undefined) { upParts.push('notes=?'); upVals.push(notes || null); }
   if (location !== undefined) { upParts.push('location=?'); upVals.push(location); }
+  if (instructor_id_override !== undefined) { upParts.push('instructor_id_override=?'); upVals.push(instructor_id_override || null); }
   if (log_entry) {
     const existing = db.prepare('SELECT change_log FROM monthly_training_plans WHERE id=?').get(req.params.id);
     const prev = existing?.change_log || '';
@@ -3195,6 +3607,89 @@ app.post('/api/admin/training-plan/member-postpone', workshopEditAuth, (req, res
     `调整后${fmtDate(dateTo)}培训人员为：${membersTo}`,
   ];
   sendGroupPush(lines3.join('\n'));
+});
+
+// ─── 固定成员取消/恢复本次回段 ──────────────────────────────────────────────────
+app.post('/api/admin/training-plan/member-remove', workshopEditAuth, (req, res) => {
+  const { plan_id, staff_id, action } = req.body; // action: 'remove'|'restore'
+  if (!plan_id || !staff_id) return res.status(400).json({ error: '参数不完整' });
+  if (action === 'restore') {
+    db.prepare('DELETE FROM training_plan_member_overrides WHERE plan_id=? AND staff_id=?').run(plan_id, staff_id);
+  } else {
+    db.prepare(`INSERT INTO training_plan_member_overrides (plan_id,staff_id,action,note,created_at)
+      VALUES (?,?,?,?,?) ON CONFLICT(plan_id,staff_id) DO UPDATE SET action=excluded.action,note=excluded.note,created_at=excluded.created_at`)
+      .run(plan_id, staff_id, 'remove', null, new Date().toISOString());
+  }
+  res.json({ ok: true });
+
+  // 推送到教员群
+  const shiftDate = db.prepare('SELECT shift_date FROM monthly_training_plans WHERE id=?').get(plan_id)?.shift_date || '';
+  const nm = db.prepare('SELECT real_name,name FROM staff WHERE id=?').get(staff_id);
+  const memberName = nm?.real_name || nm?.name || String(staff_id);
+  const opId = req.instructorId;
+  const opStaff = opId ? db.prepare('SELECT real_name,name FROM staff WHERE id=?').get(opId) : null;
+  const opName = opStaff?.real_name || opStaff?.name || '管理员';
+  const nowTime = new Date().toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
+  const isRemove = action !== 'restore';
+  const members = getPlanMemberNames(plan_id).join('、');
+  const lines = [
+    `${nowTime}  ${opName}`,
+    isRemove
+      ? `${memberName} 取消 ${fmtDate(shiftDate)} 回段`
+      : `${memberName} 恢复 ${fmtDate(shiftDate)} 回段`,
+    members ? `\n当日培训人员：${members}` : '',
+  ].filter(Boolean);
+  sendGroupPush(lines.join('\n'));
+});
+
+// ─── 教员互换：两个计划的有效教员对调 ──────────────────────────────────────────
+app.post('/api/admin/training-plan/instructor-swap', workshopEditAuth, (req, res) => {
+  const { plan_id_a, plan_id_b } = req.body;
+  if (!plan_id_a || !plan_id_b || plan_id_a === plan_id_b) return res.status(400).json({ error: '参数不完整' });
+  const pa = db.prepare('SELECT p.*, g.instructor_id AS group_instructor_id FROM monthly_training_plans p LEFT JOIN training_groups g ON g.id=p.group_id WHERE p.id=?').get(plan_id_a);
+  const pb = db.prepare('SELECT p.*, g.instructor_id AS group_instructor_id FROM monthly_training_plans p LEFT JOIN training_groups g ON g.id=p.group_id WHERE p.id=?').get(plan_id_b);
+  if (!pa || !pb) return res.status(404).json({ error: '记录不存在' });
+  // 当前各自有效教员（override 优先，其次小组默认教员）
+  const effA = pa.instructor_id_override || pa.group_instructor_id || null;
+  const effB = pb.instructor_id_override || pb.group_instructor_id || null;
+  if (!effA || !effB) return res.status(400).json({ error: '存在未指定教员的计划' });
+  if (String(effA) === String(effB)) return res.status(400).json({ error: '两个计划教员相同，无需互换' });
+
+  // 各自的"目标"应该是对方现有的有效教员
+  // 若目标恰好等于该计划小组的默认教员，则清掉 override（恢复默认）；否则写入 override
+  const newAOverride = String(effB) === String(pa.group_instructor_id) ? null : String(effB);
+  const newBOverride = String(effA) === String(pb.group_instructor_id) ? null : String(effA);
+
+  const today = new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'});
+  const sa = db.prepare('SELECT real_name,name FROM staff WHERE id=?').get(effA);
+  const sb = db.prepare('SELECT real_name,name FROM staff WHERE id=?').get(effB);
+  const na = sa?.real_name||sa?.name||'';
+  const nb = sb?.real_name||sb?.name||'';
+  const logA = pa.change_log || '';
+  const logB = pb.change_log || '';
+  const entryA = `${today} 教员 ${na}↔${nb}（与${pb.shift_date.slice(5)}互换）`;
+  const entryB = `${today} 教员 ${nb}↔${na}（与${pa.shift_date.slice(5)}互换）`;
+
+  db.transaction(() => {
+    db.prepare('UPDATE monthly_training_plans SET instructor_id_override=?, change_log=? WHERE id=?')
+      .run(newAOverride, (logA?logA+'\n':'')+entryA, plan_id_a);
+    db.prepare('UPDATE monthly_training_plans SET instructor_id_override=?, change_log=? WHERE id=?')
+      .run(newBOverride, (logB?logB+'\n':'')+entryB, plan_id_b);
+  })();
+  res.json({ ok: true });
+
+  // 实时推送到教员群
+  const opId = req.instructorId;
+  const opStaff = opId ? db.prepare('SELECT real_name,name FROM staff WHERE id=?').get(opId) : null;
+  const opName = opStaff?.real_name || opStaff?.name || '管理员';
+  const nowT = new Date().toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit'});
+  const lines = [
+    `${nowT}  操作人 ${opName}`,
+    `教员调整：${na} 与 ${nb} 互换培训`,
+    `${fmtDate(pa.shift_date)} 由 ${nb} 上课`,
+    `${fmtDate(pb.shift_date)} 由 ${na} 上课`,
+  ];
+  sendGroupPush(lines.join('\n'));
 });
 
 // ─── 培训计划导入文件 API ──────────────────────────────────────────────────────
@@ -3616,166 +4111,126 @@ app.put('/api/admin/staff/:id/leader', adminAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-// ─── 阿里云 NLS Token（缓存，每次有效期约24h）────────────────────────────────
-const ALI_APPKEY = process.env.ALI_APPKEY;
-let _aliTokenCache = { token: null, expireTime: 0 };
-
-async function getCachedAliToken() {
-  const now = Math.floor(Date.now() / 1000);
-  if (_aliTokenCache.token && _aliTokenCache.expireTime > now + 60) {
-    return _aliTokenCache.token;
-  }
-  const akId = process.env.ALI_AK_ID;
-  const akSec = process.env.ALI_AK_SEC;
-  if (!akId || !akSec) throw new Error('未配置阿里云AccessKey');
-  const date = new Date().toUTCString();
-  const contentMD5 = crypto.createHash('md5').update('').digest('base64');
-  const accept = 'application/json';
-  const resource = '/pop/2018-05-18/tokens';
-  // NLS meta 签名格式: Method\nAccept\nContent-MD5\nContent-Type\nDate\nResource
-  const stringToSign = `POST\n${accept}\n${contentMD5}\napplication/x-www-form-urlencoded\n${date}\n${resource}`;
-  const signature = crypto.createHmac('sha1', akSec).update(stringToSign).digest('base64');
-  const resp = await fetch('https://nls-meta.cn-shanghai.aliyuncs.com' + resource, {
-    method: 'POST',
-    headers: {
-      'Accept': accept,
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Content-MD5': contentMD5,
-      'Date': date,
-      'Authorization': `Dataplus ${akId}:${signature}`,
-    },
-    body: '',
-  });
-  const data = await resp.json();
-  if (!data.Token?.Id) throw new Error('Token获取失败: ' + JSON.stringify(data));
-  _aliTokenCache = { token: data.Token.Id, expireTime: data.Token.ExpireTime };
-  console.log('[ALI-NLS] Token刷新成功，有效至', new Date(data.Token.ExpireTime * 1000).toLocaleString());
-  return _aliTokenCache.token;
-}
-
+// ─── DashScope Paraformer-realtime-v2 实时语音识别 ───────────────────────────
 const wss = new WebSocket.Server({ noServer: true });
-wss.on('connection', async (clientWs) => {
-  let aliWs = null;
-  let taskId = require('crypto').randomBytes(16).toString('hex');
-  let msgId  = () => require('crypto').randomBytes(16).toString('hex');
+wss.on('connection', (clientWs) => {
+  const taskId = require('crypto').randomUUID().replace(/-/g, '');
+  let dashWs = null;
   let finalText = '';
-  let audioQueue = []; // 缓冲 aliWs 连上前的音频包
+  let audioQueue = [];
+  let taskStarted = false;
+  let pendingStop = false;
+  let stopTimer = null;
 
-  try {
-    const token = await getCachedAliToken();
-    aliWs = new WebSocket(`wss://nls-gateway-cn-shanghai.aliyuncs.com/ws/v1?token=${token}`);
-
-    aliWs.on('open', () => {
-      // 发送StartTranscription指令
-      aliWs.send(JSON.stringify({
-        header: {
-          message_id: msgId(),
-          task_id: taskId,
-          namespace: 'SpeechTranscriber',
-          name: 'StartTranscription',
-          appkey: ALI_APPKEY,
-        },
-        payload: {
-          format: 'pcm',
-          sample_rate: 16000,
-          enable_intermediate_result: true,
-          enable_punctuation_prediction: true,
-          enable_inverse_text_normalization: true,
-          max_sentence_silence: 800,
-        }
-      }));
-      // 补发缓冲的早期音频包
-      while (audioQueue.length > 0) {
-        aliWs.send(audioQueue.shift());
-      }
-    });
-
-    aliWs.on('message', (data) => {
-      try {
-        const msg = JSON.parse(data.toString());
-        const name = msg.header?.name;
-        if (name === 'TranscriptionResultChanged') {
-          // 中间结果：实时推给前端
-          clientWs.send(JSON.stringify({ type: 'partial', text: finalText + (msg.payload?.result || '') }));
-        } else if (name === 'SentenceEnd') {
-          // 一句话结束：累加
-          finalText += (msg.payload?.result || '');
-          clientWs.send(JSON.stringify({ type: 'partial', text: finalText }));
-        } else if (name === 'TranscriptionCompleted') {
-          // 识别完成
-          if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
-          clientWs.send(JSON.stringify({ type: 'final', text: finalText }));
-          aliWs.close();
-        } else if (name === 'TaskFailed') {
-          clientWs.send(JSON.stringify({ type: 'error', text: '识别失败，请纠正模式手动输入' }));
-          aliWs.close();
-        }
-      } catch(e) {}
-    });
-
-    aliWs.on('error', () => {
-      clientWs.send(JSON.stringify({ type: 'error', text: '识别服务异常，请纠正模式手动输入' }));
-    });
-
-    aliWs.on('close', () => {
-      if (clientWs.readyState === WebSocket.OPEN) clientWs.close();
-    });
-
-  } catch(e) {
-    clientWs.send(JSON.stringify({ type: 'error', text: 'Token获取失败，请纠正模式手动输入' }));
+  const DASHSCOPE_KEY = process.env.DASHSCOPE_API_KEY;
+  if (!DASHSCOPE_KEY) {
+    clientWs.send(JSON.stringify({ type: 'error', text: '未配置 DASHSCOPE_API_KEY' }));
     clientWs.close();
     return;
   }
 
-  let stopTimer = null;
+  dashWs = new WebSocket('wss://dashscope.aliyuncs.com/api-ws/v1/inference/', {
+    headers: { 'Authorization': `bearer ${DASHSCOPE_KEY}` },
+  });
 
-  // 前端发来的消息
+  const sendFinishTask = () => {
+    dashWs.send(JSON.stringify({
+      header: { action: 'finish-task', task_id: taskId, streaming: 'duplex' },
+      payload: { input: {} },
+    }));
+    stopTimer = setTimeout(() => {
+      if (clientWs.readyState === WebSocket.OPEN) {
+        clientWs.send(JSON.stringify({ type: 'final', text: finalText }));
+      }
+      try { dashWs.close(); } catch(e) {}
+    }, 5000);
+  };
+
+  dashWs.on('open', () => {
+    dashWs.send(JSON.stringify({
+      header: { action: 'run-task', task_id: taskId, streaming: 'duplex' },
+      payload: {
+        task_group: 'audio',
+        task: 'asr',
+        function: 'recognition',
+        model: 'paraformer-realtime-v2',
+        parameters: {
+          format: 'pcm',
+          sample_rate: 16000,
+          sentence_silence_duration: 800,
+        },
+        input: {},
+      },
+    }));
+  });
+
+  dashWs.on('message', (data) => {
+    if (data instanceof Buffer && data[0] !== 123) return; // 非 JSON 二进制帧
+    try {
+      const msg = JSON.parse(data.toString());
+      const event = msg.header?.event;
+      if (event === 'task-started') {
+        taskStarted = true;
+        while (audioQueue.length > 0) dashWs.send(audioQueue.shift());
+        if (pendingStop) sendFinishTask();
+      } else if (event === 'result-generated') {
+        const sentence = msg.payload?.output?.sentence;
+        if (!sentence) return;
+        if (!sentence.sentence_end) {
+          clientWs.send(JSON.stringify({ type: 'partial', text: finalText + (sentence.text || '') }));
+        } else {
+          finalText += (sentence.text || '');
+          clientWs.send(JSON.stringify({ type: 'partial', text: finalText }));
+        }
+      } else if (event === 'task-finished') {
+        if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
+        clientWs.send(JSON.stringify({ type: 'final', text: finalText }));
+        dashWs.close();
+      } else if (event === 'task-failed') {
+        const errMsg = msg.header?.error_message || '识别失败';
+        console.error('[Paraformer] task-failed:', errMsg);
+        clientWs.send(JSON.stringify({ type: 'error', text: '识别失败，请纠正模式手动输入' }));
+        dashWs.close();
+      }
+    } catch(e) {}
+  });
+
+  dashWs.on('error', (err) => {
+    console.error('[Paraformer] WS error:', err.message);
+    clientWs.send(JSON.stringify({ type: 'error', text: '识别服务异常，请纠正模式手动输入' }));
+  });
+
+  dashWs.on('close', () => {
+    if (clientWs.readyState === WebSocket.OPEN) clientWs.close();
+  });
+
   clientWs.on('message', (data) => {
-    if (!aliWs) return;
+    if (!dashWs) return;
     const isJson = typeof data === 'string' || (data instanceof Buffer && data[0] === 123);
     if (isJson) {
-      // JSON控制指令
       try {
         const msg = JSON.parse(data.toString());
         if (msg.type === 'stop') {
-          const sendStop = () => {
-            aliWs.send(JSON.stringify({
-              header: {
-                message_id: msgId(),
-                task_id: taskId,
-                namespace: 'SpeechTranscriber',
-                name: 'StopTranscription',
-                appkey: ALI_APPKEY,
-              }
-            }));
-            // 超时保障：10秒内未收到 TranscriptionCompleted，强制返回已有内容
-            stopTimer = setTimeout(() => {
-              if (clientWs.readyState === WebSocket.OPEN) {
-                clientWs.send(JSON.stringify({ type: 'final', text: finalText }));
-              }
-              try { aliWs.close(); } catch(e) {}
-            }, 10000);
-          };
-          if (aliWs.readyState === WebSocket.OPEN) sendStop();
-          else aliWs.once('open', sendStop); // aliWs 还没连上时等它连上再发 stop
+          if (taskStarted) sendFinishTask();
+          else pendingStop = true;
         }
       } catch(e) {}
     } else {
-      // 二进制音频数据
-      if (aliWs.readyState === WebSocket.OPEN) {
-        aliWs.send(data);
+      if (taskStarted && dashWs.readyState === WebSocket.OPEN) {
+        dashWs.send(data);
       } else {
-        audioQueue.push(data); // 缓冲，等 aliWs open 后补发
+        audioQueue.push(data);
       }
     }
   });
 
   clientWs.on('close', () => {
     if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
-    if (aliWs && aliWs.readyState === WebSocket.OPEN) {
+    if (dashWs && dashWs.readyState === WebSocket.OPEN) {
       try {
-        aliWs.send(JSON.stringify({
-          header: { message_id: msgId(), task_id: taskId, namespace: 'SpeechTranscriber', name: 'StopTranscription', appkey: ALI_APPKEY }
+        dashWs.send(JSON.stringify({
+          header: { action: 'finish-task', task_id: taskId, streaming: 'duplex' },
+          payload: { input: {} },
         }));
       } catch(e) {}
     }

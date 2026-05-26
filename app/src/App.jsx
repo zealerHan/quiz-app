@@ -214,7 +214,7 @@ function hasOverlap(item, points) {
 }
 
 // ─── NEW: Quiz Screen ──────────────────────────────────────────────────────
-function QuizScreen({ user, onDone, onBack, mode='normal' }) {
+function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }) {
   const [questions,setQuestions]=useState([]);
   const [sessionId,setSessionId]=useState(null);
   const [qi,setQi]=useState(0);
@@ -226,6 +226,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
   const [isRec,setIsRec]=useState(false);
   const [aiRes,setAiRes]=useState(null);
   const [isRecognizing,setIsRecognizing]=useState(false);
+  const [recogError,setRecogError]=useState(null); // 识别失败/超时提示
   const [countdown,setCountdown]=useState(null);
   const countdownRef=useRef(null);
   const [results,setResults]=useState([]);
@@ -238,12 +239,15 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
   const [showTabWarn,setShowTabWarn]=useState(false);
   const tabSwitchRef=useRef(0);
   const recRef=useRef(),typeRef=useRef(),pendingSubmitRef=useRef(false),submitRef=useRef(null),scoreCacheRef=useRef(null),audioStreamRef=useRef(null),recognizeTimeoutRef=useRef(null);
+  const finishPromiseRef=useRef(null),finishResultRef=useRef(null);
 
   const isPractice = mode !== 'normal';
 
   useEffect(()=>{
-    const qUrl = mode==='practice_random' ? '/api/practice/questions?mode=random&count=3'
-               : mode==='practice_sequential' ? '/api/practice/questions?mode=sequential'
+    const bankParam = practiceBankId ? `&bank_id=${practiceBankId}` : '';
+    const qUrl = mode==='practice_random' ? `/api/practice/questions?mode=random&count=3${bankParam}`
+               : mode==='practice_random_all' ? `/api/practice/questions?mode=random_all${bankParam}`
+               : mode==='practice_sequential' ? `/api/practice/questions?mode=sequential${bankParam}`
                : '/api/questions';
     Promise.all([
       apiJson(qUrl),
@@ -277,6 +281,27 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
     };
     document.addEventListener('visibilitychange',handler);
     return()=>document.removeEventListener('visibilitychange',handler);
+  },[]);
+
+  // 答题期间保持屏幕常亮，避免手机自动锁屏被判定为切屏中断
+  useEffect(()=>{
+    let wakeLock=null;
+    let released=false;
+    const request=async()=>{
+      if(!('wakeLock' in navigator)) return;
+      try{
+        wakeLock=await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release',()=>{ wakeLock=null; });
+      }catch(_){}
+    };
+    const onVisible=()=>{ if(!document.hidden && !released) request(); };
+    request();
+    document.addEventListener('visibilitychange',onVisible);
+    return()=>{
+      released=true;
+      document.removeEventListener('visibilitychange',onVisible);
+      wakeLock?.release?.().catch(()=>{});
+    };
   },[]);
 
   const typeText = useCallback((text, onDone) => {
@@ -341,6 +366,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
 
   const startRec = async () => {
     navigator.vibrate?.(50);
+    setRecogError(null);
     if(countdownRef.current){clearInterval(countdownRef.current);countdownRef.current=null;setCountdown(null);}
     try {
       const stream = (audioStreamRef.current?.active)
@@ -417,9 +443,9 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
 
       ws.onerror = () => {
         clearRecognizeTimeout();
-        setTranscript('连接识别服务失败，请纠正模式手动输入');
         setIsRec(false);
         setIsRecognizing(false);
+        setRecogError('识别服务连接失败，请重新录音或切换手动输入');
       };
 
       ws.onclose = () => {
@@ -437,13 +463,14 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
           if(ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({type:'stop'}));
           }
-          // 超时保护：15秒内未收到 final/error，强制解除识别状态
+          // 超时保护：8秒内未收到 final/error，强制解除并提示
           recognizeTimeoutRef.current = setTimeout(() => {
             recognizeTimeoutRef.current = null;
             setIsRecognizing(false);
             pendingSubmitRef.current = false;
+            setRecogError('识别超时，请重新录音或切换手动输入');
             try { ws.close(); } catch {}
-          }, 15000);
+          }, 8000);
         },
         ws
       };
@@ -497,6 +524,14 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
     try { await api(`/api/session/${sessionId}/answer`,{method:"POST",body:JSON.stringify({staffId:user.staffId,staffName:user.name,questionId:q.id,questionText:q.text,category:q.category,answerText:finalTranscript||transcript,score:result.score,level:result.level,summary:result.summary,correctPoints:result.correct_points,missingPoints:result.missing_points,suggestion:result.suggestion,scoreMethod:result.score_method})}); } catch {}
     const nr = [...results,{...result,questionText:q.text,category:q.category,qNum:qi+1}];
     setResults(nr);
+    // 最后一题答完后立即在后台 finish，防止用户不点"查看总结"被判中断
+    if (qi+1 >= questions.length && sessionId) {
+      localStorage.removeItem('quiz_inprogress');
+      const avg = Math.round(nr.reduce((s,r)=>s+r.score,0)/nr.length);
+      finishPromiseRef.current = apiJson(`/api/session/${sessionId}/finish`,{method:"POST",body:JSON.stringify({totalScore:avg,tabSwitchCount:tabSwitchRef.current})})
+        .then(pts=>{ finishResultRef.current = pts?.points ?? null; return pts; })
+        .catch(()=>{ finishResultRef.current = null; return null; });
+    }
     speak(`${result.summary}本题${result.score}分。${result.encouragement}`,()=>{});
     setPhase("feedback");
   };
@@ -506,10 +541,16 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
   const next = async () => {
     if (qi+1 >= questions.length) {
       localStorage.removeItem('quiz_inprogress');
-
-      const avg = Math.round(results.reduce((s,r)=>s+r.score,0)/results.length);
-      try { const pts = await apiJson(`/api/session/${sessionId}/finish`,{method:"POST",body:JSON.stringify({totalScore:avg,tabSwitchCount:tabSwitchRef.current})}); onDone(results,pts?.points,mode); }
-      catch { onDone(results,null,mode); }
+      let pts = finishResultRef.current;
+      if (pts == null && finishPromiseRef.current) {
+        try { const r = await finishPromiseRef.current; pts = r?.points ?? null; } catch {}
+      }
+      if (pts == null) {
+        // 兜底：submit 阶段 finish 没成功，这里再补一次
+        const avg = Math.round(results.reduce((s,r)=>s+r.score,0)/results.length);
+        try { const r = await apiJson(`/api/session/${sessionId}/finish`,{method:"POST",body:JSON.stringify({totalScore:avg,tabSwitchCount:tabSwitchRef.current})}); pts = r?.points ?? null; } catch {}
+      }
+      onDone(results, pts, mode);
     } else { if(countdownRef.current){clearInterval(countdownRef.current);countdownRef.current=null;} setCountdown(null); setQi(i=>i+1); setTranscript(""); setTranscriptItems([]); setEditingIdx(-1); setAiRes(null); setPhase("intro"); setDisplayText(""); setEditMode(false); scoreCacheRef.current=null; }
   };
 
@@ -637,7 +678,13 @@ function QuizScreen({ user, onDone, onBack, mode='normal' }) {
           <div style={{padding:"10px 16px 16px",display:"flex",flexDirection:"column",gap:10}}>
             {/* 录音/识别/结果区 */}
             <div style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,padding:"10px 14px",minHeight:90,display:"flex",flexDirection:"column",justifyContent:"center"}}>
-              {isRec ? (
+              {recogError ? (
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:10,padding:"10px 0"}}>
+                  <span style={{fontSize:22}}>⚠️</span>
+                  <span style={{fontSize:13,color:"#f87171",fontWeight:700,textAlign:"center",lineHeight:1.5}}>{recogError}</span>
+                  <span style={{fontSize:11,color:"rgba(255,255,255,0.35)"}}>点击录音按钮重新录音，或切换手动输入</span>
+                </div>
+              ) : isRec ? (
                 <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,padding:"10px 0"}}>
                   <div style={{display:"flex",gap:3,alignItems:"flex-end",height:40}}>
                     {[10,22,34,28,40,32,18,36,26,14].map((h,i)=>(
@@ -1187,33 +1234,51 @@ function HomeScreen({ user, nav }) {
                 ? (() => {
                     const cnt = pinnedInfo.count || 3;
                     const pts = Math.round(100 / cnt);
+                    const bigCat = (c) => {
+                      if (c === '故障处置' || c === '应急处置') return '应急';
+                      if (c === '安全事件') return '安全事件';
+                      return '隐患排查';
+                    };
                     if (pinnedInfo.mode === 'random' || pinnedInfo.mode === 'emergency') {
+                      // 题池随机：有勾选题池（ids有内容）→ 按大类汇总题池组成
+                      const poolQs = pinnedInfo.questions || [];
+                      if (pinnedInfo.mode === 'random' && poolQs.length > 0) {
+                        const catOrder = ['应急','安全事件','隐患排查'];
+                        const catMap = {};
+                        poolQs.forEach(q => { const c=bigCat(q.category||''); catMap[c]=(catMap[c]||0)+1; });
+                        const breakdown = catOrder.filter(k=>catMap[k]).map(k=>`${catMap[k]}题${k}`).join('，');
+                        return (
+                          <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                            <div style={{color:'#22c55e',fontWeight:700,fontSize:10}}>📌 今日指定题目</div>
+                            <div style={{color:'#e2e8f0',fontSize:11,lineHeight:1.7}}>{breakdown}，随机抽{cnt}题</div>
+                            <div style={{color:'#94a3b8',fontSize:10}}>每题{pts}分</div>
+                          </div>
+                        );
+                      }
+                      // 题库随机 / 应急随机
                       let bankLabel;
-                      if (pinnedInfo.mode === 'emergency') bankLabel = '应急题库';
+                      if (pinnedInfo.mode === 'emergency') bankLabel = '应急故障处置';
                       else if (pinnedInfo.bank_names?.length > 0) bankLabel = pinnedInfo.bank_names.join(' + ');
                       else bankLabel = pinnedInfo.bank_name || '指定题库';
                       return (
                         <div style={{display:'flex',flexDirection:'column',gap:4}}>
                           <div style={{color:'#22c55e',fontWeight:700,fontSize:10}}>📌 今日指定题目</div>
-                          <div style={{color:'#e2e8f0',fontSize:12,fontWeight:600,lineHeight:1.5}}>
-                            {bankLabel} 随机{cnt}题，每题{pts}分
-                          </div>
+                          <div style={{color:'#e2e8f0',fontSize:11,lineHeight:1.7}}>{bankLabel}，随机{cnt}题</div>
+                          <div style={{color:'#94a3b8',fontSize:10}}>每题{pts}分</div>
                         </div>
                       );
                     }
-                    // 手动选题：按分类汇总
-                    const catMap = {};
-                    (pinnedInfo.questions || []).forEach(q => {
-                      const c = q.category || '业务知识';
-                      catMap[c] = (catMap[c] || 0) + 1;
-                    });
-                    const summary = Object.entries(catMap).map(([c, n]) => `${n}个${c}`).join('，');
                     const manualCnt = pinnedInfo.questions?.length || cnt;
                     const manualPts = Math.round(100 / manualCnt);
                     return (
-                      <div style={{display:'flex',flexDirection:'column',gap:4}}>
-                        <div style={{color:'#22c55e',fontWeight:700,fontSize:10}}>📌 今日指定题目</div>
-                        <div style={{color:'#e2e8f0',fontSize:12,fontWeight:600,lineHeight:1.5}}>{summary}，每题{manualPts}分</div>
+                      <div style={{display:'flex',flexDirection:'column',gap:5}}>
+                        <div style={{color:'#22c55e',fontWeight:700,fontSize:10}}>📌 今日指定题目 · {manualCnt}题 · 每题{manualPts}分</div>
+                        {(pinnedInfo.questions||[]).map((q,i)=>(
+                          <div key={q.id||i} style={{display:'flex',gap:5,alignItems:'flex-start'}}>
+                            <span style={{color:'#60a5fa',fontWeight:700,flexShrink:0,fontSize:10,lineHeight:1.65}}>{i+1}.</span>
+                            <span style={{color:'#e2e8f0',fontSize:11,lineHeight:1.65}}>{q.text}</span>
+                          </div>
+                        ))}
                       </div>
                     );
                   })()
@@ -1505,13 +1570,41 @@ function ResultScreen({ user, results, points, onHome, mode='normal', onContinue
 }
 
 // ─── 练习强化 ────────────────────────────────────────────────────────────────
+const PRACTICE_MODES = [
+  { key:'practice_random',     label:'随机三题', desc:'快速抽 3 题热身' },
+  { key:'practice_random_all', label:'随机全部', desc:'整库打乱顺序全过' },
+  { key:'practice_sequential', label:'顺序练习', desc:'按题库顺序逐题' },
+];
+
 function PracticeScreen({ user, onBack, onStart }) {
   const [status, setStatus] = useState(null);
+  const [mode, setMode] = useState('practice_random');
+  const [banks, setBanks] = useState([]);
+  const [bankPickerOpen, setBankPickerOpen] = useState(false);
+  const [selectedBankId, setSelectedBankId] = useState('');
+
   useEffect(() => {
     apiJson(`/api/practice/monthly-status/${user.staffId}`).then(setStatus).catch(()=>{});
+    apiJson('/api/banks').then(bs=>setBanks((bs||[]).filter(b=>b.q_count>0))).catch(()=>{});
   }, []);
 
-  const bonusLeft = status ? status.max - status.used : null;
+  // 题库分组（与管理后台保持一致：bank_id=1 为应急，其余按名称归类）
+  const isIncidentBank = b => b.id !== 1 && b.name !== '风险数据库' && b.name !== '人工提问' &&
+    (b.name.includes('事件') || b.name.includes('事故') || b.name.includes('分析') || b.name.includes('报告'));
+  const grouped = {
+    risk:     banks.filter(b => b.name === '风险数据库'),
+    incident: banks.filter(isIncidentBank),
+    theory:   banks.filter(b => b.id !== 1 && b.name !== '风险数据库' && b.name !== '人工提问' && !isIncidentBank(b)),
+  };
+
+  const startEmergency = () => onStart(mode, 1, 'short'); // 应急题库永远走语音
+  const startWithBank = () => {
+    if (!selectedBankId) return;
+    const bank = banks.find(b => String(b.id) === String(selectedBankId));
+    // bank_type_summary: 'choice' | 'fill' | 'short' | 'mixed' | 'empty'
+    // 任何含手动答题题目的（choice/fill/mixed）都走 PracticeFlowScreen；纯简答走语音
+    onStart(mode, parseInt(selectedBankId), bank?.bank_type_summary || 'short');
+  };
 
   return (
     <div className="screen" style={{padding:'16px'}}>
@@ -1535,41 +1628,408 @@ function PracticeScreen({ user, onBack, onStart }) {
         </div>
       </div>
 
+      {/* 模式选择 */}
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:8,fontWeight:600}}>① 选择练习模式</div>
+        <div style={{display:'flex',gap:8}}>
+          {PRACTICE_MODES.map(m=>{
+            const active = mode===m.key;
+            return (
+              <div key={m.key} onClick={()=>setMode(m.key)}
+                style={{
+                  flex:1,padding:'10px 8px',borderRadius:10,cursor:'pointer',textAlign:'center',
+                  background: active?'rgba(59,130,246,0.15)':'rgba(255,255,255,0.03)',
+                  border:`1px solid ${active?'#3b82f6':'rgba(255,255,255,0.08)'}`,
+                  transition:'all .15s',
+                }}>
+                <div style={{fontSize:13,fontWeight:700,color:active?'#60a5fa':'white',marginBottom:2}}>{m.label}</div>
+                <div style={{fontSize:10,color:'rgba(255,255,255,0.4)',lineHeight:1.3}}>{m.desc}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:8,fontWeight:600}}>② 选择题库</div>
+
       {/* 应急抽问 */}
-      <div onClick={()=>onStart('practice_random')} style={{background:'linear-gradient(135deg,#0d2d5a,#1a4a8a)',border:'1px solid rgba(59,130,246,0.4)',borderRadius:14,padding:'18px',marginBottom:12,cursor:'pointer',transition:'transform .15s'}}
+      <div onClick={startEmergency} style={{background:'linear-gradient(135deg,#0d2d5a,#1a4a8a)',border:'1px solid rgba(59,130,246,0.4)',borderRadius:14,padding:'18px',marginBottom:12,cursor:'pointer',transition:'transform .15s'}}
         onMouseEnter={e=>e.currentTarget.style.transform='translateY(-2px)'}
         onMouseLeave={e=>e.currentTarget.style.transform='none'}>
         <div style={{display:'flex',alignItems:'center',gap:12}}>
           <div style={{width:44,height:44,borderRadius:12,background:'rgba(59,130,246,0.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>🎯</div>
           <div style={{flex:1}}>
             <div style={{fontSize:15,fontWeight:700,color:'white',marginBottom:4}}>应急抽问</div>
-            <div style={{fontSize:12,color:'rgba(255,255,255,0.45)',lineHeight:1.5}}>随机抽取 3 题，快速热身练习<br/>完成后可继续下一轮</div>
+            <div style={{fontSize:12,color:'rgba(255,255,255,0.45)',lineHeight:1.5}}>从应急题库练习 · {PRACTICE_MODES.find(m=>m.key===mode)?.label}</div>
           </div>
           <span style={{fontSize:20,color:'rgba(255,255,255,0.3)'}}>›</span>
         </div>
       </div>
 
-      {/* 顺序练习 */}
-      <div onClick={()=>onStart('practice_sequential')} style={{background:'linear-gradient(135deg,#0d2d1a,#1a4a2a)',border:'1px solid rgba(34,197,94,0.3)',borderRadius:14,padding:'18px',cursor:'pointer',transition:'transform .15s'}}
-        onMouseEnter={e=>e.currentTarget.style.transform='translateY(-2px)'}
-        onMouseLeave={e=>e.currentTarget.style.transform='none'}>
-        <div style={{display:'flex',alignItems:'center',gap:12}}>
+      {/* 选择题库 */}
+      <div style={{background:'linear-gradient(135deg,#0d2d1a,#1a4a2a)',border:'1px solid rgba(34,197,94,0.3)',borderRadius:14,padding:'18px',marginBottom:12,transition:'transform .15s'}}>
+        <div onClick={()=>setBankPickerOpen(o=>!o)} style={{display:'flex',alignItems:'center',gap:12,cursor:'pointer'}}>
           <div style={{width:44,height:44,borderRadius:12,background:'rgba(34,197,94,0.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>📚</div>
           <div style={{flex:1}}>
-            <div style={{fontSize:15,fontWeight:700,color:'white',marginBottom:4}}>顺序练习</div>
-            <div style={{fontSize:12,color:'rgba(255,255,255,0.45)',lineHeight:1.5}}>按题库顺序逐题过一遍<br/>全面巩固每一个知识点</div>
+            <div style={{fontSize:15,fontWeight:700,color:'white',marginBottom:4}}>选择题库</div>
+            <div style={{fontSize:12,color:'rgba(255,255,255,0.45)',lineHeight:1.5}}>从管理员上传的题库中挑选强化方向</div>
           </div>
-          <span style={{fontSize:20,color:'rgba(255,255,255,0.3)'}}>›</span>
+          <span style={{fontSize:20,color:'rgba(255,255,255,0.3)',transition:'transform .2s',transform:bankPickerOpen?'rotate(90deg)':'none'}}>›</span>
         </div>
+        {bankPickerOpen && (
+          <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid rgba(34,197,94,0.18)'}}>
+            <select value={selectedBankId} onChange={e=>setSelectedBankId(e.target.value)}
+              style={{width:'100%',padding:'10px 12px',borderRadius:8,border:'1px solid rgba(34,197,94,0.3)',background:'#0d1117',color:'#e2e8f0',fontSize:13,marginBottom:10}}>
+              <option value=''>── 请选择题库 ──</option>
+              {(() => {
+                const tagOf = b => ({ choice:'选择', fill:'填空', short:'简答', mixed:'混合', empty:'' }[b.bank_type_summary] || '');
+                const renderOpt = b => <option key={b.id} value={b.id}>{b.name}（{b.q_count}题{tagOf(b)?' · '+tagOf(b):''}）</option>;
+                return <>
+                  {grouped.theory.length>0 && <optgroup label="📖 理论考试题库">{grouped.theory.map(renderOpt)}</optgroup>}
+                  {grouped.incident.length>0 && <optgroup label="📋 事件分析报告">{grouped.incident.map(renderOpt)}</optgroup>}
+                  {grouped.risk.length>0 && <optgroup label="⚠️ 风险数据库">{grouped.risk.map(renderOpt)}</optgroup>}
+                </>;
+              })()}
+            </select>
+            <button onClick={startWithBank} disabled={!selectedBankId}
+              style={{
+                width:'100%',padding:'10px',borderRadius:8,border:'none',cursor:selectedBankId?'pointer':'not-allowed',
+                background:selectedBankId?'linear-gradient(135deg,#22c55e,#16a34a)':'rgba(34,197,94,0.15)',
+                color:selectedBankId?'white':'rgba(255,255,255,0.3)',
+                fontSize:13,fontWeight:700,
+              }}>开始练习</button>
+          </div>
+        )}
       </div>
 
-      <div style={{marginTop:20,padding:'12px 14px',background:'rgba(255,255,255,0.03)',borderRadius:10,border:'1px solid rgba(255,255,255,0.06)'}}>
+      <div style={{marginTop:8,padding:'12px 14px',background:'rgba(255,255,255,0.03)',borderRadius:10,border:'1px solid rgba(255,255,255,0.06)'}}>
         <div style={{fontSize:11,color:'rgba(255,255,255,0.3)',lineHeight:1.7}}>
           · 练习分数不计入积分榜排名<br/>
           · 每完成一次练习，总榜积分 +1（每月上限 3 次）<br/>
           · 加分与正式答题积分合并计入排行榜
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── 练习流（dispatcher：按题型分发到 选择 / 判断 / 填空）─────────────────
+// 简答题不在这里处理，由外层路由到 QuizScreen 语音模式
+const MANUAL_TYPES = new Set(['choice_single','choice_multi','true_false','fill_blank']);
+function PracticeFlowScreen({ user, mode, bankId, onBack, onHome }) {
+  const [allQuestions, setAllQuestions] = useState([]); // 服务端返回的全部
+  const [questions, setQuestions] = useState([]); // 仅手动答题类型
+  const [skippedCount, setSkippedCount] = useState(0); // 简答题被跳过的数量
+  const [sessionId, setSessionId] = useState(null);
+  const [qi, setQi] = useState(0);
+  const [phase, setPhase] = useState('loading'); // loading | answering | showing | done | error | empty
+  const [selected, setSelected] = useState([]); // 选择题：[letter,...]
+  const [textInput, setTextInput] = useState(''); // 填空题：用户输入
+  const [results, setResults] = useState([]);
+  const [points, setPoints] = useState(null);
+  const [showBackConfirm, setShowBackConfirm] = useState(false);
+
+  useEffect(() => {
+    const bankParam = bankId ? `&bank_id=${bankId}` : '';
+    const qUrl = mode === 'practice_random' ? `/api/practice/questions?mode=random&count=3${bankParam}`
+               : mode === 'practice_random_all' ? `/api/practice/questions?mode=random_all${bankParam}`
+               : `/api/practice/questions?mode=sequential${bankParam}`;
+    Promise.all([
+      apiJson(qUrl),
+      api('/api/session/start', {method:'POST', body: JSON.stringify({staffId: user.staffId, staffName: user.name, isPractice: true})}).then(async r => { const d=await r.json(); if(!r.ok) throw new Error(d.error||'启动失败'); return d; }),
+    ]).then(([qd, sd]) => {
+      const all = qd.questions || [];
+      // 把没标 type 的当 choice_single（前提：有 options）；其他无 options 当 short_answer
+      const decorated = all.map(q => ({ ...q, type: q.type || (q.options ? 'choice_single' : 'short_answer') }));
+      const manual = decorated.filter(q => MANUAL_TYPES.has(q.type));
+      const skipped = decorated.length - manual.length;
+      setAllQuestions(decorated);
+      setQuestions(manual);
+      setSkippedCount(skipped);
+      if (manual.length === 0) { setPhase('empty'); return; }
+      setSessionId(sd.sessionId);
+      setPhase('answering');
+    }).catch(() => setPhase('error'));
+  }, []);
+
+  const q = questions[qi];
+  const opts = (() => {
+    if (!q?.options) return {};
+    try { return typeof q.options === 'string' ? JSON.parse(q.options) : q.options; } catch { return {}; }
+  })();
+  const refRaw = String(q?.reference || '').trim();
+  const correctLetters = refRaw.toUpperCase().replace(/[^A-F]/g,'');
+  const isMulti = q?.type === 'choice_multi' || correctLetters.length > 1;
+  const isChoiceLike = q?.type === 'choice_single' || q?.type === 'choice_multi' || q?.type === 'true_false';
+  const isFillBlank = q?.type === 'fill_blank';
+
+  // 填空答案归一化：去空格、统一中英标点、转小写
+  const normalizeFill = (s) => String(s||'').trim().toLowerCase()
+    .replace(/[，。！？、；：""''（）()【】《》\s]+/g,'');
+  const fillCorrectVariants = (() => {
+    if (!isFillBlank) return [];
+    // 参考答案中含 ;/；/、/| 视为多种可接受写法
+    return refRaw.split(/[;；、|]/).map(normalizeFill).filter(Boolean);
+  })();
+
+  const submitAnswer = async (payload) => {
+    // payload: 选择题 = letters array; 填空 = string
+    let userAns, isCorrect;
+    if (isChoiceLike) {
+      userAns = [...payload].sort().join('');
+      isCorrect = userAns === correctLetters;
+    } else if (isFillBlank) {
+      userAns = String(payload || '').trim();
+      const u = normalizeFill(userAns);
+      isCorrect = fillCorrectVariants.some(v => v === u);
+    } else {
+      userAns = String(payload || ''); isCorrect = false;
+    }
+    try {
+      await api(`/api/session/${sessionId}/answer`, {
+        method: 'POST',
+        body: JSON.stringify({
+          staffId: user.staffId, staffName: user.name,
+          questionId: q.id, questionText: q.text, category: q.category,
+          answerText: userAns, score: isCorrect?100:0, level: isCorrect?'优秀':'需加强',
+          summary: isCorrect?'答对':'答错',
+          correctPoints: [isChoiceLike ? correctLetters : refRaw],
+          missingPoints: isCorrect?[]:[isChoiceLike ? correctLetters : refRaw],
+          suggestion: '', scoreMethod: q.type,
+        }),
+      });
+    } catch {}
+    setResults(prev => [...prev, { id: q.id, text: q.text, options: opts, userAnswer: userAns, correct: isChoiceLike ? correctLetters : refRaw, isCorrect, category: q.category, type: q.type }]);
+    setPhase('showing');
+  };
+
+  const handleSelect = (letter) => {
+    if (phase !== 'answering') return;
+    if (isMulti) {
+      setSelected(prev => prev.includes(letter) ? prev.filter(l => l !== letter) : [...prev, letter]);
+    } else {
+      setSelected([letter]);
+      submitAnswer([letter]);
+    }
+  };
+
+  const handleNext = async () => {
+    if (qi < questions.length - 1) {
+      setQi(qi + 1);
+      setSelected([]);
+      setTextInput('');
+      setPhase('answering');
+    } else {
+      const correctCount = results.filter(r => r.isCorrect).length;
+      const totalScore = Math.round(correctCount / results.length * 100);
+      try {
+        const r = await api(`/api/session/${sessionId}/finish`, {method:'POST', body: JSON.stringify({totalScore, tabSwitchCount: 0})});
+        const d = await r.json();
+        setPoints(d.points);
+      } catch {}
+      setPhase('done');
+    }
+  };
+
+  // 加载中
+  if (phase === 'loading') {
+    return (
+      <div className="screen" style={{padding:20,display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <div style={{textAlign:'center',color:'#94a3b8'}}>
+          <div className="spinner" style={{margin:'0 auto 12px'}}/>
+          加载中…
+        </div>
+      </div>
+    );
+  }
+  if (phase === 'error' || phase === 'empty') {
+    return (
+      <div className="screen" style={{padding:20}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:20}}>
+          <button onClick={onBack} style={{background:'none',border:'none',color:'#3b82f6',fontSize:22,cursor:'pointer'}}>←</button>
+          <span style={{fontSize:16,fontWeight:700,color:'white'}}>练习</span>
+        </div>
+        <div style={{color:'#ef4444',marginTop:40,textAlign:'center',lineHeight:1.6}}>
+          {phase==='empty'
+            ? (skippedCount > 0
+                ? `该题库 ${skippedCount} 道题全部是简答题\n请回到练习页通过"应急抽问"或语音模式练习`
+                : '该题库暂无可手动答题的题目')
+            : '加载失败，请稍后重试'}
+        </div>
+      </div>
+    );
+  }
+
+  // 完成总结页
+  if (phase === 'done') {
+    const correctCount = results.filter(r => r.isCorrect).length;
+    const score = Math.round(correctCount / results.length * 100);
+    return (
+      <div className="screen" style={{padding:'16px'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:20}}>
+          <button onClick={onHome} style={{background:'none',border:'none',color:'#3b82f6',fontSize:22,cursor:'pointer'}}>←</button>
+          <span style={{fontSize:16,fontWeight:700,color:'white'}}>练习完成</span>
+        </div>
+        <div style={{textAlign:'center',padding:'28px 16px',background:'linear-gradient(135deg,#0d2d5a,#1a4a8a)',borderRadius:14,marginBottom:16}}>
+          <div style={{fontSize:12,color:'rgba(255,255,255,0.5)',marginBottom:6}}>得分</div>
+          <div style={{fontSize:48,fontWeight:900,color:score>=80?'#22c55e':score>=60?'#f59e0b':'#ef4444',lineHeight:1}}>{score}</div>
+          <div style={{fontSize:13,color:'rgba(255,255,255,0.6)',marginTop:10}}>共 {results.length} 题 · 答对 {correctCount} 题 · 答错 {results.length-correctCount} 题</div>
+          {skippedCount > 0 && <div style={{fontSize:11,color:'rgba(245,158,11,0.8)',marginTop:6}}>另有 {skippedCount} 道简答题已跳过（需语音模式）</div>}
+          {points?.practiceBonus > 0 && <div style={{fontSize:12,color:'#f59e0b',marginTop:8}}>本次练习 +{points.practiceBonus} 分（本月 {points.practiceUsed}/{points.practiceMax}）</div>}
+        </div>
+
+        <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:8,fontWeight:600}}>错题回顾</div>
+        {results.filter(r => !r.isCorrect).length === 0 && (
+          <div style={{textAlign:'center',color:'#22c55e',padding:20}}>🎉 全部答对！</div>
+        )}
+        {results.filter(r => !r.isCorrect).map((r, i) => (
+          <div key={i} style={{background:'rgba(239,68,68,0.06)',border:'1px solid rgba(239,68,68,0.2)',borderRadius:10,padding:'12px 14px',marginBottom:10}}>
+            <div style={{fontSize:13,color:'white',marginBottom:8,lineHeight:1.5}}>{r.text}</div>
+            {r.type === 'fill_blank' ? (
+              <div style={{fontSize:12,color:'#94a3b8',lineHeight:1.7}}>
+                <div>你的答案：<span style={{color:'#ef4444'}}>{r.userAnswer || '(未填)'}</span></div>
+                <div>正确答案：<span style={{color:'#22c55e'}}>{r.correct}</span></div>
+              </div>
+            ) : (
+              ['A','B','C','D','E','F'].filter(l => r.options[l]).map(l => (
+                <div key={l} style={{fontSize:12,color:r.correct.includes(l)?'#22c55e':(r.userAnswer.includes(l)?'#ef4444':'#94a3b8'),padding:'3px 0'}}>
+                  <span style={{fontWeight:700,marginRight:6}}>{l}.</span>{r.options[l]}
+                  {r.correct.includes(l) && <span style={{marginLeft:6,fontSize:10}}>✓ 正确</span>}
+                  {r.userAnswer.includes(l) && !r.correct.includes(l) && <span style={{marginLeft:6,fontSize:10}}>✗ 你的选择</span>}
+                </div>
+              ))
+            )}
+          </div>
+        ))}
+
+        <button onClick={onBack} style={{width:'100%',padding:'12px',marginTop:16,borderRadius:10,border:'1px solid rgba(59,130,246,0.4)',background:'rgba(59,130,246,0.1)',color:'#60a5fa',fontSize:14,fontWeight:700,cursor:'pointer'}}>再练一次</button>
+        <button onClick={onHome} style={{width:'100%',padding:'12px',marginTop:8,borderRadius:10,border:'none',background:'linear-gradient(135deg,#3b82f6,#1e40af)',color:'white',fontSize:14,fontWeight:700,cursor:'pointer'}}>返回首页</button>
+      </div>
+    );
+  }
+
+  // 答题中
+  const last = results[results.length-1];
+  const TYPE_BADGE = { choice_single:{label:'单选',color:'#60a5fa'}, choice_multi:{label:'多选',color:'#f59e0b'}, true_false:{label:'判断',color:'#a78bfa'}, fill_blank:{label:'填空',color:'#22c55e'} };
+  const badge = TYPE_BADGE[q?.type];
+  return (
+    <div className="screen" style={{padding:'16px'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+        <button onClick={() => setShowBackConfirm(true)} style={{background:'none',border:'none',color:'#3b82f6',fontSize:22,cursor:'pointer'}}>←</button>
+        <span style={{fontSize:16,fontWeight:700,color:'white'}}>练习</span>
+      </div>
+
+      {/* 进度 */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+        <span style={{fontSize:13,color:'#94a3b8'}}>第 {qi+1} / {questions.length} 题
+          {badge && <span style={{marginLeft:8,color:badge.color,fontSize:11,background:badge.color+'22',border:`1px solid ${badge.color}55`,borderRadius:4,padding:'1px 6px'}}>{badge.label}</span>}
+        </span>
+        <span style={{fontSize:11,color:'#64748b'}}>{q.category || ''}</span>
+      </div>
+      <div style={{height:4,background:'rgba(255,255,255,0.06)',borderRadius:2,marginBottom:18,overflow:'hidden'}}>
+        <div style={{height:'100%',width:`${(qi+(phase==='showing'?1:0))/questions.length*100}%`,background:'linear-gradient(90deg,#3b82f6,#22c55e)',transition:'width .3s'}}/>
+      </div>
+
+      {/* 题干 */}
+      <div style={{fontSize:15,color:'white',lineHeight:1.6,marginBottom:18,padding:'14px 16px',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>{q.text}</div>
+
+      {/* 选择题/判断题：选项卡片 */}
+      {isChoiceLike && ['A','B','C','D','E','F'].filter(l => opts[l]).map(letter => {
+        const isSel = selected.includes(letter);
+        const isCorrectOpt = correctLetters.includes(letter);
+        const showFeedback = phase === 'showing';
+        let bg='rgba(255,255,255,0.03)', border='rgba(255,255,255,0.1)', letterColor='#94a3b8';
+        if (showFeedback && isCorrectOpt) { bg='rgba(34,197,94,0.12)'; border='#22c55e'; letterColor='#22c55e'; }
+        else if (showFeedback && isSel && !isCorrectOpt) { bg='rgba(239,68,68,0.12)'; border='#ef4444'; letterColor='#ef4444'; }
+        else if (isSel) { bg='rgba(59,130,246,0.12)'; border='#3b82f6'; letterColor='#60a5fa'; }
+        return (
+          <div key={letter} onClick={() => handleSelect(letter)}
+            style={{
+              padding:'12px 14px',background:bg,border:`1px solid ${border}`,borderRadius:10,marginBottom:8,
+              cursor: phase==='answering' ? 'pointer' : 'default',
+              display:'flex',gap:10,alignItems:'flex-start',transition:'all .15s',
+            }}>
+            <span style={{fontWeight:700,color:letterColor,minWidth:20,fontSize:15}}>{letter}</span>
+            <span style={{flex:1,fontSize:14,color:'#e2e8f0',lineHeight:1.5}}>{opts[letter]}</span>
+            {showFeedback && isCorrectOpt && <span style={{color:'#22c55e',fontSize:16,fontWeight:700}}>✓</span>}
+            {showFeedback && isSel && !isCorrectOpt && <span style={{color:'#ef4444',fontSize:16,fontWeight:700}}>✗</span>}
+          </div>
+        );
+      })}
+
+      {/* 多选提交按钮 */}
+      {phase==='answering' && isChoiceLike && isMulti && (
+        <button onClick={() => submitAnswer(selected)} disabled={selected.length===0}
+          style={{
+            width:'100%',padding:'12px',marginTop:8,borderRadius:10,border:'none',
+            background:selected.length>0?'linear-gradient(135deg,#3b82f6,#1e40af)':'rgba(59,130,246,0.15)',
+            color:selected.length>0?'white':'rgba(255,255,255,0.3)',
+            fontSize:14,fontWeight:700,cursor:selected.length>0?'pointer':'not-allowed',
+          }}>提交</button>
+      )}
+
+      {/* 填空题：文本输入 */}
+      {isFillBlank && (
+        <div>
+          <input type="text" value={textInput} onChange={e=>setTextInput(e.target.value)}
+            disabled={phase!=='answering'}
+            onKeyDown={e=>{if(e.key==='Enter' && phase==='answering' && textInput.trim()) submitAnswer(textInput);}}
+            placeholder="请输入答案，按 Enter 或点击提交"
+            style={{
+              width:'100%',padding:'14px 16px',borderRadius:10,
+              border:`1px solid ${phase==='showing' ? (last?.isCorrect?'#22c55e':'#ef4444') : 'rgba(34,197,94,0.4)'}`,
+              background:'rgba(0,0,0,0.25)',color:'white',fontSize:15,marginBottom:10,
+              outline:'none',
+            }}/>
+          {phase==='answering' && (
+            <button onClick={()=>submitAnswer(textInput)} disabled={!textInput.trim()}
+              style={{
+                width:'100%',padding:'12px',borderRadius:10,border:'none',
+                background:textInput.trim()?'linear-gradient(135deg,#22c55e,#16a34a)':'rgba(34,197,94,0.15)',
+                color:textInput.trim()?'white':'rgba(255,255,255,0.3)',
+                fontSize:14,fontWeight:700,cursor:textInput.trim()?'pointer':'not-allowed',
+              }}>提交</button>
+          )}
+        </div>
+      )}
+
+      {/* 反馈 + 下一题 */}
+      {phase==='showing' && last && (
+        <>
+          <div style={{padding:'12px 14px',background:last.isCorrect?'rgba(34,197,94,0.1)':'rgba(239,68,68,0.1)',border:`1px solid ${last.isCorrect?'rgba(34,197,94,0.3)':'rgba(239,68,68,0.3)'}`,borderRadius:10,marginTop:12,marginBottom:10}}>
+            <div style={{fontSize:14,fontWeight:700,color:last.isCorrect?'#22c55e':'#ef4444',marginBottom:last.isCorrect?0:4}}>
+              {last.isCorrect ? '✓ 答对了' : '✗ 答错了'}
+            </div>
+            {!last.isCorrect && (
+              <div style={{fontSize:12,color:'rgba(255,255,255,0.6)'}}>
+                {last.type === 'fill_blank'
+                  ? <>正确答案：{last.correct} · 你的答案：{last.userAnswer || '(未填)'}</>
+                  : <>正确答案：{last.correct} · 你的答案：{last.userAnswer || '(未选)'}</>}
+              </div>
+            )}
+          </div>
+          <button onClick={handleNext}
+            style={{
+              width:'100%',padding:'12px',borderRadius:10,border:'none',
+              background:'linear-gradient(135deg,#3b82f6,#1e40af)',color:'white',
+              fontSize:14,fontWeight:700,cursor:'pointer',
+            }}>{qi < questions.length-1 ? '下一题 →' : '完成练习'}</button>
+        </>
+      )}
+
+      {/* 返回确认 */}
+      {showBackConfirm && (
+        <div onClick={() => setShowBackConfirm(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+          <div onClick={e => e.stopPropagation()} style={{background:'#0d1e35',border:'1px solid #1b3255',borderRadius:14,padding:20,maxWidth:340,width:'100%'}}>
+            <div style={{fontSize:15,fontWeight:700,color:'white',marginBottom:8}}>退出练习？</div>
+            <div style={{fontSize:13,color:'#94a3b8',marginBottom:16}}>本次进度将不保存</div>
+            <div style={{display:'flex',gap:10}}>
+              <button onClick={() => setShowBackConfirm(false)} style={{flex:1,padding:'10px',borderRadius:8,border:'1px solid #1b3255',background:'none',color:'#94a3b8',fontSize:13,cursor:'pointer'}}>继续答题</button>
+              <button onClick={onBack} style={{flex:1,padding:'10px',borderRadius:8,border:'none',background:'#ef4444',color:'white',fontSize:13,fontWeight:700,cursor:'pointer'}}>确认退出</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2535,6 +2995,249 @@ function TrainingGroupsSection({ pwd, staff }) {
   );
 }
 
+// ─── AddQuestionPanel ─────────────────────────────────────────────────────────
+function AddQuestionPanel({ pwd, banks, hdrs, onDone }) {
+  // Section 1: AI 辅助出题
+  const [srcFile, setSrcFile] = useState(null);
+  const [pasteText, setPasteText] = useState('');
+  const [tplSelected, setTplSelected] = useState([]);
+  const [customTplText, setCustomTplText] = useState('');
+  const [aiParsing, setAiParsing] = useState(false);
+  const [parsedQs, setParsedQs] = useState([]);
+  const [checkedQs, setCheckedQs] = useState([]);
+  const [aiMsg, setAiMsg] = useState('');
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiBank, setAiBank] = useState('');
+  const [aiNewBank, setAiNewBank] = useState('');
+  const s1Ref = useRef();
+
+  // Section 2: 手动出题
+  const [manQ, setManQ] = useState('');
+  const [manA, setManA] = useState('');
+  const [manCat, setManCat] = useState('安全事件');
+  const [manBank, setManBank] = useState('');
+  const [manNewBank, setManNewBank] = useState('');
+  const [manAiLoading, setManAiLoading] = useState(false);
+  const [manSaving, setManSaving] = useState(false);
+  const [manMsg, setManMsg] = useState('');
+  const s2Ref = useRef();
+
+
+  const TEMPLATES = [
+    '请简要描述事件发生的经过',
+    '乘务员在事件中存在哪些问题',
+    '事件的整改措施及反思有哪些',
+  ];
+
+  const isIncidentBank = b => b.id !== 1 && b.name !== '风险数据库' && b.name !== '人工提问' &&
+    (b.name.includes('事件') || b.name.includes('事故') || b.name.includes('分析') || b.name.includes('报告'));
+
+  const GroupedBankSelect = ({ value, onChange, newValue, onNewChange }) => {
+    const g = {
+      emergency: banks.filter(b => b.id === 1),
+      risk: banks.filter(b => b.name === '风险数据库'),
+      incident: banks.filter(isIncidentBank),
+      theory: banks.filter(b => b.id !== 1 && b.name !== '风险数据库' && b.name !== '人工提问' && !isIncidentBank(b)),
+    };
+    const sel = { padding:'6px 8px', borderRadius:6, border:'1px solid #1b3255', background:'#0d1117', color:'#e2e8f0', fontSize:12, flex:1, minWidth:0 };
+    return (
+      <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+        <select value={value} onChange={e=>{onChange(e.target.value);onNewChange('');}} style={sel}>
+          <option value=''>── 选择已有题库 ──</option>
+          {g.emergency.length>0&&<optgroup label="🚨 应急故障处置">{g.emergency.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</optgroup>}
+          {g.risk.length>0&&<optgroup label="⚠️ 风险数据库">{g.risk.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</optgroup>}
+          {g.incident.length>0&&<optgroup label="📋 事件分析报告">{g.incident.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</optgroup>}
+          {g.theory.length>0&&<optgroup label="📖 理论考试题库">{g.theory.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</optgroup>}
+        </select>
+        <input value={newValue} onChange={e=>{onNewChange(e.target.value);onChange('');}} placeholder="或新建题库名称" style={{...sel,flex:'0 0 130px'}}/>
+      </div>
+    );
+  };
+
+  // 所有要提问的题目（模板 + 自定义）
+  const allQuestions = [
+    ...TEMPLATES.filter((_, i) => tplSelected.includes(i)),
+    ...customTplText.split('\n').map(s => s.trim()).filter(Boolean),
+  ];
+
+  const doAiParse = async () => {
+    if (allQuestions.length === 0) { setAiMsg('❌ 请至少选择一个问题模板或输入自定义题目'); return; }
+    if (!srcFile && !pasteText.trim()) { setAiMsg('❌ 请上传文件或粘贴内容'); return; }
+    setAiParsing(true); setAiMsg(''); setParsedQs([]); setCheckedQs([]);
+    const fd = new FormData();
+    fd.append('mode', 'custom');
+    fd.append('custom_questions', JSON.stringify(allQuestions));
+    if (srcFile) fd.append('file', srcFile);
+    else fd.append('paste_text', pasteText.trim());
+    try {
+      const r = await fetch('/api/admin/banks/parse-doc', { method:'POST', headers:{'x-admin-password':pwd}, body:fd });
+      const d = await r.json();
+      if (!d.ok) { setAiMsg('❌ ' + (d.error||'解析失败')); }
+      else { setParsedQs(d.questions||[]); setCheckedQs((d.questions||[]).map((_,i)=>i)); }
+    } catch { setAiMsg('❌ 网络错误'); }
+    setAiParsing(false);
+  };
+
+  const doAiSave = async () => {
+    const toSave = parsedQs.filter((_,i) => checkedQs.includes(i));
+    if (toSave.length === 0) { setAiMsg('❌ 请至少选择一道题'); return; }
+    if (!aiBank && !aiNewBank.trim()) { setAiMsg('❌ 请选择或新建题库'); return; }
+    setAiSaving(true);
+    try {
+      const r = await fetch('/api/admin/questions/batch-save', {
+        method:'POST', headers:{...hdrs(),'Content-Type':'application/json'},
+        body: JSON.stringify({ questions:toSave, bank_id:aiBank?parseInt(aiBank):undefined, bank_name:aiNewBank.trim()||undefined })
+      });
+      const d = await r.json();
+      if (d.ok) { setAiMsg(`✅ 已保存 ${d.count} 题`); setParsedQs([]); setSrcFile(null); setPasteText(''); onDone?.(); }
+      else setAiMsg('❌ ' + (d.error||'保存失败'));
+    } catch { setAiMsg('❌ 网络错误'); }
+    setAiSaving(false);
+  };
+
+  const doManAiExtract = async () => {
+    const file = s2Ref.current?.files?.[0];
+    if (!file || !manQ.trim()) return;
+    setManAiLoading(true); setManMsg('');
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('mode', 'custom');
+    fd.append('custom_questions', JSON.stringify([manQ.trim()]));
+    try {
+      const r = await fetch('/api/admin/banks/parse-doc', { method:'POST', headers:{'x-admin-password':pwd}, body:fd });
+      const d = await r.json();
+      if (d.ok && d.questions?.[0]?.reference) { setManA(d.questions[0].reference); setManMsg('✅ AI 已提取参考答案'); }
+      else setManMsg('❌ ' + (d.error||'AI 未能提取答案'));
+    } catch { setManMsg('❌ 网络错误'); }
+    if (s2Ref.current) s2Ref.current.value = '';
+    setManAiLoading(false);
+  };
+
+  const doManSave = async () => {
+    if (!manQ.trim() || !manA.trim()) { setManMsg('❌ 题目和答案不能为空'); return; }
+    if (!manBank && !manNewBank.trim()) { setManMsg('❌ 请选择或新建题库'); return; }
+    setManSaving(true);
+    try {
+      const r = await fetch('/api/admin/questions/batch-save', {
+        method:'POST', headers:{...hdrs(),'Content-Type':'application/json'},
+        body: JSON.stringify({ questions:[{text:manQ.trim(),reference:manA.trim(),keywords:'',category:manCat}], bank_id:manBank?parseInt(manBank):undefined, bank_name:manNewBank.trim()||undefined })
+      });
+      const d = await r.json();
+      if (d.ok) { setManMsg('✅ 已保存'); setManQ(''); setManA(''); onDone?.(); }
+      else setManMsg('❌ ' + (d.error||'保存失败'));
+    } catch { setManMsg('❌ 网络错误'); }
+    setManSaving(false);
+  };
+
+
+  const inp = { background:'#0d1117', border:'1px solid #1b3255', color:'#e2e8f0', borderRadius:6, padding:'7px 10px', fontSize:12, width:'100%', boxSizing:'border-box', fontFamily:'inherit' };
+  const divider = <div style={{borderTop:'1px solid #1b3255',margin:'14px 0'}}/>;
+  const sectionLabel = (icon, text) => <div style={{fontSize:11,color:'#64748b',fontWeight:700,letterSpacing:0.5,marginBottom:8}}>{icon} {text}</div>;
+
+  return (
+    <div style={{marginTop:10,padding:'14px',border:'1px solid #1b3255',borderRadius:8,background:'rgba(13,17,23,0.6)'}}>
+
+      {/* ── Section 1: AI 辅助出题 ── */}
+      {sectionLabel('🤖','AI 辅助出题')}
+
+      {/* 内容来源 */}
+      <div style={{display:'flex',gap:8,marginBottom:8,alignItems:'flex-start'}}>
+        <div style={{flex:1}}>
+          <textarea value={pasteText} onChange={e=>{setPasteText(e.target.value);if(e.target.value)setSrcFile(null);}}
+            placeholder="粘贴文件内容（事件报告、培训材料等）…"
+            rows={4} style={{...inp,resize:'vertical'}}/>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:6,flexShrink:0}}>
+          <label style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4,padding:'8px 10px',border:'1px dashed #1b3255',borderRadius:6,cursor:'pointer',background:srcFile?'rgba(59,130,246,0.1)':'transparent',minWidth:72}}>
+            <input ref={s1Ref} type="file" accept=".docx,.pdf,.jpg,.jpeg,.png,.gif,.webp" style={{display:'none'}} onChange={e=>{const f=e.target.files?.[0];if(f){setSrcFile(f);setPasteText('');}e.target.value='';}}/>
+            <span style={{fontSize:18}}>{srcFile?'📄':'📁'}</span>
+            <span style={{fontSize:10,color:srcFile?'#60a5fa':'#64748b',textAlign:'center',lineHeight:1.2}}>{srcFile?srcFile.name.slice(0,12)+(srcFile.name.length>12?'…':''):'上传文件'}</span>
+          </label>
+          {srcFile&&<button onClick={()=>setSrcFile(null)} style={{fontSize:10,color:'#475569',background:'none',border:'none',cursor:'pointer',padding:0}}>✕ 清除</button>}
+        </div>
+      </div>
+
+      {/* 问题模板 */}
+      <div style={{marginBottom:8}}>
+        <div style={{fontSize:11,color:'#94a3b8',marginBottom:6}}>选择要提问的方向：</div>
+        <div style={{display:'flex',flexDirection:'column',gap:5}}>
+          {TEMPLATES.map((t,i)=>(
+            <label key={i} style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}}>
+              <div onClick={()=>setTplSelected(prev=>prev.includes(i)?prev.filter(x=>x!==i):[...prev,i])}
+                style={{width:15,height:15,borderRadius:3,border:`2px solid ${tplSelected.includes(i)?'#3b82f6':'#334155'}`,background:tplSelected.includes(i)?'#3b82f6':'none',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                {tplSelected.includes(i)&&<span style={{color:'white',fontSize:9,lineHeight:1}}>✓</span>}
+              </div>
+              <span style={{fontSize:12,color:tplSelected.includes(i)?'#e2e8f0':'#64748b'}}>{t}</span>
+            </label>
+          ))}
+        </div>
+        <textarea value={customTplText} onChange={e=>setCustomTplText(e.target.value)}
+          placeholder="自定义题目（每行一个，AI 将从内容中提取对应答案）"
+          rows={2} style={{...inp,marginTop:8,resize:'vertical'}}/>
+      </div>
+
+      {/* AI 识别按钮 */}
+      <button onClick={doAiParse} disabled={aiParsing}
+        style={{width:'100%',padding:'9px',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',border:'none',borderRadius:7,color:'white',fontSize:13,fontWeight:600,cursor:'pointer',opacity:aiParsing?0.6:1,marginBottom:8}}>
+        {aiParsing?'AI 识别中，请稍候…':'🤖 AI 识别并生成答案'}
+      </button>
+
+      {/* AI 结果预览 */}
+      {parsedQs.length>0&&(
+        <div>
+          <div style={{fontSize:11,color:'#64748b',marginBottom:6}}>识别结果（{parsedQs.length} 题，勾选要保存的）：</div>
+          <div style={{maxHeight:240,overflowY:'auto',marginBottom:8}}>
+            {parsedQs.map((q,i)=>(
+              <div key={i} onClick={()=>setCheckedQs(prev=>prev.includes(i)?prev.filter(x=>x!==i):[...prev,i])}
+                style={{padding:'8px 10px',marginBottom:5,borderRadius:6,border:`1px solid ${checkedQs.includes(i)?'#3b82f6':'#1b3255'}`,cursor:'pointer',background:checkedQs.includes(i)?'rgba(59,130,246,0.08)':'transparent'}}>
+                <div style={{display:'flex',gap:8,alignItems:'flex-start'}}>
+                  <span style={{color:checkedQs.includes(i)?'#3b82f6':'#475569',fontSize:14,flexShrink:0,marginTop:1}}>{checkedQs.includes(i)?'☑':'☐'}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12,color:'#e2e8f0',marginBottom:3}}>{q.text}</div>
+                    <div style={{fontSize:11,color:'#64748b',wordBreak:'break-all'}}>{q.reference?.slice(0,80)}{q.reference?.length>80?'…':''}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <GroupedBankSelect value={aiBank} onChange={setAiBank} newValue={aiNewBank} onNewChange={setAiNewBank}/>
+          <button onClick={doAiSave} disabled={aiSaving||checkedQs.length===0}
+            style={{width:'100%',marginTop:6,padding:'8px',background:'#1b3a6e',border:'none',borderRadius:7,color:'white',fontSize:13,fontWeight:600,cursor:'pointer',opacity:(aiSaving||checkedQs.length===0)?0.5:1}}>
+            {aiSaving?'保存中…':`保存选中 ${checkedQs.length} 题`}
+          </button>
+        </div>
+      )}
+      {aiMsg&&<div style={{fontSize:12,marginTop:6,color:aiMsg.startsWith('✅')?'#22c55e':'#ef4444'}}>{aiMsg}</div>}
+
+      {divider}
+
+      {/* ── Section 2: 手动出题 ── */}
+      {sectionLabel('✍️','手动出题')}
+      <div style={{display:'flex',flexDirection:'column',gap:8}}>
+        <select value={manCat} onChange={e=>setManCat(e.target.value)} style={{...inp,width:'auto'}}>
+          {['安全事件','应急处置','业务知识','设备操作','规章制度'].map(c=><option key={c}>{c}</option>)}
+        </select>
+        <textarea value={manQ} onChange={e=>setManQ(e.target.value)} placeholder="输入题目内容…" rows={3} style={{...inp,resize:'vertical'}}/>
+        <textarea value={manA} onChange={e=>setManA(e.target.value)} placeholder="输入参考答案（各要点用分号分隔）…" rows={4} style={{...inp,resize:'vertical'}}/>
+        <label style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',border:'1px dashed #1b3255',borderRadius:6,cursor:manAiLoading||!manQ.trim()?'default':'pointer',background:'rgba(59,130,246,0.04)',opacity:!manQ.trim()?0.5:1}}>
+          <input ref={s2Ref} type="file" accept=".docx,.pdf,.jpg,.jpeg,.png,.gif,.webp" style={{display:'none'}}
+            onChange={()=>{ if(!manQ.trim()){setManMsg('❌ 请先填写题目');return;} doManAiExtract(); }} disabled={manAiLoading||!manQ.trim()}/>
+          <span style={{fontSize:14}}>{manAiLoading?'🤖':'📎'}</span>
+          <span style={{fontSize:12,color:'#64748b'}}>{manAiLoading?'AI 提取中…':'上传文件，AI 从文件中提取参考答案'}</span>
+        </label>
+        <GroupedBankSelect value={manBank} onChange={setManBank} newValue={manNewBank} onNewChange={setManNewBank}/>
+        <button onClick={doManSave} disabled={manSaving||!manQ.trim()||!manA.trim()}
+          style={{padding:'9px',background:'#1b3a6e',border:'none',borderRadius:7,color:'white',fontSize:13,fontWeight:600,cursor:'pointer',opacity:(manSaving||!manQ.trim()||!manA.trim())?0.5:1}}>
+          {manSaving?'保存中…':'保存题目'}
+        </button>
+        {manMsg&&<div style={{fontSize:12,color:manMsg.startsWith('✅')?'#22c55e':'#ef4444'}}>{manMsg}</div>}
+      </div>
+
+
+    </div>
+  );
+}
+
 function BankImportCard({ pwd, onImported }) {
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState('');
@@ -2572,17 +3275,48 @@ function DocParseCard({ pwd, banks, onImported }) {
   const [checked, setChecked] = useState([]);
   const [bankId, setBankId] = useState('');
   const [newBankName, setNewBankName] = useState('');
+  const [mode, setMode] = useState('auto'); // auto | custom
+  const [autoCount, setAutoCount] = useState(5);
+  const [customText, setCustomText] = useState('');
   const fileRef = useRef();
 
   const adminHeaders = pwd => ({ 'x-admin-password': pwd });
 
+  // 题库按分类分组（与题库管理 UI 保持一致：5635-5636）
+  const isIncidentBank = (b) => b.id !== 1 && b.name !== '风险数据库' && b.name !== '人工提问' && (b.name.includes('事件') || b.name.includes('事故') || b.name.includes('分析') || b.name.includes('报告'));
+  const groupedBanks = (() => {
+    const emergency = banks.filter(b => b.id === 1);
+    const risk = banks.filter(b => b.name === '风险数据库');
+    const incident = banks.filter(isIncidentBank);
+    const theory = banks.filter(b => b.id !== 1 && b.name !== '风险数据库' && b.name !== '人工提问' && !isIncidentBank(b));
+    return { emergency, risk, incident, theory };
+  })();
+
+  const INCIDENT_TEMPLATES = [
+    '请简要描述事件发生的经过',
+    '乘务员在事件中存在哪些问题',
+    '事件的整改措施及反思有哪些',
+  ];
+  const addTemplate = (t) => {
+    const lines = customText.split('\n').map(s => s.trim()).filter(Boolean);
+    if (lines.includes(t)) return;
+    setCustomText(prev => (prev.trim() ? prev.replace(/\s+$/, '') + '\n' + t : t));
+  };
+
   const doParse = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
     e.target.value = '';
+    let customList = [];
+    if (mode === 'custom') {
+      customList = customText.split('\n').map(s => s.trim()).filter(Boolean);
+      if (customList.length === 0) { setMsg('❌ 自定义模式请至少输入一道题目'); return; }
+    }
     setStep('parsing'); setMsg(''); setQuestions([]); setChecked([]);
     const fd = new FormData();
     fd.append('file', file);
-    fd.append('count', '5');
+    fd.append('mode', mode);
+    if (mode === 'auto') fd.append('count', String(autoCount));
+    else fd.append('custom_questions', JSON.stringify(customList));
     try {
       const r = await fetch('/api/admin/banks/parse-doc', { method: 'POST', headers: adminHeaders(pwd), body: fd });
       const d = await r.json();
@@ -2629,20 +3363,48 @@ function DocParseCard({ pwd, banks, onImported }) {
   const toggleCheck = (i) => setChecked(prev => prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i]);
 
   if (step === 'idle' || step === 'parsing') return (
-    <label className="card" style={{border:'1px dashed #1e3a5f',textAlign:'center',padding:'22px',cursor: step==='parsing'?'default':'pointer',display:'block',background:'rgba(59,130,246,0.04)'}}>
-      <input ref={fileRef} type="file" accept=".docx,.pdf,.jpg,.jpeg,.png,.gif,.webp" style={{display:'none'}} onChange={doParse} disabled={step==='parsing'}/>
-      <div style={{fontSize:24,marginBottom:6}}>{step === 'parsing' ? '🤖' : '📄'}</div>
-      <div style={{fontSize:13,color:'#3b82f6',fontWeight:600}}>{step === 'parsing' ? 'AI解析中，请稍候…' : '智能出题（Word / PDF / 图片）'}</div>
-      <div style={{fontSize:11,color:'#64748b',marginTop:4}}>支持事故分析报告·自动识别出题结构</div>
-      {msg && <div style={{fontSize:12,marginTop:8,color:'#ef4444'}}>{msg}</div>}
-    </label>
+    <div className="card" style={{border:'1px solid #1e3a5f',padding:14,background:'rgba(59,130,246,0.04)'}}>
+      {/* 模式切换 */}
+      <div style={{display:'flex',gap:6,marginBottom:10}}>
+        <button onClick={()=>setMode('auto')} disabled={step==='parsing'} style={{flex:1,padding:'7px',borderRadius:6,border:`1px solid ${mode==='auto'?'#3b82f6':'#1b3255'}`,background:mode==='auto'?'rgba(59,130,246,0.15)':'transparent',color:mode==='auto'?'#60a5fa':'#94a3b8',fontSize:12,fontWeight:600,cursor:'pointer'}}>🤖 自动出题</button>
+        <button onClick={()=>setMode('custom')} disabled={step==='parsing'} style={{flex:1,padding:'7px',borderRadius:6,border:`1px solid ${mode==='custom'?'#3b82f6':'#1b3255'}`,background:mode==='custom'?'rgba(59,130,246,0.15)':'transparent',color:mode==='custom'?'#60a5fa':'#94a3b8',fontSize:12,fontWeight:600,cursor:'pointer'}}>✍️ 自定义题目</button>
+      </div>
+
+      {mode==='auto' && (
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,fontSize:12,color:'#94a3b8'}}>
+          <span>AI 推荐题数：</span>
+          <input type="number" min={1} max={20} value={autoCount} onChange={e=>setAutoCount(Math.max(1,Math.min(20,parseInt(e.target.value)||5)))} disabled={step==='parsing'} style={{width:60,padding:'5px 8px',borderRadius:5,border:'1px solid #1b3255',background:'#0d1117',color:'#e2e8f0',fontSize:12}}/>
+          <span style={{fontSize:11,color:'#64748b'}}>（事件报告会自动按 1 题处理）</span>
+        </div>
+      )}
+
+      {mode==='custom' && (
+        <div style={{marginBottom:10}}>
+          <textarea value={customText} onChange={e=>setCustomText(e.target.value)} placeholder="每行输入一道题目，AI 仅负责从文档中提取参考答案，不会自由发挥。例如：&#10;请简要描述事件发生的经过" rows={4} disabled={step==='parsing'} style={{width:'100%',padding:'8px 10px',borderRadius:6,border:'1px solid #1b3255',background:'#0d1117',color:'#e2e8f0',fontSize:12,fontFamily:'inherit',resize:'vertical',boxSizing:'border-box'}}/>
+          <div style={{display:'flex',gap:5,marginTop:6,flexWrap:'wrap'}}>
+            <span style={{fontSize:11,color:'#64748b',alignSelf:'center'}}>事件常用：</span>
+            {INCIDENT_TEMPLATES.map(t=>(
+              <button key={t} onClick={()=>addTemplate(t)} disabled={step==='parsing'} style={{fontSize:11,padding:'3px 8px',borderRadius:4,border:'1px solid #1b3255',background:'#0d1e35',color:'#94a3b8',cursor:'pointer'}}>+ {t}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <label style={{display:'block',textAlign:'center',padding:'18px',border:'1px dashed #1e3a5f',borderRadius:8,cursor: step==='parsing'?'default':'pointer',background:'rgba(15,23,42,0.4)'}}>
+        <input ref={fileRef} type="file" accept=".docx,.pdf,.jpg,.jpeg,.png,.gif,.webp" style={{display:'none'}} onChange={doParse} disabled={step==='parsing'}/>
+        <div style={{fontSize:24,marginBottom:6}}>{step === 'parsing' ? '🤖' : '📄'}</div>
+        <div style={{fontSize:13,color:'#3b82f6',fontWeight:600}}>{step === 'parsing' ? 'AI解析中，请稍候…' : '点击选择文件（Word / PDF / 图片）'}</div>
+        <div style={{fontSize:11,color:'#64748b',marginTop:4}}>{mode==='custom' ? 'AI 将按你的题目从文档抽取答案' : '支持事故分析报告·自动识别出题结构'}</div>
+      </label>
+      {msg && <div style={{fontSize:12,marginTop:8,color:msg.startsWith('✅')?'#22c55e':'#ef4444'}}>{msg}</div>}
+    </div>
   );
 
   return (
     <div className="card" style={{border:'1px solid #1e3a5f',padding:'16px'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
         <div style={{fontSize:13,fontWeight:700,color:'#3b82f6'}}>
-          🤖 AI识别结果 {docType==='incident' ? '·📋 安全事件报告' : '·📖 业务材料'}
+          🤖 AI识别结果 {docType==='incident' ? '·📋 安全事件报告' : docType==='custom' ? '·✍️ 自定义题目' : '·📖 业务材料'}
         </div>
         <button onClick={()=>{setStep('idle');setMsg('');}} style={{background:'none',border:'none',color:'#64748b',cursor:'pointer',fontSize:12}}>重新上传</button>
       </div>
@@ -2664,7 +3426,10 @@ function DocParseCard({ pwd, banks, onImported }) {
       <div style={{display:'flex',gap:8,marginBottom:8,flexWrap:'wrap'}}>
         <select value={bankId} onChange={e=>{setBankId(e.target.value);setNewBankName('');}} style={{flex:1,minWidth:120,padding:'6px 8px',borderRadius:6,border:'1px solid #1b3255',background:'#0d1117',color:'#e2e8f0',fontSize:12}}>
           <option value=''>-- 选择已有题库 --</option>
-          {banks.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+          {groupedBanks.emergency.length>0 && <optgroup label="🚨 应急故障处置">{groupedBanks.emergency.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</optgroup>}
+          {groupedBanks.risk.length>0 && <optgroup label="⚠️ 风险数据库">{groupedBanks.risk.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</optgroup>}
+          {groupedBanks.incident.length>0 && <optgroup label="📋 事件分析报告">{groupedBanks.incident.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</optgroup>}
+          {groupedBanks.theory.length>0 && <optgroup label="📖 理论考试题库">{groupedBanks.theory.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</optgroup>}
         </select>
         <input placeholder="或新建题库名称" value={newBankName} onChange={e=>{setNewBankName(e.target.value);setBankId('');}} style={{flex:1,minWidth:120,padding:'6px 8px',borderRadius:6,border:'1px solid #1b3255',background:'#0d1117',color:'#e2e8f0',fontSize:12}}/>
       </div>
@@ -2700,6 +3465,9 @@ function WorkshopScreen({ user, onBack }) {
   // 成员操作弹窗
   const [memberModal, setMemberModal] = useState(null);
   // {planId, staffId, staffName, isAdded, step:'main'|'swap'|'postpone', candidates:[], target:null}
+  // 教员互换弹窗
+  const [instructorSwapModal, setInstructorSwapModal] = useState(null);
+  // {planId, planDate, instructorName, candidates:[{planId,shiftDate,instructorId,instructorName}], target:null}
   // 导出菜单
   const [showWsExport, setShowWsExport] = useState(false);
   const [wsExportMonths, setWsExportMonths] = useState([]);
@@ -3313,7 +4081,10 @@ function WorkshopScreen({ user, onBack }) {
 
                 // 已单独展开的非相关卡：顶部加收起按钮
                 const collapsible = !wsEditMode && !mine && isIndividuallyExpanded;
-                const fixedNames = (plan.fixedStaff || []).map(f => f.real_name || f.name);
+                const planRemovedIds = new Set((p.memberOverrides?.removed||[]).map(r=>String(r.id||r.staff_id)));
+                const activeFixedStaff = (plan.fixedStaff||[]).filter(f=>!planRemovedIds.has(String(f.staff_id)));
+                const cancelledFixedStaff = (plan.fixedStaff||[]).filter(f=>planRemovedIds.has(String(f.staff_id)));
+                const fixedNames = activeFixedStaff.map(f => f.real_name || f.name);
                 const allLeaders = (plan.leaderStaff || []).map(l => l.real_name || l.name);
                 const normalMembers = g
                   ? (g.members || []).filter(m => m.id !== g.instructor_id && !(plan.fixedStaff||[]).some(f => f.staff_id === m.id))
@@ -3328,15 +4099,15 @@ function WorkshopScreen({ user, onBack }) {
                 const LOCATIONS = ['工人村', '青菱车场', '复兴路'];
                 const TYPE_LABELS = {'培训':'实操','理论':'理论','轮空':'轮空','中旬会':'中旬会'};
 
-                // 通用下拉 chip 组件（行内渲染）
-                const Chip = ({field, label, color='#94a3b8', borderColor='#1b3255', options, onSelect}) => (
-                  <span style={{display:'inline-flex',alignItems:'center',gap:0,flexShrink:0}}>
+                // 通用下拉 chip 组件（行内渲染；popover=true 时选项以浮层形式弹出，不撑开整行）
+                const Chip = ({field, label, color='#94a3b8', borderColor='#1b3255', options, onSelect, popover=false}) => (
+                  <span style={{display:'inline-flex',alignItems:'center',gap:0,flexShrink:0,position:popover?'relative':'static'}}>
                     <button onClick={()=>toggleField(field)} style={{
                       padding:'1px 6px',borderRadius:5,fontSize:11,fontWeight:600,fontFamily:'inherit',cursor:'pointer',
                       color, border:`1px solid ${isOpen(field)?color:borderColor}`,
                       background: isOpen(field)?'rgba(59,130,246,0.1)':'none'
                     }}>{label} {canEdit?'▾':''}</button>
-                    {canEdit && isOpen(field) && (
+                    {canEdit && isOpen(field) && !popover && (
                       <span style={{display:'inline-flex',flexWrap:'wrap',gap:4,marginLeft:4}}>
                         {options.map(opt=>(
                           <button key={opt.value} onClick={()=>onSelect(opt.value)} style={{
@@ -3347,6 +4118,29 @@ function WorkshopScreen({ user, onBack }) {
                           }}>{opt.label}</button>
                         ))}
                       </span>
+                    )}
+                    {canEdit && isOpen(field) && popover && (
+                      <>
+                        <span onClick={()=>toggleField(field)} style={{position:'fixed',inset:0,zIndex:40}}/>
+                        <span style={{
+                          position:'absolute',top:'calc(100% + 4px)',left:0,zIndex:50,
+                          background:'#0d1e35',border:`1px solid ${color}`,borderRadius:6,
+                          padding:5,boxShadow:'0 4px 14px rgba(0,0,0,0.5)',
+                          display:'grid',gridTemplateColumns:'repeat(2,minmax(60px,auto))',gap:3,
+                          minWidth:140,
+                        }}>
+                          {options.length===0 && <span style={{fontSize:10,color:'#475569',padding:'4px 8px',gridColumn:'span 2'}}>无可选项</span>}
+                          {options.map(opt=>(
+                            <button key={opt.value} onClick={()=>onSelect(opt.value)} style={{
+                              padding:'3px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:'pointer',
+                              border:`1px solid ${opt.value===opt.current?color:'#1b3255'}`,
+                              background: opt.value===opt.current?`rgba(59,130,246,0.15)`:'rgba(13,17,23,0.4)',
+                              color: opt.value===opt.current?color:'#cbd5e1', fontWeight: opt.value===opt.current?600:400,
+                              whiteSpace:'nowrap',textAlign:'center',
+                            }}>{opt.label}</button>
+                          ))}
+                        </span>
+                      </>
                     )}
                   </span>
                 );
@@ -3558,15 +4352,69 @@ function WorkshopScreen({ user, onBack }) {
                       <div style={{padding:'8px 12px',display:'flex',flexDirection:'column',gap:5}}>
                         {/* 行2：教员 班组长 */}
                         <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
-                          {(g.instructor_name||canEdit) && (
-                            <span style={{fontSize:11,color:'#7c8fa6',display:'inline-flex',alignItems:'center',gap:4}}>
-                              教员
-                              <Chip field="instructor" label={g.instructor_name||'—'} color="#93c5fd" borderColor="#1b3255"
-                                options={(plan.groups||[]).flatMap(gr=>gr.members||[]).filter((m,i,a)=>m.id&&a.findIndex(x=>x.id===m.id)===i).map(m=>({value:m.id,label:m.real_name||m.name,current:null}))}
-                                onSelect={v=>{const nm=(plan.groups||[]).flatMap(gr=>gr.members||[]).find(m=>m.id===v);patchRow(p.id,{},`${now} 教员暂改为"${nm?.real_name||nm?.name}"（如需永久生效请在小组设置中修改）`);}}
-                              />
-                            </span>
-                          )}
+                          {(g.instructor_name||canEdit) && (() => {
+                            // 该计划小组的"默认教员"（用于"恢复默认"选项）
+                            const groupDefault = (plan.groups||[]).find(gr=>gr.id===p.group_id);
+                            const defaultInstId = groupDefault?.instructor_id || null;
+                            // 候选：仅"教员"标签且非"班组长"的员工，且排除当前已显示的教员本人
+                            const allStaff = (plan.allStaff||[]).filter(s=>s.id);
+                            const insStaff = allStaff.filter(s=>s.is_instructor && !s.is_leader && String(s.id)!==String(g.instructor_id));
+                            const opts = insStaff.map(s=>({value:s.id,label:s.real_name||s.name,current:null}));
+                            // 若已被 override，加一个"恢复默认"选项置于最前
+                            if (p.instructor_overridden && defaultInstId) {
+                              const def = allStaff.find(s=>String(s.id)===String(defaultInstId));
+                              opts.unshift({value:'__reset__',label:`↺ 恢复默认（${def?.real_name||def?.name||'—'}）`,current:null});
+                            }
+                            return (
+                              <span style={{fontSize:11,color:'#7c8fa6',display:'inline-flex',alignItems:'center',gap:4}}>
+                                教员
+                                <Chip field="instructor" label={(g.instructor_name||'—')+(p.instructor_overridden?' *':'')} color="#93c5fd" borderColor="#1b3255"
+                                  popover={true}
+                                  options={opts}
+                                  onSelect={v=>{
+                                    if(v==='__reset__'){
+                                      const cur = g.instructor_name||'';
+                                      const def = allStaff.find(s=>String(s.id)===String(defaultInstId));
+                                      const defName = def?.real_name||def?.name||'';
+                                      patchRow(p.id,{instructor_id_override:null},`${now} 教员恢复默认（${cur}→${defName}）`);
+                                    } else {
+                                      const nm = allStaff.find(s=>String(s.id)===String(v));
+                                      const newName = nm?.real_name||nm?.name||'';
+                                      const cur = g.instructor_name||'';
+                                      // 选回默认教员则清 override
+                                      const ov = String(v)===String(defaultInstId) ? null : v;
+                                      patchRow(p.id,{instructor_id_override:ov},`${now} 教员改为"${newName}"（原${cur}）`);
+                                    }
+                                  }}
+                                />
+                                {canEdit && (
+                                  <button title="与另一计划的教员互换" onClick={async()=>{
+                                    const today2 = new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'});
+                                    const candidates = (plan.plans||[])
+                                      .filter(x=>x.id!==p.id && x.plan_type!=='轮空' && x.plan_type!=='中旬会' && x.shift_date>=today2 && x.group)
+                                      .map(x=>({
+                                        planId:x.id,
+                                        shiftDate:x.shift_date,
+                                        instructorId:x.group?.instructor_id,
+                                        instructorName:x.group?.instructor_name||'—',
+                                        groupName:x.group?.name||'',
+                                      }))
+                                      .filter(x=>x.instructorId && String(x.instructorId)!==String(g.instructor_id));
+                                    setInstructorSwapModal({
+                                      planId:p.id,
+                                      planDate:p.shift_date,
+                                      instructorName:g.instructor_name||'—',
+                                      candidates,
+                                      target:null,
+                                    });
+                                  }} style={{
+                                    padding:'1px 5px',borderRadius:5,fontSize:11,fontFamily:'inherit',cursor:'pointer',
+                                    border:'1px solid #1b3255',background:'rgba(59,130,246,0.08)',color:'#93c5fd',
+                                  }}>⇄</button>
+                                )}
+                              </span>
+                            );
+                          })()}
                           <span style={{fontSize:11,color:'#7c8fa6',display:'inline-flex',alignItems:'center',gap:4}}>
                             班组长
                             <Chip field="leader" label={p.leader_name||'—'} color="#fbbf24" borderColor="#1b3255"
@@ -3594,7 +4442,8 @@ function WorkshopScreen({ user, onBack }) {
                                   {Array.from({length:SLOTS}).map((_,i)=>{
                                     const m = effectiveMembers[i];
                                     const isSwapped = m?.isAdded;
-                                    const canRetro = retroMode && isPast && hasEditPerm && !canEdit;
+                                    // 补录模式下，组员按钮走"确认/点评"流程（优先于"修改成员"，且不依赖编辑模式）
+                                    const canRetro = retroMode && hasEditPerm && p.shift_date <= today2;
                                     return m ? (
                                       <button key={i} onClick={async()=>{
                                         if (canRetro) {
@@ -3602,7 +4451,7 @@ function WorkshopScreen({ user, onBack }) {
                                           const rids2 = new Set((ov2.removed||[]).map(r=>String(r.id||r.staff_id)));
                                           const baseM2 = normalMembers.filter(x=>!rids2.has(String(x.id)));
                                           const addedM2 = (ov2.added||[]).map(a=>({id:a.id||a.staff_id,real_name:a.real_name||a.staff_name||a.name}));
-                                          const fixedM2 = (plan.fixedStaff||[]).map(f=>({id:f.staff_id,real_name:f.real_name||f.name}));
+                                          const fixedM2 = (plan.fixedStaff||[]).filter(f=>!rids2.has(String(f.staff_id))).map(f=>({id:f.staff_id,real_name:f.real_name||f.name}));
                                           const allM2 = [...baseM2,...addedM2,...fixedM2].filter((x,j,a)=>a.findIndex(y=>y.id===x.id)===j);
                                           const evals2 = await apiJson(`/api/workshop/training-plan/${p.id}/evaluations`).catch(()=>[]);
                                           const evMap2 = {}; (Array.isArray(evals2)?evals2:[]).forEach(e=>{ evMap2[e.staff_id]=e; });
@@ -3629,9 +4478,32 @@ function WorkshopScreen({ user, onBack }) {
                                 </div>
                               </div>
                               {/* 固定人员 */}
-                              {fixedNames.length>0 && (
-                                <div style={{fontSize:10,color:'#7c8fa6'}}>
-                                  固定 <span style={{color:'#c4b5fd'}}>{fixedNames.join('、')}</span>
+                              {(activeFixedStaff.length>0||cancelledFixedStaff.length>0) && (
+                                <div style={{fontSize:10,color:'#7c8fa6',display:'flex',alignItems:'center',gap:4,flexWrap:'wrap'}}>
+                                  <span>固定</span>
+                                  {activeFixedStaff.map((f,fi)=>(
+                                    wsEditMode&&canEdit ? (
+                                      <button key={fi} onClick={async()=>{
+                                        const now2=logNow();
+                                        await api('/api/admin/training-plan/member-remove',{method:'POST',headers:hdrs(),body:JSON.stringify({plan_id:p.id,staff_id:f.staff_id,action:'remove'})});
+                                        patchRow(p.id,{},`${now2} ${f.real_name||f.name} 取消本次回段`);
+                                      }} style={{padding:'1px 5px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:'pointer',border:'1px solid rgba(196,181,253,0.4)',background:'rgba(196,181,253,0.08)',color:'#c4b5fd'}}>
+                                        {f.real_name||f.name} ×
+                                      </button>
+                                    ) : (
+                                      <span key={fi} style={{color:'#c4b5fd'}}>{f.real_name||f.name}</span>
+                                    )
+                                  ))}
+                                  {cancelledFixedStaff.map((f,fi)=>(
+                                    <button key={'c'+fi} onClick={async()=>{
+                                      if(!wsEditMode||!canEdit) return;
+                                      const now2=logNow();
+                                      await api('/api/admin/training-plan/member-remove',{method:'POST',headers:hdrs(),body:JSON.stringify({plan_id:p.id,staff_id:f.staff_id,action:'restore'})});
+                                      patchRow(p.id,{},`${now2} ${f.real_name||f.name} 恢复本次回段`);
+                                    }} style={{padding:'1px 5px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:wsEditMode&&canEdit?'pointer':'default',border:'1px solid rgba(100,100,100,0.3)',background:'rgba(30,30,30,0.2)',color:'#6b7280',textDecoration:'line-through'}}>
+                                      {f.real_name||f.name}
+                                    </button>
+                                  ))}
                                 </div>
                               )}
                             </div>
@@ -3669,7 +4541,7 @@ function WorkshopScreen({ user, onBack }) {
                             const removedIds = new Set((overrides.removed||[]).map(r=>String(r.id||r.staff_id)));
                             const baseM = (g?.members||[]).filter(m=>!removedIds.has(String(m.id)));
                             const addedM = (overrides.added||[]).map(a=>({id:a.id||a.staff_id,real_name:a.real_name||a.staff_name||a.name}));
-                            const fixedM = (plan.fixedStaff||[]).map(f=>({id:f.staff_id,real_name:f.real_name||f.name}));
+                            const fixedM = (plan.fixedStaff||[]).filter(f=>!removedIds.has(String(f.staff_id))).map(f=>({id:f.staff_id,real_name:f.real_name||f.name}));
                             const allM = [...baseM,...addedM,...fixedM].filter((m,i,a)=>a.findIndex(x=>x.id===m.id)===i);
                             const evals = await apiJson(`/api/workshop/training-plan/${p.id}/evaluations`).catch(()=>[]);
                             const evMap = {};
@@ -3904,6 +4776,57 @@ function WorkshopScreen({ user, onBack }) {
               </div>
             </>)}
 
+          </div>
+        </div>
+      )}
+
+      {/* 教员互换弹窗 */}
+      {instructorSwapModal && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:215,padding:16}} onClick={()=>setInstructorSwapModal(null)}>
+          <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:360}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontWeight:600,color:'#e2e8f0',fontSize:13,marginBottom:4}}>
+              互换教员 · {instructorSwapModal.planDate?.slice(5)}
+            </div>
+            <div style={{fontSize:11,color:'#475569',marginBottom:10}}>
+              当前教员 <strong style={{color:'#93c5fd'}}>{instructorSwapModal.instructorName}</strong>，选择要与之互换培训的另一位教员
+            </div>
+            <div style={{maxHeight:280,overflowY:'auto',display:'flex',flexDirection:'column',gap:4}}>
+              {instructorSwapModal.candidates.length===0 && (
+                <div style={{fontSize:12,color:'#475569',textAlign:'center',padding:'16px 0'}}>无可互换计划</div>
+              )}
+              {instructorSwapModal.candidates.map((c,i)=>(
+                <button key={i} onClick={()=>setInstructorSwapModal(prev=>({...prev,target:c}))} style={{
+                  padding:'8px 12px',borderRadius:7,
+                  border:`1px solid ${instructorSwapModal.target?.planId===c.planId?'#3b82f6':'#1b3255'}`,
+                  background:instructorSwapModal.target?.planId===c.planId?'rgba(59,130,246,0.15)':'rgba(13,17,23,0.4)',
+                  color:'#e2e8f0',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left',
+                  display:'flex',justifyContent:'space-between',alignItems:'center'
+                }}>
+                  <span><span style={{color:'#94a3b8',marginRight:8}}>{c.shiftDate?.slice(5)}</span><strong style={{color:'#93c5fd'}}>{c.instructorName}</strong></span>
+                  <span style={{fontSize:10,color:'#475569'}}>{c.groupName}</span>
+                </button>
+              ))}
+            </div>
+            {instructorSwapModal.target && (
+              <div style={{marginTop:10,padding:'8px 10px',background:'rgba(59,130,246,0.08)',borderRadius:6,border:'1px solid rgba(59,130,246,0.2)',fontSize:11,color:'#94a3b8'}}>
+                互换后：<br/>
+                {instructorSwapModal.planDate?.slice(5)} 由 <strong style={{color:'#60a5fa'}}>{instructorSwapModal.target.instructorName}</strong> 上课<br/>
+                {instructorSwapModal.target.shiftDate?.slice(5)} 由 <strong style={{color:'#60a5fa'}}>{instructorSwapModal.instructorName}</strong> 上课
+              </div>
+            )}
+            <div style={{display:'flex',gap:8,marginTop:12}}>
+              <button onClick={()=>setInstructorSwapModal(null)} style={{flex:1,padding:'9px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>取消</button>
+              <button disabled={!instructorSwapModal.target} onClick={async()=>{
+                const r = await apiJson('/api/admin/training-plan/instructor-swap',{method:'POST',headers:hdrs(),body:JSON.stringify({
+                  plan_id_a: instructorSwapModal.planId,
+                  plan_id_b: instructorSwapModal.target.planId,
+                })}).catch(()=>null);
+                if(r?.ok){setInstructorSwapModal(null);load(month);}
+                else alert(r?.error||'操作失败');
+              }} style={{flex:2,padding:'9px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#2563eb)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:instructorSwapModal.target?1:0.4}}>
+                确认互换
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -4728,7 +5651,7 @@ function AdminScreen({ onBack }) {
   const [qAll,setQAll]=useState([]);
   const [qPinned,setQPinned]=useState({ids:[],scope:'none',mode:'emergency',count:3,bank_id:null});
   const [qSelected,setQSelected]=useState([]);
-  const [pinScope,setPinScope]=useState('today');
+  const [pinScope,setPinScope]=useState('shift');
   const [pinFallback,setPinFallback]=useState('');
   const [qSelectOpen,setQSelectOpen]=useState(false);
   const [qSelectBank,setQSelectBank]=useState('incident'); // 'incident' | 'emergency'
@@ -4745,6 +5668,9 @@ function AdminScreen({ onBack }) {
   // 上传/人工出题面板
   const [showUploadPanel,setShowUploadPanel]=useState(false);
   const [showAddQPanel,setShowAddQPanel]=useState(false);
+  const [showImportPanel,setShowImportPanel]=useState(false);
+  const [pinFormOpen,setPinFormOpen]=useState(false);
+  const [pinCancelModal,setPinCancelModal]=useState(false);
   // 新增分类
   const [newCategoryName,setNewCategoryName]=useState('');
   const [savingCategory,setSavingCategory]=useState(false);
@@ -4762,7 +5688,7 @@ function AdminScreen({ onBack }) {
     if(!authed)return;
     if(tab==='overview'){apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});apiJson('/api/admin/leaderboard/alltime',{headers:hdrs()}).then(d=>setLbSessionsAlltime(Array.isArray(d)?d:(d.rows||[]))).catch(()=>{});apiJson('/api/admin/weak-questions',{headers:hdrs()}).then(setWeakQuestions).catch(()=>{});apiJson('/api/export/months',{headers:hdrs()}).then(setExportMonths).catch(()=>{});apiJson('/api/admin/month-plan-completion',{headers:hdrs()}).then(setMonthPlanCompletion).catch(()=>{});apiJson('/api/admin/month-member-completion',{headers:hdrs()}).then(setMonthMemberCompletion).catch(()=>{});}
     if(tab==='members')apiJson('/api/admin/members',{headers:hdrs()}).then(setMembers).catch(()=>{});
-    if(tab==='banks'){apiJson('/api/banks',{headers:hdrs()}).then(d=>{setBanks(d);if(d.length>0){setAiBankId(String(d[0].id));setPinFallback(String(d[0].id));}const manualBank=d.find(b=>b.name==='人工提问');if(manualBank)setAddQ(q=>({...q,bank_id:String(manualBank.id)}));}).catch(()=>{});apiJson('/api/settings',{headers:hdrs()}).then(setSettings).catch(()=>{});apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(d=>{setQPinned(d);setQSelected(d.ids||[]);setPinScope(d.scope==='none'?'today':d.scope);setPinFallback(d.bank_fallback_id?String(d.bank_fallback_id):'');setPinCount(d.count||3);setPinMode(d.bank_ids?.length>0?'manual':d.mode||'emergency');setPinRandomBankId(d.bank_id||null);setCheckedBankIds(d.bank_ids||[]);}).catch(()=>{});}
+    if(tab==='banks'){apiJson('/api/banks',{headers:hdrs()}).then(d=>{setBanks(d);if(d.length>0){setAiBankId(String(d[0].id));setPinFallback(String(d[0].id));}const manualBank=d.find(b=>b.name==='人工提问');if(manualBank)setAddQ(q=>({...q,bank_id:String(manualBank.id)}));}).catch(()=>{});apiJson('/api/settings',{headers:hdrs()}).then(setSettings).catch(()=>{});apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(d=>{setQPinned(d);setQSelected(d.ids||[]);setPinScope(d.scope==='none'?'shift':d.scope);setPinFallback(d.bank_fallback_id?String(d.bank_fallback_id):'');setPinCount(d.count||3);setPinMode(d.bank_ids?.length>0?'manual':d.mode||'emergency');setPinRandomBankId(d.bank_id||null);setCheckedBankIds(d.bank_ids||[]);}).catch(()=>{});}
     if(tab==='qr')apiJson('/api/qrcode').then(setQr).catch(()=>{});
     if(tab==='logs')apiJson('/api/admin/logs',{headers:hdrs()}).then(setLogs).catch(()=>{});
   },[tab,authed]);
@@ -4835,7 +5761,7 @@ function AdminScreen({ onBack }) {
             {overview.allStaff?.length>0&&(()=>{
               // Sort: none(staff_id desc) → interrupted/browsed(staff_id desc) → done(completed_at asc, earliest last)
               const noneGroup=[...overview.allStaff.filter(p=>p.status==='none')].sort((a,b)=>b.staff_id.localeCompare(a.staff_id));
-              const midGroup=[...overview.allStaff.filter(p=>p.status==='interrupted'||p.status==='browsed')].sort((a,b)=>b.staff_id.localeCompare(a.staff_id));
+              const midGroup=[...overview.allStaff.filter(p=>p.status==='interrupted'||p.status==='browsed'||p.status==='answering')].sort((a,b)=>b.staff_id.localeCompare(a.staff_id));
               const doneGroup=[...overview.allStaff.filter(p=>p.status==='done')].sort((a,b)=>(b.completed_at||'').localeCompare(a.completed_at||''));
               const sorted=[...noneGroup,...midGroup,...doneGroup];
               return(
@@ -4843,23 +5769,25 @@ function AdminScreen({ onBack }) {
                   <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'5px 6px'}}>
                     {(staffListCollapsed?sorted.slice(0,12):sorted).map((p,ni)=>{
                       const isDone=p.status==='done';
+                      const isAnswering=p.status==='answering';
                       const isInt=p.status==='interrupted';
                       const isBrowse=p.status==='browsed';
                       const isOverdue=p.overdue&&p.status==='none';
-                      const nameCol=isDone?'#22c55e':isInt||isBrowse?'#f59e0b':isOverdue?'#f97316':'#ef4444';
-                      const bg=isDone?'rgba(34,197,94,0.06)':isInt||isBrowse?'rgba(245,158,11,0.06)':isOverdue?'rgba(249,115,22,0.07)':'rgba(239,68,68,0.05)';
-                      const border=isDone?'rgba(34,197,94,0.18)':isInt||isBrowse?'rgba(245,158,11,0.2)':isOverdue?'rgba(249,115,22,0.25)':'rgba(239,68,68,0.12)';
-                      const clickable=isDone||isInt||isBrowse||isOverdue;
+                      const nameCol=isDone?'#22c55e':isAnswering?'#3b82f6':isInt||isBrowse?'#f59e0b':isOverdue?'#f97316':'#ef4444';
+                      const bg=isDone?'rgba(34,197,94,0.06)':isAnswering?'rgba(59,130,246,0.08)':isInt||isBrowse?'rgba(245,158,11,0.06)':isOverdue?'rgba(249,115,22,0.07)':'rgba(239,68,68,0.05)';
+                      const border=isDone?'rgba(34,197,94,0.18)':isAnswering?'rgba(59,130,246,0.35)':isInt||isBrowse?'rgba(245,158,11,0.2)':isOverdue?'rgba(249,115,22,0.25)':'rgba(239,68,68,0.12)';
+                      const clickable=isDone||isAnswering||isInt||isBrowse||isOverdue;
                       return(
                         <div key={ni} onClick={()=>{
                           if(isDone) setResetModal({staff_id:p.staff_id,name:p.name,score:p.score,completed_at:p.completed_at,isDone:true});
+                          else if(isAnswering) setResetModal({staff_id:p.staff_id,name:p.name,isAnswering:true,last_active_at:p.last_active_at});
                           else if(isInt||isBrowse) setResetModal({staff_id:p.staff_id,name:p.name});
                           else if(isOverdue) setMakeupModal({staff_id:p.staff_id,name:p.name});
                         }}
                           style={{display:'flex',flexDirection:'column',gap:1,padding:'5px 7px',background:bg,border:`1px solid ${border}`,borderRadius:6,minWidth:0,cursor:clickable?'pointer':'default'}}>
                           <div style={{fontSize:11,color:nameCol,fontWeight:700,lineHeight:1.3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
                           <div style={{fontSize:8,color:'#64748b',lineHeight:1.2}}>
-                            {isDone?`${p.score??'—'}分 ›`:isInt?'中断 ›':isBrowse?'浏览 ›':isOverdue?'逾期 ›':'未答'}
+                            {isDone?`${p.score??'—'}分 ›`:isAnswering?'答题中 ›':isInt?'中断 ›':isBrowse?'浏览 ›':isOverdue?'逾期 ›':'未答'}
                           </div>
                         </div>
                       );
@@ -4867,6 +5795,7 @@ function AdminScreen({ onBack }) {
                   </div>
                   <div style={{display:'flex',gap:10,marginTop:8,fontSize:9,color:'#475569',flexWrap:'wrap'}}>
                     <span style={{color:'#22c55e'}}>● 已完成</span>
+                    <span style={{color:'#3b82f6'}}>● 答题中（10分钟内有动作）</span>
                     <span style={{color:'#f59e0b'}}>● 中断/浏览（可点击重置）</span>
                     <span style={{color:'#ef4444'}}>● 未答题</span>
                     <span style={{color:'#f97316'}}>● 逾期（可点击补答）</span>
@@ -4884,12 +5813,14 @@ function AdminScreen({ onBack }) {
 
           {/* ── 重置答题机会弹窗 ── */}
           {resetModal&&<AppModal
-            icon="🔄"
-            title={`重置：${resetModal.name}`}
-            body={`确认重置本套班答题记录？\n重置后该人员可在本套班内重新答题。`}
+            icon={resetModal.isAnswering?'⚠️':'🔄'}
+            title={resetModal.isAnswering?`正在答题：${resetModal.name}`:`重置：${resetModal.name}`}
+            body={resetModal.isAnswering
+              ? `⚠ 该人员正在答题（最后操作 ${resetModal.last_active_at?.slice(11,16)||''}），重置会清空其本轮所有答题记录。\n确认要中断并重置吗？`
+              : `确认重置本套班答题记录？\n重置后该人员可在本套班内重新答题。`}
             buttons={[
               {label:'取消',onClick:()=>setResetModal(null)},
-              {label:'确认重置',danger:true,onClick:async()=>{
+              {label:resetModal.isAnswering?'仍然重置':'确认重置',danger:true,onClick:async()=>{
                 const r=await apiJson(`/api/admin/sessions/reset-cycle/${resetModal.staff_id}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);
                 setResetModal(null);
                 if(r?.ok){
@@ -5006,15 +5937,38 @@ function AdminScreen({ onBack }) {
               <div className="card" style={{padding:0,overflow:'hidden'}}>
                 <div style={{padding:'14px 16px 10px'}}>
                   <div style={{fontSize:10,color:'#64748b',letterSpacing:2,fontWeight:600,marginBottom:10,textTransform:'uppercase'}}>本月培训完成情况</div>
-                  <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:10}}>
-                    <div style={{flex:1}}>
-                      <div style={{fontSize:30,fontWeight:900,color:'white',lineHeight:1}}>{donePeople}<span style={{fontSize:12,color:'#64748b',fontWeight:400,marginLeft:5}}>/ {totalPeople} 人</span></div>
-                      {donePeople<totalPeople
-                        ? <div style={{fontSize:11,color:'#f59e0b',marginTop:4}}>还差 {totalPeople-donePeople} 人未完成评价</div>
-                        : <div style={{fontSize:11,color:'#22c55e',marginTop:4}}>全员已完成评价 ✓</div>}
-                    </div>
-                    <ScoreRing score={pct} size={62}/>
-                  </div>
+                  {(()=>{
+                    const notStarted = allMembers.filter(m=>m.total>0 && m.done===0);
+                    const ringCol = totalPeople===0 ? '#475569' : donePeople>=totalPeople ? '#22c55e' : donePeople===0 ? '#ef4444' : '#f59e0b';
+                    const ringSize = 72;
+                    const r = ringSize*0.38, circ = 2*Math.PI*r;
+                    const dash = (donePeople/Math.max(totalPeople,1))*circ;
+                    return (
+                      <div style={{display:'flex',alignItems:'center',gap:14,marginBottom:10}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:11,color:'#94a3b8',fontWeight:600,marginBottom:6}}>本月任务未完成人员</div>
+                          {notStarted.length===0
+                            ? <div style={{fontSize:12,color:'#22c55e'}}>✓ 无</div>
+                            : <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                                {notStarted.map(m=>(
+                                  <span key={m.id} style={{fontSize:10,color:'#ef4444',padding:'1px 6px',borderRadius:4,background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.3)',whiteSpace:'nowrap'}}>
+                                    {m.name}
+                                  </span>
+                                ))}
+                              </div>}
+                        </div>
+                        <svg width={ringSize} height={ringSize} viewBox={`0 0 ${ringSize} ${ringSize}`} style={{flexShrink:0}}>
+                          <circle cx={ringSize/2} cy={ringSize/2} r={r} fill="none" stroke="#1e293b" strokeWidth={ringSize*0.1}/>
+                          <circle cx={ringSize/2} cy={ringSize/2} r={r} fill="none" stroke={ringCol} strokeWidth={ringSize*0.1}
+                            strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
+                            transform={`rotate(-90 ${ringSize/2} ${ringSize/2})`} style={{transition:'stroke-dasharray 0.8s'}}/>
+                          <text x={ringSize/2} y={ringSize/2+ringSize*0.07} textAnchor="middle" fill="white" fontSize={ringSize*0.26} fontWeight="700">
+                            {donePeople}<tspan fill="#64748b" fontSize={ringSize*0.16}>/{totalPeople}</tspan>
+                          </text>
+                        </svg>
+                      </div>
+                    );
+                  })()}
                   <div style={{height:5,background:'#1e293b',borderRadius:3,overflow:'hidden'}}>
                     <div style={{height:'100%',width:`${pct}%`,background:'linear-gradient(90deg,#3b82f6,#22c55e)',borderRadius:3,transition:'width 0.8s ease'}}/>
                   </div>
@@ -5028,15 +5982,14 @@ function AdminScreen({ onBack }) {
                           {g.members.map(m=>{
                             const isDone=m.total>0&&m.done>=m.total;
                             const isNone=m.total===0;
-                            const scoreCol=isDone?'#22c55e':isNone?'#475569':'#f59e0b';
+                            const isZero=m.total>0&&m.done===0;
+                            const scoreCol=isDone?'#22c55e':isNone?'#475569':isZero?'#ef4444':'#f59e0b';
                             const openMemberModal=()=>{
                               const monthItems=monthMemberCompletion?.monthItems||[];
+                              const doneMap=new Map((m.doneItems||[]).map(d=>[d.item,d]));
                               const itemStatuses=monthItems.map(it=>{
-                                const coveringPlan=(monthPlanCompletion||[]).find(p=>{
-                                  const ci=p.completed_items||[];
-                                  return ci.includes(it.item)&&p.members?.some(x=>x.id===m.id&&x.evaluated);
-                                });
-                                if(coveringPlan){const mem=coveringPlan.members.find(x=>x.id===m.id);return{item:it.item,trainType:it.trainType,done:true,shift_date:coveringPlan.shift_date,comment:mem?.comment||''};}
+                                const found=doneMap.get(it.item);
+                                if(found) return{item:it.item,trainType:it.trainType,done:true,shift_date:found.shift_date,comment:found.comment||''};
                                 return{item:it.item,trainType:it.trainType,done:false};
                               });
                               setMemberEvalModal({id:m.id,name:m.name,itemStatuses});
@@ -5061,15 +6014,14 @@ function AdminScreen({ onBack }) {
                         {fixedMembers.map(m=>{
                           const isDone=m.total>0&&m.done>=m.total;
                           const isNone=m.total===0;
-                          const scoreCol=isDone?'#22c55e':isNone?'#475569':'#f59e0b';
+                          const isZero=m.total>0&&m.done===0;
+                          const scoreCol=isDone?'#22c55e':isNone?'#475569':isZero?'#ef4444':'#f59e0b';
                           const openMemberModal=()=>{
                             const monthItems=monthMemberCompletion?.monthItems||[];
+                            const doneMap=new Map((m.doneItems||[]).map(d=>[d.item,d]));
                             const itemStatuses=monthItems.map(it=>{
-                              const coveringPlan=(monthPlanCompletion||[]).find(p=>{
-                                const ci=p.completed_items||[];
-                                return ci.includes(it.item)&&p.members?.some(x=>x.id===m.id&&x.evaluated);
-                              });
-                              if(coveringPlan){const mem=coveringPlan.members.find(x=>x.id===m.id);return{item:it.item,trainType:it.trainType,done:true,shift_date:coveringPlan.shift_date,comment:mem?.comment||''};}
+                              const found=doneMap.get(it.item);
+                              if(found) return{item:it.item,trainType:it.trainType,done:true,shift_date:found.shift_date,comment:found.comment||''};
                               return{item:it.item,trainType:it.trainType,done:false};
                             });
                             setMemberEvalModal({id:m.id,name:m.name,itemStatuses});
@@ -5085,8 +6037,9 @@ function AdminScreen({ onBack }) {
                     </div>
                   )}
                   <div style={{display:'flex',gap:10,marginTop:8,fontSize:9,color:'#475569',flexWrap:'wrap'}}>
-                    <span style={{color:'#22c55e'}}>● 已完成</span>
-                    <span style={{color:'#f59e0b'}}>● 待完成</span>
+                    <span style={{color:'#22c55e'}}>● 全部完成</span>
+                    <span style={{color:'#f59e0b'}}>● 部分完成</span>
+                    <span style={{color:'#ef4444'}}>● 未开始</span>
                     <span style={{color:'#475569'}}>● 本月无安排</span>
                   </div>
                 </div>
@@ -5421,6 +6374,13 @@ function AdminScreen({ onBack }) {
           {/* ══ 板块1：本套班抽问题目 ══ */}
           {(()=>{
             const isActive = qPinned.scope !== 'none';
+            // 休息日：白班开始日 +3 天即为休息日，套班答题已结束
+            const todayStr = new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'});
+            const cycleStart = qPinned.cycle?.start_date;
+            const cycleRestDate = cycleStart
+              ? new Date(new Date(cycleStart+'T00:00:00+08:00').getTime()+3*86400000).toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'})
+              : null;
+            const isCycleOver = cycleRestDate ? todayStr >= cycleRestDate : false;
             const needPool = pinMode==='random'&&!pinRandomBankId; // 需要手动勾选题池
             const poolEnough = needPool ? qSelected.length > pinCount : true;
             const bankPoolMode = pinMode==='manual' && checkedBankIds.length > 0; // 勾选整个题库随机
@@ -5442,21 +6402,52 @@ function AdminScreen({ onBack }) {
                 apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(d=>{setQPinned(d);setPinCount(d.count||3);setPinMode(d.bank_ids?.length>0?'manual':d.mode||'emergency');setPinRandomBankId(d.bank_id||null);setQSelected(d.ids||[]);setCheckedBankIds(d.bank_ids||[]);});
                 setQSelectOpen(false);
                 setPinSaveModal(false);
+                setPinFormOpen(false);
                 apiJson('/api/admin/dingtalk/notify-start',{method:'POST',headers:hdrs(),body:JSON.stringify({ids:body.ids,mode:body.mode,count:body.count,bank_id:body.bank_id,bank_ids:body.bank_ids,scope:body.scope})}).catch(()=>null);
               } else { alert('设置失败'); }
             };
 
             return (
               <div className="card">
-                <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600,marginBottom:12}}>📌 本套班抽问题目</div>
-
-                {/* 当前生效状态 */}
-                {isActive&&!qSelectOpen&&(
-                  <div style={{marginBottom:12,padding:'8px 12px',background:'rgba(34,197,94,0.07)',border:'1px solid rgba(34,197,94,0.2)',borderRadius:8,fontSize:11,color:'#86efac'}}>
-                    ✅ 当前已设置：{qPinned.mode==='emergency'?'应急随机':qPinned.mode==='random'?'多题随机':'手动选题'} · {qPinned.count||3}题 · {qPinned.scope==='today'?'今天生效':'本套班生效'}
-                    <button onClick={async()=>{await apiJson('/api/admin/pinned-questions',{method:'PUT',headers:hdrs(),body:JSON.stringify({ids:[],scope:'none',mode:'emergency',count:3,bank_id:null,bank_ids:[]})}).catch(()=>null);setQPinned({ids:[],scope:'none',mode:'emergency',count:3,bank_id:null,bank_ids:[],questions:[]});setQSelected([]);setPinMode('emergency');setPinCount(3);setPinRandomBankId(null);setCheckedBankIds([]);}} style={{marginLeft:10,background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:11,padding:0}}>取消</button>
+                <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600,marginBottom:6,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <span>📌 本套班抽问题目</span>
+                  {qPinned.cycle?.label && <span style={{fontSize:10,color:'rgba(96,165,250,0.7)',fontWeight:400}}>本套班：{qPinned.cycle.label}</span>}
+                </div>
+                {!isActive && (
+                  <div style={{marginBottom:12,padding:'8px 12px',background:'rgba(148,163,184,0.06)',border:'1px solid rgba(148,163,184,0.18)',borderRadius:8,fontSize:11,color:'#94a3b8'}}>
+                    ⏳ 本套班尚未发布抽问题目{qPinned.stale && <span style={{color:'#64748b',marginLeft:6}}>（上套班 {qPinned.stale.created_date} 设置已失效）</span>}
                   </div>
                 )}
+
+                {/* 当前生效状态 */}
+                {isActive&&(
+                  <div style={{marginBottom:12,padding:'8px 12px',background:isCycleOver?'rgba(100,116,139,0.07)':'rgba(34,197,94,0.07)',border:`1px solid ${isCycleOver?'rgba(100,116,139,0.25)':'rgba(34,197,94,0.2)'}`,borderRadius:8,fontSize:11,color:isCycleOver?'#94a3b8':'#86efac'}}>
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:6}}>
+                      <span>
+                        {isCycleOver?'🔒 本套班已结束：':'✅ 当前已设置：'}
+                        {qPinned.mode==='emergency'?'应急随机':qPinned.mode==='random'?'多题随机':'手动选题'} · {qPinned.count||3}题 · {qPinned.scope==='today'?'今天生效':'本套班生效'}
+                      </span>
+                      {!isCycleOver&&(
+                        <span style={{display:'flex',gap:10,flexShrink:0}}>
+                          <button onClick={()=>setPinFormOpen(o=>!o)} style={{background:'none',border:'none',color:'#60a5fa',cursor:'pointer',fontSize:11,padding:0}}>{pinFormOpen?'▲ 收起':'修改设置'}</button>
+                          <button onClick={()=>setPinCancelModal(true)} style={{background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:11,padding:0}}>取消发布</button>
+                        </span>
+                      )}
+                    </div>
+                    {(qPinned.created_at||qPinned.created_date)&&(()=>{
+                      const stamp = qPinned.created_at || qPinned.created_date;
+                      const isToday = stamp.startsWith(todayStr);
+                      return (
+                        <div style={{marginTop:4,fontSize:10,color:isCycleOver?'#64748b':isToday?'rgba(134,239,172,0.7)':'#f59e0b'}}>
+                          📅 发布于 {stamp}{!isCycleOver&&!isToday&&' （非今日设置，注意核对）'}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* 表单：未发布时直接显示，已发布时折叠 */}
+                {(!isActive||pinFormOpen)&&<>
 
                 {/* 第一排：抽问几题 */}
                 <div style={{marginBottom:12}}>
@@ -5545,7 +6536,7 @@ function AdminScreen({ onBack }) {
                 <div style={{marginBottom:12}}>
                   <div style={{fontSize:11,color:'#94a3b8',fontWeight:600,marginBottom:6}}>生效范围</div>
                   <div style={{display:'flex',gap:8}}>
-                    {['today','shift'].map(s=><button key={s} onClick={()=>setPinScope(s)} style={{flex:1,padding:'8px',borderRadius:7,border:`1px solid ${pinScope===s?'#3b82f6':'#1b3255'}`,background:pinScope===s?'rgba(59,130,246,0.15)':'none',color:pinScope===s?'#60a5fa':'#94a3b8',cursor:'pointer',fontSize:12}}>{s==='today'?'今天生效':'本套班生效'}</button>)}
+                    {['shift','today'].map(s=><button key={s} onClick={()=>setPinScope(s)} style={{flex:1,padding:'8px',borderRadius:7,border:`1px solid ${pinScope===s?'#3b82f6':'#1b3255'}`,background:pinScope===s?'rgba(59,130,246,0.15)':'none',color:pinScope===s?'#60a5fa':'#94a3b8',cursor:'pointer',fontSize:12}}>{s==='today'?'今天生效':'本套班生效'}</button>)}
                   </div>
                 </div>
 
@@ -5566,6 +6557,25 @@ function AdminScreen({ onBack }) {
                       <div style={{display:'flex',gap:8}}>
                         <button onClick={()=>setPinSaveModal(false)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
                         <button onClick={doSave} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>确认发布</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                </>}
+
+                {/* 取消发布确认弹窗 — 放在折叠块外，始终可渲染 */}
+                {pinCancelModal&&(
+                  <div onClick={()=>setPinCancelModal(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+                    <div onClick={e=>e.stopPropagation()} style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:300,border:'1px solid rgba(239,68,68,0.3)'}}>
+                      <div style={{fontWeight:700,color:'white',fontSize:15,marginBottom:8}}>⚠️ 取消本套班抽问？</div>
+                      <div style={{fontSize:13,color:'#94a3b8',marginBottom:16,lineHeight:1.6}}>取消后本套班答题按钮将变灰，已完成的成绩记录不受影响。</div>
+                      <div style={{display:'flex',gap:8}}>
+                        <button onClick={()=>setPinCancelModal(false)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>返回</button>
+                        <button onClick={async()=>{
+                          await apiJson('/api/admin/pinned-questions',{method:'PUT',headers:hdrs(),body:JSON.stringify({ids:[],scope:'none',mode:'emergency',count:3,bank_id:null,bank_ids:[]})}).catch(()=>null);
+                          setQPinned({ids:[],scope:'none',mode:'emergency',count:3,bank_id:null,bank_ids:[],questions:[]});
+                          setQSelected([]);setPinMode('emergency');setPinCount(3);setPinRandomBankId(null);setCheckedBankIds([]);setPinFormOpen(false);setPinCancelModal(false);
+                        }} style={{flex:1,padding:'10px',borderRadius:7,border:'none',background:'#dc2626',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>确认取消</button>
                       </div>
                     </div>
                   </div>
@@ -5602,8 +6612,25 @@ function AdminScreen({ onBack }) {
                 <div key={b.id} style={{borderBottom:'1px solid rgba(27,50,85,0.4)'}}>
                   <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',padding:'9px 12px',cursor:'pointer'}} onClick={toggleExpand}>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:12,color:'white',fontWeight:600,marginBottom:2,lineHeight:1.4}}>{b.name}</div>
-                      <div style={{fontSize:11,color:'#475569'}}>{b.q_count||0} 题 <span style={{color:'#334155',marginLeft:4}}>{expanded?'▲':'▼'}</span></div>
+                      <div style={{fontSize:12,color:'white',fontWeight:600,marginBottom:2,lineHeight:1.4,display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+                        <span>{b.name}</span>
+                        {b.bank_type_summary && b.bank_type_summary !== 'empty' && (() => {
+                          const map = { choice:{label:'选择',color:'#60a5fa'}, fill:{label:'填空',color:'#f59e0b'}, short:{label:'简答',color:'#22c55e'}, mixed:{label:'混合',color:'#a78bfa'} };
+                          const m = map[b.bank_type_summary];
+                          return m && <span style={{fontSize:9,color:m.color,background:m.color+'22',border:`1px solid ${m.color}44`,borderRadius:4,padding:'1px 5px',fontWeight:600}}>{m.label}</span>;
+                        })()}
+                      </div>
+                      <div style={{fontSize:11,color:'#475569'}}>
+                        {b.q_count||0} 题
+                        {(() => {
+                          const TLAB = {choice_single:'单选',choice_multi:'多选',true_false:'判断',fill_blank:'填空',short_answer:'简答'};
+                          const ORDER = ['choice_single','choice_multi','true_false','fill_blank','short_answer'];
+                          const d = b.type_dist || {};
+                          const parts = ORDER.filter(t=>d[t]).map(t=>`${TLAB[t]}${d[t]}`);
+                          return parts.length>0 ? <span style={{marginLeft:6,color:'#64748b'}}>· {parts.join('/')}</span> : null;
+                        })()}
+                        <span style={{color:'#334155',marginLeft:4}}>{expanded?'▲':'▼'}</span>
+                      </div>
                     </div>
                   </div>
                   {expanded&&qs!==null&&(
@@ -5659,9 +6686,48 @@ function AdminScreen({ onBack }) {
                 </div>
               );
             };
+            const canCheckAny = (qSelectOpen || (pinMode==='manual') || (pinMode==='random'&&!pinRandomBankId)) && !(pinMode==='manual' && checkedBankIds.length > 0);
             return (
               <div className="card">
-                <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600,marginBottom:12}}>📚 题库</div>
+                <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600,marginBottom:10}}>📚 题库</div>
+                {/* 选题模式搜索框 */}
+                {canCheckAny&&(
+                  <div style={{marginBottom:12}}>
+                    <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                      <input
+                        value={qSearch}
+                        onChange={e=>{setQSearch(e.target.value);if(e.target.value.trim()&&qAll.length===0)apiJson('/api/admin/questions/all',{headers:hdrs()}).then(setQAll).catch(()=>{});}}
+                        placeholder="搜索题目关键词…"
+                        style={{flex:1,background:'#0d1117',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:12,fontFamily:'inherit',outline:'none'}}
+                      />
+                      {qSearch&&<button onClick={()=>setQSearch('')} style={{background:'none',border:'none',color:'#475569',cursor:'pointer',fontSize:16,padding:'0 4px',lineHeight:1}}>×</button>}
+                    </div>
+                    {qSearch.trim()&&(()=>{
+                      const filtered=qAll.filter(q=>q.text.toLowerCase().includes(qSearch.toLowerCase()));
+                      return(
+                        <div style={{maxHeight:280,overflowY:'auto',marginTop:6,border:'1px solid #1b3255',borderRadius:6,background:'rgba(13,17,23,0.6)'}}>
+                          {qAll.length===0
+                            ?<div style={{fontSize:11,color:'#475569',textAlign:'center',padding:'10px 0'}}>加载中…</div>
+                            :filtered.length===0
+                            ?<div style={{fontSize:11,color:'#475569',textAlign:'center',padding:'10px 0'}}>未找到匹配题目</div>
+                            :filtered.map(q=>{
+                              const sel=qSelected.includes(q.id);
+                              const maxReached=!sel&&(pinMode==='manual'?qSelected.length>=pinCount:false);
+                              return(
+                                <div key={q.id} style={{display:'flex',alignItems:'flex-start',gap:8,padding:'8px 10px',borderBottom:'1px solid rgba(27,50,85,0.3)',background:sel?'rgba(59,130,246,0.08)':'none'}}>
+                                  <div onClick={e=>{e.stopPropagation();if(sel){setQSelected(s=>s.filter(id=>id!==q.id));}else if(!maxReached){setQSelected(s=>[...s,q.id]);}}} style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel?'#3b82f6':'#334155'}`,background:sel?'#3b82f6':'none',flexShrink:0,marginTop:2,display:'flex',alignItems:'center',justifyContent:'center',cursor:maxReached?'not-allowed':'pointer',opacity:maxReached?0.4:1}}>
+                                    {sel&&<span style={{color:'white',fontSize:9}}>✓</span>}
+                                  </div>
+                                  <div style={{flex:1,fontSize:11,color:'#94a3b8',lineHeight:1.5}}>{q.text}</div>
+                                  <span style={{fontSize:10,color:'#475569',flexShrink:0,marginTop:1,whiteSpace:'nowrap'}}>{q.bank_name}</span>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
                 {emergencyBank&&<BankSection sectionKey="emergency" label="应急故障处置" icon="🚨" items={[emergencyBank]} defaultOpen={true}/>}
                 {riskBank&&<BankSection sectionKey="risk" label="风险数据库" icon="⚠️" items={[riskBank]} defaultOpen={false}/>}
                 <BankSection sectionKey="incident" label="事件分析报告" icon="📋" items={incidentBanks} defaultOpen={false}/>
@@ -5679,57 +6745,19 @@ function AdminScreen({ onBack }) {
                   }} style={{background:'#1b3a6e',border:'none',color:'white',borderRadius:6,padding:'7px 14px',fontSize:12,fontWeight:600,cursor:'pointer',opacity:savingCategory?0.6:1,whiteSpace:'nowrap'}}>保存</button>
                 </div>
 
-                {/* 操作按钮行 */}
+                {/* 操作按钮行：添加题目 + 添加题库 */}
                 <div style={{display:'flex',gap:8}}>
-                  <button onClick={()=>{setShowUploadPanel(p=>!p);setShowAddQPanel(false);}} style={{flex:1,background:showUploadPanel?'#1b3a6e':'#0d1e35',border:`1px solid ${showUploadPanel?'#3b82f6':'#1b3255'}`,color:showUploadPanel?'#60a5fa':'#94a3b8',borderRadius:7,padding:'9px',fontSize:12,fontWeight:600,cursor:'pointer'}}>📥 上传题库</button>
-                  <button onClick={()=>{setShowAddQPanel(p=>!p);setShowUploadPanel(false);}} style={{flex:1,background:showAddQPanel?'#1b3a6e':'#0d1e35',border:`1px solid ${showAddQPanel?'#3b82f6':'#1b3255'}`,color:showAddQPanel?'#60a5fa':'#94a3b8',borderRadius:7,padding:'9px',fontSize:12,fontWeight:600,cursor:'pointer'}}>✍️ 人工出题</button>
+                  <button onClick={()=>{setShowAddQPanel(p=>!p);setShowImportPanel(false);}} style={{flex:1,background:showAddQPanel?'#1b3a6e':'#0d1e35',border:`1px solid ${showAddQPanel?'#3b82f6':'#1b3255'}`,color:showAddQPanel?'#60a5fa':'#94a3b8',borderRadius:7,padding:'9px',fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                    {showAddQPanel?'▲ 收起':'＋ 添加题目'}
+                  </button>
+                  <button onClick={()=>{setShowImportPanel(p=>!p);setShowAddQPanel(false);}} style={{flex:1,background:showImportPanel?'#1b3a6e':'#0d1e35',border:`1px solid ${showImportPanel?'#3b82f6':'#1b3255'}`,color:showImportPanel?'#60a5fa':'#94a3b8',borderRadius:7,padding:'9px',fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                    {showImportPanel?'▲ 收起':'＋ 添加题库'}
+                  </button>
                 </div>
 
-                {/* 上传题库面板 */}
-                {showUploadPanel&&(
-                  <div style={{marginTop:10,display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-                    <BankImportCard pwd={pwd} onImported={()=>apiJson('/api/banks',{headers:hdrs()}).then(setBanks).catch(()=>{})}/>
-                    <DocParseCard pwd={pwd} banks={banks} onImported={()=>apiJson('/api/banks',{headers:hdrs()}).then(setBanks).catch(()=>{})}/>
-                  </div>
-                )}
+                {showAddQPanel&&<AddQuestionPanel pwd={pwd} banks={banks} hdrs={hdrs} onDone={()=>apiJson('/api/banks',{headers:hdrs()}).then(setBanks).catch(()=>{})}/>}
 
-                {/* 人工出题面板 */}
-                {showAddQPanel&&(
-                  <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:10,borderTop:'1px solid #1b3255',paddingTop:12}}>
-                    <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                      <div style={{fontSize:11,color:'#94a3b8',fontWeight:600}}>题目</div>
-                      <select value={addQ.category} onChange={e=>setAddQ(q=>({...q,category:e.target.value}))} style={{background:'#0d1117',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}>
-                        {['安全事件','应急处置','业务知识','设备操作','规章制度'].map(c=><option key={c}>{c}</option>)}
-                      </select>
-                      <textarea value={addQ.text} onChange={e=>setAddQ(q=>({...q,text:e.target.value}))} placeholder="输入题目内容…" rows={3} style={{background:'#0d1117',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'8px 10px',fontSize:13,resize:'vertical'}}/>
-                    </div>
-                    <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                      <div style={{fontSize:11,color:'#94a3b8',fontWeight:600}}>答题要点</div>
-                      {(addQ.reference?addQ.reference.split(';').filter((_,i,a)=>i<a.length||true):['','']).map((pt,i,arr)=>(
-                        <div key={i} style={{display:'flex',gap:6,alignItems:'center'}}>
-                          <span style={{fontSize:11,color:'#475569',width:16,flexShrink:0,textAlign:'right'}}>{i+1}.</span>
-                          <input value={pt} onChange={e=>{const pts=addQ.reference?addQ.reference.split(';'):[];while(pts.length<=i)pts.push('');pts[i]=e.target.value;setAddQ(q=>({...q,reference:pts.join(';')}));}} placeholder={`要点 ${i+1}`} style={{flex:1,background:'#0d1117',border:'1px solid #1b3255',color:'white',borderRadius:6,padding:'7px 10px',fontSize:13}}/>
-                          {i>0&&<button onClick={()=>{const pts=addQ.reference.split(';');pts.splice(i,1);setAddQ(q=>({...q,reference:pts.join(';')}));}} style={{background:'none',border:'none',color:'#475569',cursor:'pointer',fontSize:16,padding:'0 4px'}}>×</button>}
-                        </div>
-                      ))}
-                      <button onClick={()=>setAddQ(q=>({...q,reference:(q.reference?q.reference+';':'')}))} style={{background:'none',border:'1px dashed #1b3255',color:'#475569',borderRadius:6,padding:'6px',fontSize:12,cursor:'pointer'}}>+ 添加要点</button>
-                      <button disabled={aiLoading||!addQ.text.trim()} onClick={async()=>{
-                        setAiLoading(true);
-                        const r=await apiJson('/api/admin/questions/ai-generate',{method:'POST',headers:hdrs(),body:JSON.stringify({content:addQ.text,count:1})}).catch(()=>null);
-                        setAiLoading(false);
-                        if(r?.ok&&r.questions?.[0]?.reference){setAddQ(q=>({...q,reference:r.questions[0].reference}));alert('AI已生成答题要点');}
-                        else alert('AI生成失败');
-                      }} style={{background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',border:'none',color:'white',borderRadius:7,padding:'9px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:aiLoading?0.6:1}}>{aiLoading?'AI分析中…':'🤖 AI生成答题要点'}</button>
-                      <button disabled={addQLoading||!addQ.text.trim()||!addQ.reference.trim()||!addQ.bank_id} onClick={async()=>{
-                        setAddQLoading(true);
-                        const r=await apiJson('/api/questions',{method:'POST',headers:hdrs(),body:JSON.stringify({...addQ,bank_id:parseInt(addQ.bank_id)})}).catch(()=>null);
-                        setAddQLoading(false);
-                        if(r?.id){alert('添加成功');setAddQ(q=>({...q,text:'',reference:'',keywords:''}));apiJson('/api/banks',{headers:hdrs()}).then(setBanks);}
-                        else alert('添加失败');
-                      }} style={{background:'#1b3a6e',border:'none',color:'white',borderRadius:7,padding:'9px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:addQLoading?0.6:1}}>{addQLoading?'提交中…':'保存题目'}</button>
-                    </div>
-                  </div>
-                )}
+                {showImportPanel&&<BankImportCard pwd={pwd} onImported={()=>{apiJson('/api/banks',{headers:hdrs()}).then(setBanks).catch(()=>{});}}/>}
               </div>
             );
           })()}
@@ -5838,6 +6866,7 @@ export default function App() {
   const [quizPoints,setQuizPoints]=useState(null);
   const [quizMode,setQuizMode]=useState('normal');
   const [practiceMode,setPracticeMode]=useState('practice_random');
+  const [practiceBankId,setPracticeBankId]=useState(null);
   const nav=s=>setScreen(s);
 
   // Magic link 自动登录 + 深链导航
@@ -5874,10 +6903,15 @@ export default function App() {
         {screen==="login"&&<LoginScreen onLogin={handleLogin} onAdmin={()=>nav("admin")}/>}
         {screen==="home"&&<HomeScreen user={user} nav={nav}/>}
         {screen==="quiz"&&<QuizScreen user={user} mode="normal" onDone={(r,p,m)=>{setQuizResults(r);setQuizPoints(p);setQuizMode(m);nav("result");}} onBack={()=>nav("home")}/>}
-        {screen==="practice_quiz"&&<QuizScreen user={user} mode={practiceMode} onDone={(r,p,m)=>{setQuizResults(r);setQuizPoints(p);setQuizMode(m);nav("practice_result");}} onBack={()=>nav("practice")}/>}
+        {screen==="practice_quiz"&&<QuizScreen user={user} mode={practiceMode} practiceBankId={practiceBankId} onDone={(r,p,m)=>{setQuizResults(r);setQuizPoints(p);setQuizMode(m);nav("practice_result");}} onBack={()=>nav("practice")}/>}
+        {screen==="practice_mcq"&&<PracticeFlowScreen user={user} mode={practiceMode} bankId={practiceBankId} onBack={()=>nav("practice")} onHome={()=>nav("home")}/>}
         {screen==="result"&&<ResultScreen user={user} results={quizResults} points={quizPoints} mode={quizMode} onHome={()=>nav("home")}/>}
         {screen==="practice_result"&&<ResultScreen user={user} results={quizResults} points={quizPoints} mode={quizMode} onHome={()=>nav("home")} onContinuePractice={()=>{nav("practice_quiz");}}/>}
-        {screen==="practice"&&<PracticeScreen user={user} onBack={()=>nav("home")} onStart={m=>{setPracticeMode(m);nav("practice_quiz");}}/>}
+        {screen==="practice"&&<PracticeScreen user={user} onBack={()=>nav("home")} onStart={(m,bankId,summary)=>{setPracticeMode(m);setPracticeBankId(bankId||null);
+          // summary: 'choice'|'fill'|'short'|'mixed'|'empty' — 含手动题（choice/fill/mixed）→ 走 PracticeFlow（混合自动跳过简答）；纯简答 → 语音
+          const useVoice = summary === 'short' || summary === 'empty';
+          nav(useVoice ? "practice_quiz" : "practice_mcq");
+        }}/>}
         {screen==="history"&&<HistoryScreen user={user} onBack={()=>nav("home")}/>}
         {screen==="banks"&&<BanksPreviewScreen onBack={()=>nav("home")}/>}
         {screen==="leaderboard"&&<LeaderboardScreen user={user} onBack={()=>nav("home")}/>}
