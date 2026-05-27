@@ -4299,12 +4299,10 @@ function WorkshopScreen({ user, onBack }) {
                                               const fixedM = (plan.fixedStaff||[]).map(f=>({id:f.staff_id,real_name:f.real_name||f.name}));
                                               const allM = [...allZhxhMembers,...fixedM].filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i);
                                               await handleMemberClick(m, p, evMap, monthPlanItems, currentItems, allM);
-                                            }} style={{
-                                              padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',
-                                              cursor:'pointer',
-                                              border:'1px solid #1e3a5f',
-                                              background:'rgba(30,41,59,0.5)',color:'#b0bec5',fontWeight:400
-                                            }}>{m.real_name||m.name}</button>
+                                            }} style={(() => {
+                                              const confirmed = (p.confirmedIds||[]).includes(String(m.id));
+                                              return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:'pointer',border:`1px solid ${confirmed?'rgba(34,197,94,0.35)':'rgba(248,113,113,0.35)'}`,background:confirmed?'rgba(34,197,94,0.07)':'rgba(248,113,113,0.07)',color:confirmed?'#22c55e':'#f87171',fontWeight:400};
+                                            })()}>{m.real_name||m.name}</button>
                                           ))}
                                         </div>
                                       </div>
@@ -4332,12 +4330,10 @@ function WorkshopScreen({ user, onBack }) {
                                             const fixedM2 = (plan.fixedStaff||[]).map(x=>({id:x.staff_id,real_name:x.real_name||x.name}));
                                             const allM = [...allZhxhMembers,...fixedM2].filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i);
                                             await handleMemberClick({id:f.staff_id,real_name:f.real_name||f.name}, p, evMap, monthPlanItems, currentItems, allM);
-                                          }} style={{
-                                            padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',
-                                            cursor:hasEditPerm?'pointer':'default',
-                                            border:'1px solid rgba(196,181,253,0.3)',
-                                            background:'rgba(30,41,59,0.5)',color:'#c4b5fd',fontWeight:400
-                                          }}>{f.real_name||f.name}</button>
+                                          }} style={(() => {
+                                            const confirmed = (p.confirmedIds||[]).includes(String(f.staff_id));
+                                            return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:hasEditPerm?'pointer':'default',border:`1px solid ${confirmed?'rgba(34,197,94,0.35)':'rgba(248,113,113,0.35)'}`,background:confirmed?'rgba(34,197,94,0.07)':'rgba(248,113,113,0.07)',color:confirmed?'#22c55e':'#f87171',fontWeight:400};
+                                          })()}>{f.real_name||f.name}</button>
                                         ))}
                                       </div>
                                     </div>
@@ -4464,13 +4460,12 @@ function WorkshopScreen({ user, onBack }) {
                                         }
                                         if(!canEdit) return;
                                         setMemberModal({planId:p.id,staffId:m.id,staffName:m.real_name||m.name,isAdded:isSwapped,step:'main',candidates:[],target:null});
-                                      }} style={{
-                                        padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',
-                                        cursor:(canEdit||canRetro)?'pointer':'default',
-                                        border:`1px solid ${canRetro?'rgba(251,191,36,0.5)':isSwapped?'#3b82f6':'#1e3a5f'}`,
-                                        background:canRetro?'rgba(251,191,36,0.08)':isSwapped?'rgba(59,130,246,0.15)':'rgba(30,41,59,0.5)',
-                                        color:canRetro?'#fbbf24':isSwapped?'#60a5fa':'#b0bec5',fontWeight:canRetro||isSwapped?600:400
-                                      }}>{m.real_name||m.name}</button>
+                                      }} style={(() => {
+                                        const confirmed = (p.confirmedIds||[]).includes(String(m.id));
+                                        if (canRetro) return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:'pointer',border:'1px solid rgba(251,191,36,0.5)',background:'rgba(251,191,36,0.08)',color:'#fbbf24',fontWeight:600};
+                                        if (isSwapped) return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:canEdit?'pointer':'default',border:'1px solid #3b82f6',background:'rgba(59,130,246,0.15)',color:'#60a5fa',fontWeight:600};
+                                        return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:canEdit?'pointer':'default',border:`1px solid ${confirmed?'rgba(34,197,94,0.35)':'rgba(248,113,113,0.35)'}`,background:confirmed?'rgba(34,197,94,0.07)':'rgba(248,113,113,0.07)',color:confirmed?'#22c55e':'#f87171',fontWeight:400};
+                                      })()}>{m.real_name||m.name}</button>
                                     ) : (
                                       <span key={i} style={{display:'inline-block',width:28,height:20,border:'1px dashed rgba(100,130,180,0.45)',borderRadius:4,background:'rgba(27,50,85,0.2)'}}/>
                                     );
@@ -5095,11 +5090,11 @@ function WorkshopScreen({ user, onBack }) {
                       color:'#e2e8f0',fontFamily:'inherit',fontSize:13,cursor:'pointer',
                       textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'
                     }}>
-                      <span style={{fontWeight:600}}>{m.real_name||m.name}</span>
+                      <span style={{fontWeight:600,color:ev?'#22c55e':'#f87171'}}>{m.real_name||m.name}</span>
                       {ev ? (
                         <span style={{fontSize:10,color:'#22c55e'}}>✓ 已点评{ev.comment?'':' (无评价)'}</span>
                       ) : (
-                        <span style={{fontSize:10,color:'#334155'}}>待确认</span>
+                        <span style={{fontSize:10,color:'#f87171'}}>待确认</span>
                       )}
                     </button>
                   );

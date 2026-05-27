@@ -863,11 +863,11 @@ app.post('/api/session/start', (req, res) => {
     `).get(staffId, cycleId);
     if (interrupted) return res.status(400).json({ error: '答题已中断，请联系管理员重置后再作答', isInterrupted: true });
 
-    // 3. 本轮已完成过正式答题
+    // 3. 本轮已完成过正式答题（不限 q_count，避免残次 session 被绕过）
     const done = db.prepare(`
       SELECT id FROM sessions
       WHERE staff_id=? AND cycle_id=? AND completed=1
-        AND COALESCE(is_practice,0)=0 AND COALESCE(is_deleted,0)=0 AND q_count>=3
+        AND COALESCE(is_practice,0)=0 AND COALESCE(is_deleted,0)=0
       LIMIT 1
     `).get(staffId, cycleId);
     if (done) return res.status(400).json({ error: '本轮已完成答题，无需重复作答', alreadyDone: true });
@@ -3407,6 +3407,15 @@ function buildPlanResponse(yearMonth) {
     if (!overridesByPlan[o.plan_id]) overridesByPlan[o.plan_id] = { added: [], removed: [] };
     overridesByPlan[o.plan_id][o.action === 'add' ? 'added' : 'removed'].push({ id: o.staff_id, real_name: o.real_name, name: o.name, note: o.note });
   }
+  // 批量拉取各计划已确认人员，供前端着色
+  const evalRows = planIds.length > 0
+    ? db.prepare(`SELECT plan_id, staff_id FROM training_evaluations WHERE plan_id IN (${planIds.map(() => '?').join(',')})`).all(...planIds)
+    : [];
+  const confirmedByPlan = {};
+  for (const e of evalRows) {
+    if (!confirmedByPlan[e.plan_id]) confirmedByPlan[e.plan_id] = [];
+    confirmedByPlan[e.plan_id].push(String(e.staff_id));
+  }
   const setting = db.prepare('SELECT safety_date, start_group_id, start_leader_idx FROM training_plan_settings WHERE year_month=?').get(yearMonth);
   return {
     plans: plans.map(p => {
@@ -3427,7 +3436,8 @@ function buildPlanResponse(yearMonth) {
         ...p,
         instructor_overridden: !!p.instructor_id_override,
         group,
-        memberOverrides: overridesByPlan[p.id] || { added: [], removed: [] }
+        memberOverrides: overridesByPlan[p.id] || { added: [], removed: [] },
+        confirmedIds: confirmedByPlan[p.id] || [],
       };
     }),
     groups: Object.values(groupMap), // 含 instructor_name 和 members
