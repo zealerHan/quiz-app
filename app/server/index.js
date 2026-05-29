@@ -1894,10 +1894,10 @@ app.post('/api/admin/dingtalk/notify-start', adminAuth, async (req, res) => {
   const scopeLabel = scope === 'shift' ? '本套班' : '今日';
 
   // 答题截止时间描述（早班日 09:30 截止）
-  const cycle = getCurrentCycle();
+  const shiftInfo = getShiftInfo(new Date());
   let deadlineDesc = '';
-  if (scope === 'shift' && cycle?.endStr) {
-    const ed = cycle.endStr; // "2026-05-29"（即早班日）
+  if (scope === 'shift') {
+    const ed = shiftInfo.endStr; // 早班日日期，如 "2026-05-29"
     deadlineDesc = `${parseInt(ed.slice(5,7))}月${parseInt(ed.slice(8,10))}日 09:30前`;
   } else {
     // 今天生效：若早班则 09:30，否则提示今日内
