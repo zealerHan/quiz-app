@@ -3259,7 +3259,7 @@ app.get('/api/qrcode', async (req, res) => {
   res.json({url,qr});
 });
 
-app.post('/api/admin/login',(req,res)=>{ req.body.password===ADMIN_PASSWORD?res.json({ok:true}):res.status(401).json({error:'密码错误'}); });
+app.post('/api/admin/login',(req,res)=>{ _adminMap[req.body.password]?res.json({ok:true}):res.status(401).json({error:'密码错误'}); });
 // ─── 讯飞 TTS ──────────────────────────────────────────────────────────────
 app.post('/api/tts', async (req, res) => {
   const text = req.body.text || '';
@@ -4007,7 +4007,68 @@ app.put('/api/workshop/training-plan/:planId/evaluations/:staffId', workshopEdit
     ON CONFLICT(plan_id,staff_id) DO UPDATE SET comment=excluded.comment,evaluated_by=excluded.evaluated_by,evaluated_at=excluded.evaluated_at`)
     .run(planId, staffId, staff_name || staffId, comment || '', evaluatedBy);
   res.json({ ok: true });
+  // 异步检查本月培训是否全员完成
+  const plan = db.prepare('SELECT year_month FROM monthly_training_plans WHERE id=?').get(planId);
+  if (plan?.year_month) checkAndNotifyMonthComplete(plan.year_month).catch(() => {});
 });
+
+// 检查本月全员培训完成并推送（每月只推一次）
+async function checkAndNotifyMonthComplete(month) {
+  const notifyKey = `training_complete_notified_${month}`;
+  if (db.prepare('SELECT value FROM settings WHERE key=?').get(notifyKey)) return; // 已推过
+
+  const [yearStr, monthStr] = month.split('-');
+  const yearPlanRow = db.prepare('SELECT sessions_json FROM training_year_plan WHERE year=? AND month=?').get(parseInt(yearStr), parseInt(monthStr));
+  const totalItems = JSON.parse(yearPlanRow?.sessions_json || '[]').length;
+  if (totalItems === 0) return; // 本月无培训项点配置
+
+  const plans = db.prepare(
+    "SELECT id, shift_date, plan_type, completed_items FROM monthly_training_plans WHERE year_month=? AND plan_type NOT IN ('轮空') ORDER BY shift_date"
+  ).all(month);
+
+  // 计算每人已完成项点（复用 month-member-completion 逻辑）
+  const personDone = {};
+  for (const p of plans) {
+    const completedItems = JSON.parse(p.completed_items || '[]');
+    if (completedItems.length === 0) continue;
+    const full = getTrainingPlanForDate(p.shift_date);
+    if (!full) continue;
+    const fixedIds = new Set((full.fixedStaff||[]).map(f=>String(f.staff_id)));
+    let participants;
+    if (p.plan_type === '中旬会') {
+      const all = db.prepare('SELECT tgm.staff_id FROM training_group_members tgm WHERE tgm.is_fixed=0').all();
+      participants = [...all.map(m=>String(m.staff_id)).filter(id=>!fixedIds.has(id)), ...(full.fixedStaff||[]).map(f=>String(f.staff_id))];
+    } else {
+      const members = (full.group?.members||[]).filter(m=>!fixedIds.has(String(m.id)));
+      participants = [...members.map(m=>String(m.id)), ...(full.fixedStaff||[]).map(f=>String(f.staff_id))];
+    }
+    const evals = db.prepare('SELECT staff_id FROM training_evaluations WHERE plan_id=?').all(p.id);
+    const evalSet = new Set(evals.map(e=>String(e.staff_id)));
+    for (const sid of participants) {
+      if (!evalSet.has(sid)) continue;
+      if (!personDone[sid]) personDone[sid] = new Set();
+      for (const item of completedItems) personDone[sid].add(item);
+    }
+  }
+
+  // 取所有应参加人员（小组成员 + 固定成员，排除 CP）
+  const groupMembers = db.prepare(
+    'SELECT tgm.staff_id FROM training_group_members tgm JOIN staff s ON s.id=tgm.staff_id WHERE tgm.is_fixed=0 AND COALESCE(s.is_cp,0)=0'
+  ).all().map(m=>String(m.staff_id));
+  const fixedMembers = db.prepare('SELECT staff_id FROM training_fixed_members').all().map(f=>String(f.staff_id));
+  const allRequired = [...new Set([...groupMembers, ...fixedMembers])];
+
+  if (allRequired.length === 0) return;
+
+  // 检查是否全员完成
+  const incomplete = allRequired.filter(sid => (personDone[sid]?.size || 0) < totalItems);
+  if (incomplete.length > 0) return;
+
+  // 全员完成 → 记录标记，推送
+  db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run(notifyKey, '1');
+  const [y, mo] = month.split('-');
+  await sendGroupPush(`✅ ${parseInt(y)}年${parseInt(mo)}月培训任务已全部完成！本月所有人员（${allRequired.length}人）均已完成培训确认，感谢各位教员的辛苦付出！🎉`);
+}
 
 // 撤销点评（教员误确认后取消）
 app.delete('/api/workshop/training-plan/:planId/evaluations/:staffId', workshopEditAuth, (req, res) => {
