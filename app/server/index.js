@@ -20,6 +20,18 @@ const { execFile } = require('child_process');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin888';
+// 管理员身份映射：密码 → 姓名
+const _adminMap = (() => {
+  const map = {};
+  const named = [
+    [process.env.ADMIN1_PASSWORD, '韩颖'],
+    [process.env.ADMIN2_PASSWORD, '艾凌风'],
+    [process.env.ADMIN3_PASSWORD, '胡鑫'],
+  ];
+  for (const [pwd, name] of named) { if (pwd) map[pwd] = name; }
+  if (!map[ADMIN_PASSWORD]) map[ADMIN_PASSWORD] = '韩颖';
+  return map;
+})();
 const MONITOR_TOKEN = process.env.MONITOR_TOKEN || 'monitor_quiz_5line';
 
 // ─── Database ──────────────────────────────────────────────────────────────
@@ -567,13 +579,16 @@ const _bf = backfillQuestionTypes();
 if (_bf > 0) console.log(`[type-backfill] 启动回填 ${_bf} 道题`);
 function adminAuth(req, res, next) {
   const pwd = req.headers['x-admin-password'] || req.query.password;
-  if (pwd !== ADMIN_PASSWORD) return res.status(401).json({ error: '密码错误' });
+  const name = _adminMap[pwd];
+  if (!name) return res.status(401).json({ error: '密码错误' });
+  req.adminName = name;
   next();
 }
 // 培训计划编辑权限：管理员密码 或 教员身份
 function workshopEditAuth(req, res, next) {
   const pwd = req.headers['x-admin-password'] || req.query.password;
-  if (pwd === ADMIN_PASSWORD) return next();
+  const name = _adminMap[pwd];
+  if (name) { req.adminName = name; return next(); }
   const instructorId = req.headers['x-instructor-id'];
   if (instructorId) {
     const s = db.prepare('SELECT is_instructor FROM staff WHERE id=?').get(instructorId);
@@ -617,7 +632,7 @@ app.post('/api/staff', adminAuth, (req, res) => {
   const staffId = id.trim().replace(/^Y/i, '');
   db.prepare('INSERT OR REPLACE INTO staff (id, name, real_name, phone_tail, is_exempt, is_tester, is_cp, is_leader, is_instructor) VALUES (?,?,?,?,?,?,?,?,?)')
     .run(staffId, real_name.trim(), real_name.trim(), (phone_tail||'').toString().trim().slice(-4), is_exempt?1:0, is_tester?1:0, is_cp?1:0, is_leader?1:0, is_instructor?1:0);
-  logAdmin('添加人员', `工号${staffId} ${real_name.trim()}`);
+  logAdmin('添加人员', `工号${staffId} ${real_name.trim()}`, req.adminName);
   res.json({ ok: true });
 });
 
@@ -632,14 +647,14 @@ app.post('/api/staff/batch', adminAuth, (req, res) => {
     ins.run(staffId, real_name.trim(), real_name.trim(), (phone_tail||'').toString().trim().slice(-4), is_exempt ? 1 : 0, is_tester ? 1 : 0);
   }));
   run();
-  logAdmin('批量导入人员', `共${list.length}条`);
+  logAdmin('批量导入人员', `共${list.length}条`, req.adminName);
   res.json({ ok: true, count: list.length });
 });
 
 app.delete('/api/staff/:id', adminAuth, (req, res) => {
   const s = db.prepare('SELECT name FROM staff WHERE id=?').get(req.params.id);
   db.prepare('DELETE FROM staff WHERE id=?').run(req.params.id);
-  logAdmin('删除人员', `工号${req.params.id} ${s?.name||''}`);
+  logAdmin('删除人员', `工号${req.params.id} ${s?.name||''}`, req.adminName);
   res.json({ ok: true });
 });
 // 编辑人员
@@ -648,7 +663,7 @@ app.put('/api/staff/:id', adminAuth, (req, res) => {
   if (!real_name?.trim()) return res.status(400).json({ error: '姓名不能为空' });
   db.prepare('UPDATE staff SET name=?, real_name=?, phone_tail=?, is_exempt=?, is_tester=?, is_cp=?, is_leader=?, is_instructor=? WHERE id=?')
     .run(real_name.trim(), real_name.trim(), (phone_tail||'').toString().trim().slice(-4), is_exempt?1:0, is_tester?1:0, is_cp?1:0, is_leader?1:0, is_instructor?1:0, req.params.id);
-  logAdmin('编辑人员', `工号${req.params.id} ${real_name.trim()}`);
+  logAdmin('编辑人员', `工号${req.params.id} ${real_name.trim()}`, req.adminName);
   res.json({ ok: true });
 });
 
@@ -784,7 +799,7 @@ app.put('/api/banks/:id/activate', adminAuth, (req, res) => {
   db.prepare('UPDATE question_banks SET is_active=0').run();
   db.prepare('UPDATE question_banks SET is_active=1 WHERE id=?').run(req.params.id);
   const b = db.prepare('SELECT name FROM question_banks WHERE id=?').get(req.params.id);
-  logAdmin('启用题库', b?.name || `ID=${req.params.id}`);
+  logAdmin('启用题库', b?.name || `ID=${req.params.id}`, req.adminName);
   res.json({ ok: true });
 });
 
@@ -1358,7 +1373,7 @@ app.delete('/api/admin/sessions/reset-cycle/:staffId', adminAuth, (req, res) => 
     UPDATE sessions SET is_deleted=1
     WHERE staff_id=? AND cycle_id=? AND COALESCE(is_deleted,0)=0 AND COALESCE(is_practice,0)=0
   `).run(staffId, cycleId);
-  logAdmin('重置套班答题机会', `${staff?.name||staffId}(${staffId}) cycle=${cycleId} affected=${result.changes}`);
+  logAdmin('重置套班答题机会', `${staff?.name||staffId}(${staffId}) cycle=${cycleId} affected=${result.changes}`, req.adminName);
   res.json({ ok: true, affected: result.changes });
 });
 
@@ -1375,7 +1390,7 @@ app.post('/api/admin/makeup/grant', adminAuth, (req, res) => {
     .toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).replace('T', ' ');
   db.prepare(`INSERT OR REPLACE INTO makeup_grants (staff_id, cycle_id, expires_at) VALUES (?,?,?)`)
     .run(staffId, cycleId, expiresAt);
-  logAdmin('补答授权', `${staff?.name||staffId}(${staffId}) 有效至 ${expiresAt}`);
+  logAdmin('补答授权', `${staff?.name||staffId}(${staffId}) 有效至 ${expiresAt}`, req.adminName);
   res.json({ ok: true, staffId, expiresAt });
 });
 
@@ -1596,7 +1611,7 @@ app.post('/api/admin/cycle/new', adminAuth, (req, res) => {
   const lbl = label || `班次_${new Date().toLocaleDateString('zh-CN')}`;
   db.prepare("INSERT INTO cycles (id,label,start_date,is_current) VALUES (?,?,?,1)")
     .run(id, lbl, new Date().toISOString().slice(0,10));
-  logAdmin('开启新轮次', lbl);
+  logAdmin('开启新轮次', lbl, req.adminName);
   res.json({ cycleId: id });
 });
 
@@ -1610,7 +1625,7 @@ app.get('/api/settings', adminAuth, (req, res) => {
 app.put('/api/settings', adminAuth, (req, res) => {
   const updates = req.body;
   Object.entries(updates).forEach(([k,v]) => db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run(k, String(v)));
-  logAdmin('修改设置', Object.entries(updates).map(([k,v])=>`${k}=${v}`).join(', '));
+  logAdmin('修改设置', Object.entries(updates).map(([k,v])=>`${k}=${v}`).join(', '), req.adminName);
   res.json({ ok: true });
 });
 
@@ -1871,7 +1886,7 @@ app.post('/api/admin/dingtalk/push', adminAuth, async (req, res) => {
     if (data.errcode !== 0) {
       return res.status(500).json({ ok: false, error: data.errmsg });
     }
-    logAdmin('钉钉推送', `推送${count}/${total}人完成情况`);
+    logAdmin('钉钉推送', `推送${count}/${total}人完成情况`, req.adminName);
     res.json({ ok: true, count, total });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -1970,7 +1985,7 @@ app.post('/api/admin/dingtalk/notify-start', adminAuth, async (req, res) => {
     });
     const data = await resp.json();
     if (data.errcode !== 0) return res.status(500).json({ ok: false, error: data.errmsg });
-    logAdmin('钉钉通知', `抽问开始通知已发送，共${questions.length}题`);
+    logAdmin('钉钉通知', `抽问开始通知已发送，共${questions.length}题`, req.adminName);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -2254,7 +2269,7 @@ function getPlanMemberNames(planId) {
 }
 
 // 公共：发钉钉 ActionCard 消息
-async function sendDingTalkCard({ title, bodyLines, plan, logTag }) {
+async function sendDingTalkCard({ title, bodyLines, plan, logTag, operator = 'admin' }) {
   const webhook = process.env.DINGTALK_WEBHOOK;
   const secret  = process.env.DINGTALK_SECRET;
   if (!webhook || !secret) throw new Error('未配置钉钉Webhook');
@@ -2287,7 +2302,7 @@ async function sendDingTalkCard({ title, bodyLines, plan, logTag }) {
   });
   const data = await resp.json();
   if (data.errcode !== 0) throw new Error(data.errmsg);
-  logAdmin('钉钉通知', logTag);
+  logAdmin('钉钉通知', logTag, operator);
 }
 
 // 夜班 15:00：推送次日早班培训预告
@@ -2308,7 +2323,7 @@ app.post('/api/admin/dingtalk/notify-training-preview', adminAuth, async (req, r
   const bodyLines = formatTrainingLines(plan, dateLabel, 'preview');
 
   try {
-    await sendDingTalkCard({ title: '🔔 明日早班培训提醒', bodyLines, plan, logTag: `次日培训预告：${tomorrowStr}` });
+    await sendDingTalkCard({ title: '🔔 明日早班培训提醒', bodyLines, plan, logTag: `次日培训预告：${tomorrowStr}`, operator: req.adminName });
     res.json({ ok: true, date: tomorrowStr });
   } catch(e) { res.status(500).json({ ok: false, error: e.message }); }
 });
@@ -2331,7 +2346,7 @@ app.post('/api/admin/dingtalk/notify-training-reminder', adminAuth, async (req, 
   const bodyLines = formatTrainingLines(plan, dateLabel, 'reminder');
 
   try {
-    await sendDingTalkCard({ title: '📣 今日早班培训通知', bodyLines, plan, logTag: `当天培训提醒：${todayStr}` });
+    await sendDingTalkCard({ title: '📣 今日早班培训通知', bodyLines, plan, logTag: `当天培训提醒：${todayStr}`, operator: req.adminName });
     res.json({ ok: true, date: todayStr });
   } catch(e) { res.status(500).json({ ok: false, error: e.message }); }
 });
@@ -2339,7 +2354,7 @@ app.post('/api/admin/dingtalk/notify-training-reminder', adminAuth, async (req, 
 // ─── Batch: delete today's sessions ────────────────────────────────────────
 app.delete('/api/admin/sessions/today', adminAuth, (req, res) => {
   const info = db.prepare("UPDATE sessions SET is_deleted=1 WHERE date(created_at)=date('now','localtime')").run();
-  logAdmin('清除今日数据', `软删除 ${info.changes} 条答题记录`);
+  logAdmin('清除今日数据', `软删除 ${info.changes} 条答题记录`, req.adminName);
   res.json({ ok: true, deleted: info.changes });
 });
 
@@ -2350,7 +2365,7 @@ app.put('/api/admin/staff/batch-identity', adminAuth, (req, res) => {
   const stmt = db.prepare('UPDATE staff SET is_tester=?, is_exempt=?, is_cp=? WHERE id=?');
   const run = db.transaction(() => ids.forEach(id => stmt.run(is_tester?1:0, is_exempt?1:0, is_cp?1:0, id)));
   run();
-  logAdmin('批量修改身份', `${ids.length}人 → 测试:${is_tester?'是':'否'} 免答:${is_exempt?'是':'否'} 车峰:${is_cp?'是':'否'}`);
+  logAdmin('批量修改身份', `${ids.length}人 → 测试:${is_tester?'是':'否'} 免答:${is_exempt?'是':'否'} 车峰:${is_cp?'是':'否'}`, req.adminName);
   res.json({ ok: true });
 });
 
@@ -2364,13 +2379,13 @@ app.get('/api/admin/logs', adminAuth, (req, res) => {
 app.put('/api/admin/sessions/:id/hide', adminAuth, (req, res) => {
   const { hidden } = req.body;
   db.prepare('UPDATE sessions SET hidden=? WHERE id=?').run(hidden ? 1 : 0, req.params.id);
-  logAdmin(hidden ? '隐藏成绩' : '恢复成绩', `session_id=${req.params.id}`);
+  logAdmin(hidden ? '隐藏成绩' : '恢复成绩', `session_id=${req.params.id}`, req.adminName);
   res.json({ ok: true });
 });
 app.delete('/api/admin/sessions/:id', adminAuth, (req, res) => {
   const sess = db.prepare('SELECT staff_name FROM sessions WHERE id=?').get(req.params.id);
   db.prepare('UPDATE sessions SET is_deleted=1 WHERE id=?').run(req.params.id);
-  logAdmin('删除成绩', `session_id=${req.params.id} ${sess?.staff_name||''}`);
+  logAdmin('删除成绩', `session_id=${req.params.id} ${sess?.staff_name||''}`, req.adminName);
   res.json({ ok: true });
 });
 
@@ -2393,7 +2408,7 @@ app.delete('/api/admin/sessions/staff/:staffId', adminAuth, (req, res) => {
       db.prepare('UPDATE sessions SET is_deleted=1 WHERE id=?').run(id);
     });
   })();
-  logAdmin('删除人员套班成绩', `${staffName}(${staffId}) cycle=${cycle_id||'今日'} 共${sessionIds.length}条`);
+  logAdmin('删除人员套班成绩', `${staffName}(${staffId}) cycle=${cycle_id||'今日'} 共${sessionIds.length}条`, req.adminName);
   res.json({ ok: true, deleted: sessionIds.length });
 });
 
@@ -2434,7 +2449,7 @@ app.post('/api/admin/questions/ai-generate', adminAuth, async (req, res) => {
       const stmt = db.prepare('INSERT INTO questions (bank_id,text,reference,keywords,category) VALUES (?,?,?,?,?)');
       const ids = [];
       db.transaction(() => { questions.forEach(q => { const r = stmt.run(parseInt(bank_id), q.text, q.reference, q.keywords || '', q.category || '业务知识'); ids.push(r.lastInsertRowid); }); })();
-      logAdmin('AI生成题目', `题库ID=${bank_id} 生成${questions.length}题`);
+      logAdmin('AI生成题目', `题库ID=${bank_id} 生成${questions.length}题`, req.adminName);
       return res.json({ ok: true, questions, ids });
     }
     res.json({ ok: true, questions, ids: [] });
@@ -2450,7 +2465,7 @@ app.post('/api/admin/questions/batch-save', adminAuth, (req, res) => {
   if (bank_name?.trim()) {
     const r = db.prepare('INSERT INTO question_banks (name, q_type, default_count) VALUES (?,?,?)').run(bank_name.trim(), '简答', 3);
     targetBankId = r.lastInsertRowid;
-    logAdmin('新建题库', bank_name.trim());
+    logAdmin('新建题库', bank_name.trim(), req.adminName);
   }
   if (!targetBankId) return res.status(400).json({ error: '请指定题库' });
   const stmt = db.prepare('INSERT INTO questions (bank_id,text,reference,keywords,category) VALUES (?,?,?,?,?)');
@@ -2461,7 +2476,7 @@ app.post('/api/admin/questions/batch-save', adminAuth, (req, res) => {
       ids.push(r.lastInsertRowid);
     });
   })();
-  logAdmin('批量保存题目', `题库ID=${targetBankId} 保存${ids.length}题`);
+  logAdmin('批量保存题目', `题库ID=${targetBankId} 保存${ids.length}题`, req.adminName);
   res.json({ ok: true, count: ids.length, ids, bankId: targetBankId });
 });
 
@@ -2511,7 +2526,7 @@ app.put('/api/admin/pinned-questions', adminAuth, (req, res) => {
     created_at: new Date().toLocaleString('sv-SE',{timeZone:'Asia/Shanghai'}).replace('T',' ')
   });
   db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run('pinned_questions', val);
-  logAdmin('设置手动选题', `${ids?.length||0}题 scope=${scope} bank_ids=${JSON.stringify(bank_ids||[])}`);
+  logAdmin('设置手动选题', `${ids?.length||0}题 scope=${scope} bank_ids=${JSON.stringify(bank_ids||[])}`, req.adminName);
   res.json({ ok: true });
 });
 
@@ -2617,7 +2632,7 @@ app.post('/api/admin/banks/import', adminAuth, upload.single('file'), async (req
   if (bank_name?.trim()) {
     const r = db.prepare('INSERT INTO question_banks (name, q_type, default_count) VALUES (?,?,?)').run(bank_name.trim(), isMCQ ? '选择/判断' : '简答', isMCQ ? 10 : 3);
     targetBankId = r.lastInsertRowid;
-    logAdmin('新建题库', `${bank_name.trim()}${isMCQ?' [选择题]':''}`);
+    logAdmin('新建题库', `${bank_name.trim()}${isMCQ?' [选择题]':''}`, req.adminName);
   } else if (isMCQ) {
     // 导入到已有题库时，如果识别为选择题，把题库类型同步过去
     db.prepare("UPDATE question_banks SET q_type='选择/判断' WHERE id=?").run(targetBankId);
@@ -2674,7 +2689,7 @@ app.post('/api/admin/banks/import', adminAuth, upload.single('file'), async (req
   const droppedTotal = dropped.noText + dropped.noAnswer + dropped.fewOptions + dropped.answerOutOfRange;
   const dropStr = droppedTotal > 0 ? ` 跳过${droppedTotal}题(无题干${dropped.noText}/无答案${dropped.noAnswer}/选项不足${dropped.fewOptions}/答案越界${dropped.answerOutOfRange})` : '';
   const debugStr = (!isMCQ || count === 0) ? ` headers=[${headerKeys.join('|')}]` : '';
-  logAdmin('导入题库', `题库ID=${targetBankId} 导入${count}题${isMCQ?' [选择题]':''}${dropStr}${debugStr} answerBase=${answerBase}`);
+  logAdmin('导入题库', `题库ID=${targetBankId} 导入${count}题${isMCQ?' [选择题]':''}${dropStr}${debugStr} answerBase=${answerBase}`, req.adminName);
   res.json({
     ok: true, count, bankId: targetBankId, isMCQ,
     debug: { headers: headerKeys, totalRows: rows.length, sampleRow: rows[0] || null, detected: { A: !!optA, B: !!optB, C: !!optC, D: !!optD } },
@@ -2910,7 +2925,7 @@ print(''.join(page.get_text() for page in doc))
     if (bank_name?.trim()) {
       const r = db.prepare('INSERT INTO question_banks (name, q_type, default_count) VALUES (?,?,?)').run(bank_name.trim(), '简答', 3);
       targetBankId = r.lastInsertRowid;
-      logAdmin('新建题库', bank_name.trim());
+      logAdmin('新建题库', bank_name.trim(), req.adminName);
     }
     if (targetBankId) {
       const stmt = db.prepare('INSERT INTO questions (bank_id,text,reference,keywords,category) VALUES (?,?,?,?,?)');
@@ -2920,7 +2935,7 @@ print(''.join(page.get_text() for page in doc))
           savedIds.push(r.lastInsertRowid);
         });
       })();
-      logAdmin('智能出题保存', `题库ID=${targetBankId} 生成${questions.length}题 docType=${docType}`);
+      logAdmin('智能出题保存', `题库ID=${targetBankId} 生成${questions.length}题 docType=${docType}`, req.adminName);
     }
 
     res.json({ ok: true, questions, docType, ids: savedIds });
