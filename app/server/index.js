@@ -478,9 +478,10 @@ async function checkAndRemindNoQuiz(triggerTime) {
   await sendGroupPush(lines.join('\n'));
 }
 
-// 每分钟检查一次时间，在 12:30 和 16:30 各推送培训进度；11:00 和 17:30 检查抽问设置
+// 每分钟检查一次时间，在 12:30 和 16:30 各推送培训进度；11:00 和 17:30 检查抽问设置；18:00 月末兜底检查
 let lastEvalPushDate = { '12:30': '', '16:30': '' };
 let lastNoQuizReminderDate = { '11:00': '', '17:30': '' };
+let lastMonthEndCheckDate = '';
 setInterval(() => {
   const now = new Date();
   const cst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
@@ -496,7 +497,73 @@ setInterval(() => {
     lastNoQuizReminderDate[hhmm] = todayStr;
     checkAndRemindNoQuiz(hhmm).catch(() => {});
   }
+  if (hhmm === '18:00' && lastMonthEndCheckDate !== todayStr) {
+    lastMonthEndCheckDate = todayStr;
+    checkMonthEndIncomplete(todayStr).catch(() => {});
+  }
 }, 60 * 1000);
+
+// 月末兜底检查：若今天是本月最后一个早班，检查是否有人未完成培训
+async function checkMonthEndIncomplete(todayStr) {
+  const todayShift = db.prepare('SELECT shift FROM shift_calendar WHERE date=?').get(todayStr)?.shift;
+  if (todayShift !== '早班') return;
+
+  const [y, mo] = todayStr.split('-');
+  const month = `${y}-${mo}`;
+
+  // 本月还有没有更晚的早班
+  const laterShift = db.prepare(
+    "SELECT date FROM shift_calendar WHERE date > ? AND date LIKE ? AND shift='早班' LIMIT 1"
+  ).get(todayStr, `${month}%`);
+  if (laterShift) return; // 不是最后一个早班，不检查
+
+  const yearPlanRow = db.prepare('SELECT sessions_json FROM training_year_plan WHERE year=? AND month=?').get(parseInt(y), parseInt(mo));
+  const totalItems = JSON.parse(yearPlanRow?.sessions_json || '[]').length;
+  if (totalItems === 0) return;
+
+  const plans = db.prepare(
+    "SELECT id, shift_date, plan_type, completed_items FROM monthly_training_plans WHERE year_month=? AND plan_type NOT IN ('轮空') ORDER BY shift_date"
+  ).all(month);
+
+  const personDone = {};
+  for (const p of plans) {
+    const completedItems = JSON.parse(p.completed_items || '[]');
+    if (completedItems.length === 0) continue;
+    const full = getTrainingPlanForDate(p.shift_date);
+    if (!full) continue;
+    const fixedIds = new Set((full.fixedStaff||[]).map(f=>String(f.staff_id)));
+    let participants;
+    if (p.plan_type === '中旬会') {
+      const all = db.prepare('SELECT tgm.staff_id FROM training_group_members tgm WHERE tgm.is_fixed=0').all();
+      participants = [...all.map(m=>String(m.staff_id)).filter(id=>!fixedIds.has(id)), ...(full.fixedStaff||[]).map(f=>String(f.staff_id))];
+    } else {
+      const members = (full.group?.members||[]).filter(m=>!fixedIds.has(String(m.id)));
+      participants = [...members.map(m=>String(m.id)), ...(full.fixedStaff||[]).map(f=>String(f.staff_id))];
+    }
+    const evals = db.prepare('SELECT staff_id FROM training_evaluations WHERE plan_id=?').all(p.id);
+    const evalSet = new Set(evals.map(e=>String(e.staff_id)));
+    for (const sid of participants) {
+      if (!evalSet.has(sid)) continue;
+      if (!personDone[sid]) personDone[sid] = new Set();
+      for (const item of completedItems) personDone[sid].add(item);
+    }
+  }
+
+  // 取所有应参加人员
+  const groupMembers = db.prepare(
+    'SELECT tgm.staff_id, COALESCE(s.real_name, s.name) as name FROM training_group_members tgm JOIN staff s ON s.id=tgm.staff_id WHERE tgm.is_fixed=0 AND COALESCE(s.is_cp,0)=0'
+  ).all();
+  const fixedMembers = db.prepare(
+    'SELECT f.staff_id, COALESCE(s.real_name, s.name) as name FROM training_fixed_members f JOIN staff s ON f.staff_id=s.id'
+  ).all();
+  const allRequired = [...new Map([...groupMembers, ...fixedMembers].map(m=>[String(m.staff_id), m])).values()];
+
+  const incomplete = allRequired.filter(m => (personDone[String(m.staff_id)]?.size || 0) < totalItems);
+  if (incomplete.length === 0) return; // 全员完成，无需提醒（全员完成通知已由 checkAndNotifyMonthComplete 处理）
+
+  const names = incomplete.map(m => m.name).join('、');
+  await sendGroupPush(`⚠️ ${parseInt(mo)}月培训月末提醒\n\n今天是本月最后一个早班，以下 ${incomplete.length} 人尚未完成本月培训确认：\n${names}\n\n请教员确认是否有遗漏，如需补培训请安排在下月完成。`);
+}
 
 // 默认设置
 [
