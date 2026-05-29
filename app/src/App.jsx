@@ -5989,9 +5989,13 @@ function AdminScreen({ onBack }) {
                               });
                               setMemberEvalModal({id:m.id,name:m.name,itemStatuses});
                             };
+                            const dates=[...new Set((m.doneItems||[]).map(d=>d.shift_date).filter(Boolean))].sort();
+                            const dateLabel=dates.length>0?dates.map(d=>{const p=d.split('-');return`${parseInt(p[1])}/${parseInt(p[2])}`}).join('·'):'';
                             return(
                               <div key={m.id} onClick={openMemberModal} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:4,cursor:'pointer',borderRadius:4,padding:'1px 2px',margin:'-1px -2px'}}>
-                                <span style={{fontSize:11,color:isDone?'#94a3b8':'#cbd5e1',fontWeight:isDone?400:500,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.name}</span>
+                                <span style={{fontSize:11,color:isDone?'#94a3b8':'#cbd5e1',fontWeight:isDone?400:500,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                                  {m.name}{dateLabel&&<span style={{fontSize:9,color:'#475569',marginLeft:3}}>{dateLabel}</span>}
+                                </span>
                                 <span style={{fontSize:10,color:scoreCol,fontWeight:700,flexShrink:0}}>
                                   {isNone?'—':`${m.done}/${m.total}`}
                                 </span>
@@ -6021,9 +6025,11 @@ function AdminScreen({ onBack }) {
                             });
                             setMemberEvalModal({id:m.id,name:m.name,itemStatuses});
                           };
+                          const dates=[...new Set((m.doneItems||[]).map(d=>d.shift_date).filter(Boolean))].sort();
+                          const dateLabel=dates.length>0?dates.map(d=>{const p=d.split('-');return`${parseInt(p[1])}/${parseInt(p[2])}`}).join('·'):'';
                           return(
                             <div key={m.id} onClick={openMemberModal} style={{display:'flex',alignItems:'center',gap:4,cursor:'pointer'}}>
-                              <span style={{fontSize:11,color:'#cbd5e1'}}>{m.name}</span>
+                              <span style={{fontSize:11,color:'#cbd5e1'}}>{m.name}{dateLabel&&<span style={{fontSize:9,color:'#475569',marginLeft:3}}>{dateLabel}</span>}</span>
                               <span style={{fontSize:10,color:scoreCol,fontWeight:700}}>{isNone?'—':`${m.done}/${m.total}`}</span>
                             </div>
                           );
