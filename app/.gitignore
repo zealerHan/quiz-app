@@ -8,4 +8,7 @@ logs/
 data/quiz.db
 data/quiz.db-shm
 data/quiz.db-wal
+*.db
+*.db-shm
+*.db-wal
 .env
