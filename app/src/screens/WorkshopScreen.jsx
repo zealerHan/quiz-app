@@ -260,7 +260,7 @@ function WorkshopScreen({ user, onBack }) {
       ctx.fill();
       // 白色文字
       lines.forEach((line, i) => {
-        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.fillStyle = 'var(--border)';
         ctx.fillText(line, x + padding, y + padding + (i + 1) * lineH);
       });
       canvas.toBlob(blob => resolve(blob), 'image/jpeg', 0.88);
@@ -426,9 +426,9 @@ function WorkshopScreen({ user, onBack }) {
   };
 
   const typeStyle = (t) => {
-    if (t === '轮空')  return { text:'#475569', bg:'rgba(71,85,105,0.1)',  border:'rgba(71,85,105,0.3)' };
-    if (t === '中旬会') return { text:'#f59e0b', bg:'rgba(245,158,11,0.1)', border:'rgba(245,158,11,0.35)' };
-    return { text:'#3b82f6', bg:'rgba(59,130,246,0.1)', border:'rgba(59,130,246,0.28)' };
+    if (t === '轮空')  return { text:'var(--muted)', bg:'rgba(71,85,105,0.1)',  border:'rgba(71,85,105,0.3)' };
+    if (t === '中旬会') return { text:'var(--amber)', bg:'rgba(245,158,11,0.1)', border:'rgba(245,158,11,0.35)' };
+    return { text:'var(--blue)', bg:'rgba(59,130,246,0.1)', border:'rgba(59,130,246,0.28)' };
   };
 
   // 我的相关培训 sessions（本月）
@@ -447,28 +447,28 @@ function WorkshopScreen({ user, onBack }) {
   const dateShort = (d) => { const x = new Date(d + 'T00:00:00'); return `${x.getMonth()+1}月${x.getDate()}日`; };
 
   return (
-    <div style={{minHeight:'100vh',background:'#07101f',fontFamily:'var(--font, system-ui)',color:'white',paddingBottom:50}}>
+    <div style={{minHeight:'100vh',background:'var(--bg)',fontFamily:'var(--font, system-ui)',color:'var(--text)',paddingBottom:50}}>
       {/* 顶栏 */}
-      <div style={{display:'flex',alignItems:'center',gap:10,padding:'14px 16px',borderBottom:'1px solid #1b3255',position:'sticky',top:0,background:'#07101f',zIndex:10}}>
-        <button onClick={onBack} style={{background:'none',border:'none',color:'#94a3b8',fontSize:22,cursor:'pointer',lineHeight:1,padding:'0 4px'}}>←</button>
+      <div style={{display:'flex',alignItems:'center',gap:10,padding:'14px 16px',borderBottom:'1px solid var(--border)',position:'sticky',top:0,background:'var(--bg)',zIndex:10}}>
+        <button onClick={onBack} style={{background:'none',border:'none',color:'var(--muted)',fontSize:22,cursor:'pointer',lineHeight:1,padding:'0 4px'}}>←</button>
         <div style={{flex:1,fontWeight:700,fontSize:15}}>月度任务</div>
         <div style={{display:'flex',gap:5,alignItems:'center'}}>
-          <button onClick={()=>shiftMonth(-1)} style={{background:'none',border:'1px solid #1b3255',color:'#64748b',borderRadius:5,padding:'3px 8px',fontSize:13,cursor:'pointer'}}>‹</button>
-          <span style={{fontSize:13,color:'#94a3b8',minWidth:32,textAlign:'center'}}>{monthLabel(month)}</span>
-          <button onClick={()=>shiftMonth(1)} style={{background:'none',border:'1px solid #1b3255',color:'#64748b',borderRadius:5,padding:'3px 8px',fontSize:13,cursor:'pointer'}}>›</button>
+          <button onClick={()=>shiftMonth(-1)} style={{background:'none',border:'1px solid var(--border)',color:'var(--muted)',borderRadius:5,padding:'3px 8px',fontSize:13,cursor:'pointer'}}>‹</button>
+          <span style={{fontSize:13,color:'var(--muted)',minWidth:32,textAlign:'center'}}>{monthLabel(month)}</span>
+          <button onClick={()=>shiftMonth(1)} style={{background:'none',border:'1px solid var(--border)',color:'var(--muted)',borderRadius:5,padding:'3px 8px',fontSize:13,cursor:'pointer'}}>›</button>
         </div>
       </div>
 
       <div style={{padding:'14px 14px',display:'flex',flexDirection:'column',gap:16}}>
 
         {/* ══ 板块一：个人培训视图 ══ */}
-        <div style={{background:'#0a1929',border:'1px solid #1b3255',borderRadius:12,overflow:'hidden'}}>
+        <div style={{background:'#0a1929',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
           {/* 问候标题 */}
-          <div style={{padding:'14px 16px 12px',borderBottom:'1px solid #1b3255'}}>
-            <div style={{fontSize:15,fontWeight:700,color:'#e2e8f0',marginBottom:10}}>{user?.name}，你好：</div>
+          <div style={{padding:'14px 16px 12px',borderBottom:'1px solid var(--border)'}}>
+            <div style={{fontSize:15,fontWeight:700,color:'var(--text)',marginBottom:10}}>{user?.name}，你好：</div>
 
-            {loading ? <div style={{fontSize:11,color:'#475569'}}>加载中…</div> : myRelevant.length === 0 ? (
-              <div style={{fontSize:11,color:'#475569'}}>本月暂无分配培训任务</div>
+            {loading ? <div style={{fontSize:11,color:'var(--muted)'}}>加载中…</div> : myRelevant.length === 0 ? (
+              <div style={{fontSize:11,color:'var(--muted)'}}>本月暂无分配培训任务</div>
             ) : (
               <div style={{display:'flex',flexDirection:'column',gap:7}}>
                 {myRelevant.map(s => {
@@ -478,15 +478,15 @@ function WorkshopScreen({ user, onBack }) {
                   const typeLabel = isZhongxun ? '中旬会' : `${s.location} 实操培训`;
                   let statusNode;
                   if (complete) {
-                    statusNode = <span style={{color:'#22c55e',fontWeight:600,fontSize:11}}>已完成 ✅</span>;
+                    statusNode = <span style={{color:'var(--green)',fontWeight:600,fontSize:11}}>已完成 ✅</span>;
                   } else if (isPast) {
-                    statusNode = <span style={{color:'#64748b',fontSize:11}}>未确认</span>;
+                    statusNode = <span style={{color:'var(--muted)',fontSize:11}}>未确认</span>;
                   } else {
                     statusNode = <span style={{color:'#f97316',fontSize:11}}>待确认</span>;
                   }
                   return (
                     <div key={s.plan_id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
-                      <span style={{fontSize:12,color: isPast&&complete?'#22c55e': isPast?'#475569':'#e2e8f0', fontWeight: isPast&&complete?600:400}}>
+                      <span style={{fontSize:12,color: isPast&&complete?'var(--green)': isPast?'var(--muted)':'var(--text)', fontWeight: isPast&&complete?600:400}}>
                         {dateShort(s.shift_date)}，{typeLabel}
                       </span>
                       {statusNode}
@@ -501,9 +501,9 @@ function WorkshopScreen({ user, onBack }) {
               const nextTraining = myRelevant.find(s => s.shift_date >= todayStr && s.plan_type !== '中旬会');
               if (!nextTraining) return null;
               return (
-                <div style={{marginTop:10,fontSize:11,color:'#64748b',borderTop:'1px solid #1b3255',paddingTop:8}}>
+                <div style={{marginTop:10,fontSize:11,color:'var(--muted)',borderTop:'1px solid var(--border)',paddingTop:8}}>
                   下次实操培训时间：<span style={{color:'#93c5fd',fontWeight:600}}>{dateShort(nextTraining.shift_date)}</span>
-                  <span style={{color:'#64748b'}}> · {nextTraining.location}</span>
+                  <span style={{color:'var(--muted)'}}> · {nextTraining.location}</span>
                 </div>
               );
             })()}
@@ -511,23 +511,23 @@ function WorkshopScreen({ user, onBack }) {
 
           {/* 教员确认状态（针对最近一次待完成培训）*/}
           {!loading && nextSession && nextSession.plan_type !== '中旬会' && (
-            <div style={{padding:'12px 16px',borderBottom:'1px solid #1b3255'}}>
-              <div style={{fontSize:10,color:'#64748b',marginBottom:8}}>
+            <div style={{padding:'12px 16px',borderBottom:'1px solid var(--border)'}}>
+              <div style={{fontSize:10,color:'var(--muted)',marginBottom:8}}>
                 下次实操培训：
-                <span style={{color:'#e2e8f0',fontWeight:600}}>{dateShort(nextSession.shift_date)}</span>
-                <span style={{color:'#64748b'}}> · {nextSession.location}</span>
+                <span style={{color:'var(--text)',fontWeight:600}}>{dateShort(nextSession.shift_date)}</span>
+                <span style={{color:'var(--muted)'}}> · {nextSession.location}</span>
               </div>
               {nextSession.instructor_confirmed ? (
-                <div style={{padding:'10px',borderRadius:8,border:'1px solid rgba(34,197,94,0.35)',background:'rgba(34,197,94,0.07)',color:'#22c55e',fontSize:12,fontWeight:600,textAlign:'center'}}>
+                <div style={{padding:'10px',borderRadius:8,border:'1px solid rgba(34,197,94,0.35)',background:'rgba(34,197,94,0.07)',color:'var(--green)',fontSize:12,fontWeight:600,textAlign:'center'}}>
                   ☑ 教员已确认完成
                 </div>
               ) : isInstructor ? (
                 <button onClick={()=>doConfirm(nextSession.plan_id, user.staffId)} disabled={confirmingId!=null}
-                  style={{width:'100%',padding:'10px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#3b1f6e,#7c3aed)',color:'white',fontSize:12,fontWeight:700,fontFamily:'inherit',cursor:'pointer',opacity:confirmingId?0.6:1}}>
+                  style={{width:'100%',padding:'10px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#3b1f6e,#7c3aed)',color:'var(--text)',fontSize:12,fontWeight:700,fontFamily:'inherit',cursor:'pointer',opacity:confirmingId?0.6:1}}>
                   已到现场
                 </button>
               ) : (
-                <div style={{padding:'10px',borderRadius:8,border:'1px solid #1b3255',color:'#475569',fontSize:12,textAlign:'center'}}>
+                <div style={{padding:'10px',borderRadius:8,border:'1px solid var(--border)',color:'var(--muted)',fontSize:12,textAlign:'center'}}>
                   等待教员确认
                 </div>
               )}
@@ -537,12 +537,12 @@ function WorkshopScreen({ user, onBack }) {
 
         {/* ══ 板块二：实操前巩固 ══ */}
         <div>
-          <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600,marginBottom:8}}>实操前巩固</div>
-          <div style={{background:'#0a1929',border:'1px solid #1b3255',borderRadius:10,padding:'14px'}}>
-            <div style={{fontSize:12,color:'#94a3b8',marginBottom:10,lineHeight:1.7}}>培训前先用语音答题巩固业务知识，提高实操质量。</div>
+          <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,fontWeight:600,marginBottom:8}}>实操前巩固</div>
+          <div style={{background:'#0a1929',border:'1px solid var(--border)',borderRadius:10,padding:'14px'}}>
+            <div style={{fontSize:12,color:'var(--muted)',marginBottom:10,lineHeight:1.7}}>培训前先用语音答题巩固业务知识，提高实操质量。</div>
             <button onClick={()=>onBack()} style={{
               width:'100%',padding:'11px',borderRadius:9,border:'1px dashed rgba(100,116,139,0.5)',
-              background:'transparent',color:'#64748b',fontSize:12,fontFamily:'inherit',cursor:'pointer',fontWeight:600
+              background:'transparent',color:'var(--muted)',fontSize:12,fontFamily:'inherit',cursor:'pointer',fontWeight:600
             }}>去答题预习 →</button>
           </div>
         </div>
@@ -550,7 +550,7 @@ function WorkshopScreen({ user, onBack }) {
         {/* ══ 板块三：本月早班培训计划 ══ */}
         <div>
           <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
-            <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600}}>{monthLabel(month)} 早班培训计划</div>
+            <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,fontWeight:600}}>{monthLabel(month)} 早班培训计划</div>
             {isInstructor && <span style={{fontSize:10,padding:'1px 6px',borderRadius:4,background:'rgba(59,130,246,0.15)',border:'1px solid rgba(59,130,246,0.3)',color:'#93c5fd'}}>教员</span>}
           </div>
           <div style={{display:'flex',gap:5,alignItems:'center',flexWrap:'wrap',marginBottom:8}}>
@@ -559,7 +559,7 @@ function WorkshopScreen({ user, onBack }) {
               setPhotoAlbum({photos:[],loading:true});
               const photos = await apiJson('/api/workshop/photos').catch(()=>[]);
               setPhotoAlbum({photos:Array.isArray(photos)?photos:[],loading:false});
-            }} style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid rgba(148,163,184,0.3)',background:'rgba(148,163,184,0.06)',color:'#94a3b8',cursor:'pointer',fontFamily:'inherit'}}>
+            }} style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid rgba(148,163,184,0.3)',background:'rgba(148,163,184,0.06)',color:'var(--muted)',cursor:'pointer',fontFamily:'inherit'}}>
               🖼 相册
             </button>
 
@@ -578,30 +578,30 @@ function WorkshopScreen({ user, onBack }) {
             {hasEditPerm ? (
               wsEditMode ? (
                 <button onClick={()=>{ setWsEditMode(false); setExpandedCards(new Set()); setActiveField(null); }}
-                  style={{fontSize:10,padding:'3px 10px',borderRadius:5,border:'none',background:'#22c55e',color:'#07101f',cursor:'pointer',fontFamily:'inherit',fontWeight:700}}>
+                  style={{fontSize:10,padding:'3px 10px',borderRadius:5,border:'none',background:'var(--green)',color:'#07101f',cursor:'pointer',fontFamily:'inherit',fontWeight:700}}>
                   保存
                 </button>
               ) : (
                 <button onClick={()=>{ setWsEditMode(true); setRetroMode(false); }}
-                  style={{fontSize:10,padding:'3px 10px',borderRadius:5,border:'1px solid rgba(34,197,94,0.4)',background:'rgba(34,197,94,0.08)',color:'#22c55e',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
+                  style={{fontSize:10,padding:'3px 10px',borderRadius:5,border:'1px solid rgba(34,197,94,0.4)',background:'rgba(34,197,94,0.08)',color:'var(--green)',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
                   ✎ 组员管理
                 </button>
               )
             ) : (
               <button onClick={()=>setShowAdminInput(v=>!v)}
-                style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid #1b3255',background:'transparent',color:'#475569',cursor:'pointer',fontFamily:'inherit'}}>解锁</button>
+                style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontFamily:'inherit'}}>解锁</button>
             )}
           </div>
 
           {/* 编辑模式提示 + 管理员设置/重排按钮 */}
           {wsEditMode && canEdit && (
-            <div style={{display:'flex',alignItems:'center',gap:6,fontSize:10,color:'#475569',marginBottom:8,padding:'5px 10px',background:'rgba(27,50,85,0.2)',borderRadius:6,border:'1px solid rgba(27,50,85,0.4)'}}>
+            <div style={{display:'flex',alignItems:'center',gap:6,fontSize:10,color:'var(--muted)',marginBottom:8,padding:'5px 10px',background:'rgba(27,50,85,0.2)',borderRadius:6,border:'1px solid rgba(27,50,85,0.4)'}}>
               <span style={{flex:1}}>点击字段（▾）可直接修改</span>
               {!isInstructor && adminPwd && <>
                 <button onClick={()=>{ setSafetyInput(plan?.safetyDate||''); setStartGroupInput(plan?.startGroupId?String(plan.startGroupId):''); setStartLeaderInput(plan?.startLeaderIdx!=null?String(plan.startLeaderIdx):''); setShowSettings(true); }}
-                  style={{fontSize:10,padding:'2px 7px',borderRadius:4,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',cursor:'pointer',fontFamily:'inherit'}}>设置</button>
+                  style={{fontSize:10,padding:'2px 7px',borderRadius:4,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontFamily:'inherit'}}>设置</button>
                 <button onClick={regenerate}
-                  style={{fontSize:10,padding:'2px 7px',borderRadius:4,border:'1px solid rgba(239,68,68,0.3)',background:'transparent',color:'#ef4444',cursor:'pointer',fontFamily:'inherit'}}>重排</button>
+                  style={{fontSize:10,padding:'2px 7px',borderRadius:4,border:'1px solid rgba(239,68,68,0.3)',background:'transparent',color:'var(--red)',cursor:'pointer',fontFamily:'inherit'}}>重排</button>
               </>}
             </div>
           )}
@@ -612,12 +612,12 @@ function WorkshopScreen({ user, onBack }) {
               <input type="password" value={pwdInput} onChange={e=>setPwdInput(e.target.value)}
                 onKeyDown={e=>e.key==='Enter'&&confirmAdminPwd()}
                 placeholder="管理员密码" autoFocus
-                style={{flex:1,background:'#0d1e35',border:'1px solid #1b3255',borderRadius:6,padding:'7px 10px',color:'white',fontSize:12,fontFamily:'inherit',outline:'none'}}/>
-              <button onClick={confirmAdminPwd} style={{padding:'7px 14px',borderRadius:6,border:'none',background:'#1e3a5f',color:'white',fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>确认</button>
+                style={{flex:1,background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:6,padding:'7px 10px',color:'var(--text)',fontSize:12,fontFamily:'inherit',outline:'none'}}/>
+              <button onClick={confirmAdminPwd} style={{padding:'7px 14px',borderRadius:6,border:'none',background:'#1e3a5f',color:'var(--text)',fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>确认</button>
             </div>
           )}
 
-          {loading && <div style={{textAlign:'center',color:'#475569',fontSize:13,padding:'30px 0'}}>加载中…</div>}
+          {loading && <div style={{textAlign:'center',color:'var(--muted)',fontSize:13,padding:'30px 0'}}>加载中…</div>}
 
           {!loading && plan && (
             <div style={{display:'flex',flexDirection:'column',gap:7}}>
@@ -637,13 +637,13 @@ function WorkshopScreen({ user, onBack }) {
                     <div key={p.id} style={{
                       display:'flex', alignItems:'center', gap:8,
                       padding:'8px 12px', borderRadius:9,
-                      background:'rgba(10,25,41,0.6)', border:'1px solid #1b3255',
+                      background:'rgba(10,25,41,0.6)', border:'1px solid var(--border)',
                       cursor:'pointer', opacity:0.72,
                     }} onClick={()=>setExpandedCards(s=>{ const n=new Set(s); n.add(p.id); return n; })}>
-                      <span style={{fontSize:12,fontWeight:600,color:'#64748b',flexShrink:0}}>{dateLabel(p.shift_date)}</span>
+                      <span style={{fontSize:12,fontWeight:600,color:'var(--muted)',flexShrink:0}}>{dateLabel(p.shift_date)}</span>
                       <span style={{fontSize:10,padding:'1px 6px',borderRadius:4,border:`1px solid ${tc.border}`,color:tc.text,flexShrink:0,background:tc.bg}}>{p.plan_type==='培训'?'实操':p.plan_type}</span>
-                      {g && <span style={{fontSize:11,color:'#475569',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{g.name}{g.instructor_name?` · ${g.instructor_name}`:''}</span>}
-                      {!g && p.plan_type==='中旬会' && <span style={{fontSize:11,color:'#475569',flex:1}}>全员回段</span>}
+                      {g && <span style={{fontSize:11,color:'var(--muted)',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{g.name}{g.instructor_name?` · ${g.instructor_name}`:''}</span>}
+                      {!g && p.plan_type==='中旬会' && <span style={{fontSize:11,color:'var(--muted)',flex:1}}>全员回段</span>}
                       <span style={{fontSize:16,color:'#334155',flexShrink:0}}>›</span>
                     </div>
                   );
@@ -670,7 +670,7 @@ function WorkshopScreen({ user, onBack }) {
                 const TYPE_LABELS = {'培训':'实操','理论':'理论','轮空':'轮空','中旬会':'中旬会'};
 
                 // 通用下拉 chip 组件（行内渲染；popover=true 时选项以浮层形式弹出，不撑开整行）
-                const Chip = ({field, label, color='#94a3b8', borderColor='#1b3255', options, onSelect, popover=false}) => (
+                const Chip = ({field, label, color='var(--muted)', borderColor='var(--border)', options, onSelect, popover=false}) => (
                   <span style={{display:'inline-flex',alignItems:'center',gap:0,flexShrink:0,position:popover?'relative':'static'}}>
                     <button onClick={()=>toggleField(field)} style={{
                       padding:'1px 6px',borderRadius:5,fontSize:11,fontWeight:600,fontFamily:'inherit',cursor:'pointer',
@@ -682,9 +682,9 @@ function WorkshopScreen({ user, onBack }) {
                         {options.map(opt=>(
                           <button key={opt.value} onClick={()=>onSelect(opt.value)} style={{
                             padding:'1px 8px',borderRadius:5,fontSize:11,fontFamily:'inherit',cursor:'pointer',
-                            border:`1px solid ${opt.value===opt.current?color:'#1b3255'}`,
+                            border:`1px solid ${opt.value===opt.current?color:'var(--border)'}`,
                             background: opt.value===opt.current?`rgba(59,130,246,0.15)`:'none',
-                            color: opt.value===opt.current?color:'#64748b', fontWeight: opt.value===opt.current?600:400
+                            color: opt.value===opt.current?color:'var(--muted)', fontWeight: opt.value===opt.current?600:400
                           }}>{opt.label}</button>
                         ))}
                       </span>
@@ -694,18 +694,18 @@ function WorkshopScreen({ user, onBack }) {
                         <span onClick={()=>toggleField(field)} style={{position:'fixed',inset:0,zIndex:40}}/>
                         <span style={{
                           position:'absolute',top:'calc(100% + 4px)',left:0,zIndex:50,
-                          background:'#0d1e35',border:`1px solid ${color}`,borderRadius:6,
+                          background:'var(--input-bg)',border:`1px solid ${color}`,borderRadius:6,
                           padding:5,boxShadow:'0 4px 14px rgba(0,0,0,0.5)',
                           display:'grid',gridTemplateColumns:'repeat(2,minmax(60px,auto))',gap:3,
                           minWidth:140,
                         }}>
-                          {options.length===0 && <span style={{fontSize:10,color:'#475569',padding:'4px 8px',gridColumn:'span 2'}}>无可选项</span>}
+                          {options.length===0 && <span style={{fontSize:10,color:'var(--muted)',padding:'4px 8px',gridColumn:'span 2'}}>无可选项</span>}
                           {options.map(opt=>(
                             <button key={opt.value} onClick={()=>onSelect(opt.value)} style={{
                               padding:'3px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:'pointer',
-                              border:`1px solid ${opt.value===opt.current?color:'#1b3255'}`,
+                              border:`1px solid ${opt.value===opt.current?color:'var(--border)'}`,
                               background: opt.value===opt.current?`rgba(59,130,246,0.15)`:'rgba(13,17,23,0.4)',
-                              color: opt.value===opt.current?color:'#cbd5e1', fontWeight: opt.value===opt.current?600:400,
+                              color: opt.value===opt.current?color:'var(--muted)', fontWeight: opt.value===opt.current?600:400,
                               whiteSpace:'nowrap',textAlign:'center',
                             }}>{opt.label}</button>
                           ))}
@@ -729,7 +729,7 @@ function WorkshopScreen({ user, onBack }) {
                     {collapsible && (
                       <div style={{display:'flex',justifyContent:'flex-end',padding:'4px 10px',borderBottom:`1px solid ${tc.border}`,background:'rgba(0,0,0,0.2)'}}>
                         <button onClick={()=>setExpandedCards(s=>{ const n=new Set(s); n.delete(p.id); return n; })}
-                          style={{background:'none',border:'none',color:'#475569',fontSize:11,cursor:'pointer',padding:'0 2px',fontFamily:'inherit'}}>
+                          style={{background:'none',border:'none',color:'var(--muted)',fontSize:11,cursor:'pointer',padding:'0 2px',fontFamily:'inherit'}}>
                           收起 ∧
                         </button>
                       </div>
@@ -738,12 +738,12 @@ function WorkshopScreen({ user, onBack }) {
                     {/* ── 行1：日期 小组 类型 地点 ── */}
                     <div style={{padding:'8px 12px',background:tc.bg,borderBottom:`1px solid ${tc.border}`}}>
                       <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
-                        {mine && <span style={{fontSize:9,color:'#3b82f6'}}>◆</span>}
-                        <span style={{fontWeight:700,fontSize:12,color:'white',marginRight:2}}>{dateLabel(p.shift_date)}</span>
+                        {mine && <span style={{fontSize:9,color:'var(--blue)'}}>◆</span>}
+                        <span style={{fontWeight:700,fontSize:12,color:'var(--text)',marginRight:2}}>{dateLabel(p.shift_date)}</span>
 
                         {/* 小组 */}
                         {g && p.plan_type!=='中旬会' && p.plan_type!=='轮空' && (
-                          <Chip field="group" label={g.name} color="#e2e8f0" borderColor="#1e3a5f"
+                          <Chip field="group" label={g.name} color="var(--text)" borderColor="#1e3a5f"
                             options={(plan.groups||[]).map(gr=>({value:gr.id,label:gr.name,current:p.group_id}))}
                             onSelect={v=>patchRow(p.id,{group_id:v},`${now} 小组改为"${(plan.groups||[]).find(gr=>gr.id===v)?.name}"`)}
                           />
@@ -782,7 +782,7 @@ function WorkshopScreen({ user, onBack }) {
 
                         {/* 地点 */}
                         {p.plan_type!=='轮空' && (
-                          <Chip field="location" label={p.location||'—'} color="#64748b" borderColor="#1b3255"
+                          <Chip field="location" label={p.location||'—'} color="var(--muted)" borderColor="var(--border)"
                             options={LOCATIONS.map(l=>({value:l,label:l,current:p.location}))}
                             onSelect={v=>patchRow(p.id,{location:v},`${now} 地点改为"${v}"`)}
                           />
@@ -819,7 +819,7 @@ function WorkshopScreen({ user, onBack }) {
                                     patchRow(p.id,{notes:newNotes},`${now2} 移除记录：${entry.staffName}`);
                                   }} style={{
                                     padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:canEdit?'pointer':'default',
-                                    border:`1px solid ${entry.type==='请假'?'#ef4444':'#3b82f6'}`,
+                                    border:`1px solid ${entry.type==='请假'?'var(--red)':'var(--blue)'}`,
                                     background:entry.type==='请假'?'rgba(239,68,68,0.12)':'rgba(59,130,246,0.12)',
                                     color:entry.type==='请假'?'#fca5a5':'#93c5fd',fontWeight:600
                                   }}>{entry.staffName}</button>
@@ -836,7 +836,7 @@ function WorkshopScreen({ user, onBack }) {
                             </div>
                             {/* 备注行 */}
                             {specialEntries.length>0 && (
-                              <div style={{fontSize:10,color:'#64748b',lineHeight:1.7}}>
+                              <div style={{fontSize:10,color:'var(--muted)',lineHeight:1.7}}>
                                 备注：{specialEntries.map(e=>`${e.staffName} ${e.type}`).join('；')}
                               </div>
                             )}
@@ -851,7 +851,7 @@ function WorkshopScreen({ user, onBack }) {
                                 display:'flex',alignItems:'center',gap:4,width:'100%',justifyContent:'space-between'
                               }}>
                                 <span style={{fontWeight:600}}>全员名单</span>
-                                <span style={{color:'#475569',fontSize:10}}>{isZhxhExpanded?'收起 ∧':'展开 ∨'}</span>
+                                <span style={{color:'var(--muted)',fontSize:10}}>{isZhxhExpanded?'收起 ∧':'展开 ∨'}</span>
                               </button>
                               {isZhxhExpanded && (
                                 <div style={{marginTop:8,display:'flex',flexDirection:'column',gap:6}}>
@@ -861,7 +861,7 @@ function WorkshopScreen({ user, onBack }) {
                                     return (
                                       <div key={grp.id} style={{background:'rgba(13,30,50,0.5)',borderRadius:6,padding:'6px 8px'}}>
                                         <div style={{fontSize:10,color:'#60a5fa',fontWeight:700,marginBottom:4}}>
-                                          {grp.name}{grp.instructor_name?<span style={{color:'#64748b',fontWeight:400,marginLeft:4}}>· {grp.instructor_name}（教员）</span>:null}
+                                          {grp.name}{grp.instructor_name?<span style={{color:'var(--muted)',fontWeight:400,marginLeft:4}}>· {grp.instructor_name}（教员）</span>:null}
                                         </div>
                                         <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
                                           {grpMembers.map((m,mi)=>(
@@ -883,7 +883,7 @@ function WorkshopScreen({ user, onBack }) {
                                               await handleMemberClick(m, p, evMap, monthPlanItems, currentItems, allM);
                                             }} style={(() => {
                                               const confirmed = (p.confirmedIds||[]).includes(String(m.id));
-                                              return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:'pointer',border:`1px solid ${confirmed?'rgba(34,197,94,0.35)':'rgba(248,113,113,0.35)'}`,background:confirmed?'rgba(34,197,94,0.07)':'rgba(248,113,113,0.07)',color:confirmed?'#22c55e':'#f87171',fontWeight:400};
+                                              return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:'pointer',border:`1px solid ${confirmed?'rgba(34,197,94,0.35)':'rgba(248,113,113,0.35)'}`,background:confirmed?'rgba(34,197,94,0.07)':'rgba(248,113,113,0.07)',color:confirmed?'var(--green)':'#f87171',fontWeight:400};
                                             })()}>{m.real_name||m.name}</button>
                                           ))}
                                         </div>
@@ -914,7 +914,7 @@ function WorkshopScreen({ user, onBack }) {
                                             await handleMemberClick({id:f.staff_id,real_name:f.real_name||f.name}, p, evMap, monthPlanItems, currentItems, allM);
                                           }} style={(() => {
                                             const confirmed = (p.confirmedIds||[]).includes(String(f.staff_id));
-                                            return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:hasEditPerm?'pointer':'default',border:`1px solid ${confirmed?'rgba(34,197,94,0.35)':'rgba(248,113,113,0.35)'}`,background:confirmed?'rgba(34,197,94,0.07)':'rgba(248,113,113,0.07)',color:confirmed?'#22c55e':'#f87171',fontWeight:400};
+                                            return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:hasEditPerm?'pointer':'default',border:`1px solid ${confirmed?'rgba(34,197,94,0.35)':'rgba(248,113,113,0.35)'}`,background:confirmed?'rgba(34,197,94,0.07)':'rgba(248,113,113,0.07)',color:confirmed?'var(--green)':'#f87171',fontWeight:400};
                                           })()}>{f.real_name||f.name}</button>
                                         ))}
                                       </div>
@@ -946,7 +946,7 @@ function WorkshopScreen({ user, onBack }) {
                             return (
                               <span style={{fontSize:11,color:'#7c8fa6',display:'inline-flex',alignItems:'center',gap:4}}>
                                 教员
-                                <Chip field="instructor" label={(g.instructor_name||'—')+(p.instructor_overridden?' *':'')} color="#93c5fd" borderColor="#1b3255"
+                                <Chip field="instructor" label={(g.instructor_name||'—')+(p.instructor_overridden?' *':'')} color="#93c5fd" borderColor="var(--border)"
                                   popover={true}
                                   options={opts}
                                   onSelect={v=>{
@@ -987,7 +987,7 @@ function WorkshopScreen({ user, onBack }) {
                                     });
                                   }} style={{
                                     padding:'1px 5px',borderRadius:5,fontSize:11,fontFamily:'inherit',cursor:'pointer',
-                                    border:'1px solid #1b3255',background:'rgba(59,130,246,0.08)',color:'#93c5fd',
+                                    border:'1px solid var(--border)',background:'rgba(59,130,246,0.08)',color:'#93c5fd',
                                   }}>⇄</button>
                                 )}
                               </span>
@@ -995,7 +995,7 @@ function WorkshopScreen({ user, onBack }) {
                           })()}
                           <span style={{fontSize:11,color:'#7c8fa6',display:'inline-flex',alignItems:'center',gap:4}}>
                             班组长
-                            <Chip field="leader" label={p.leader_name||'—'} color="#fbbf24" borderColor="#1b3255"
+                            <Chip field="leader" label={p.leader_name||'—'} color="#fbbf24" borderColor="var(--border)"
                               options={allLeaders.map(l=>({value:l,label:l,current:p.leader_name}))}
                               onSelect={v=>patchRow(p.id,{leader_name:v},`${now} 班组长改为"${v}"`)}
                             />
@@ -1047,7 +1047,7 @@ function WorkshopScreen({ user, onBack }) {
                                         const confirmed = (p.confirmedIds||[]).includes(String(m.id));
                                         if (canRetro) return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:'pointer',border:'1px solid rgba(251,191,36,0.5)',background:'rgba(251,191,36,0.08)',color:'#fbbf24',fontWeight:600};
                                         if (isSwapped) return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:canEdit?'pointer':'default',border:'1px solid #3b82f6',background:'rgba(59,130,246,0.15)',color:'#60a5fa',fontWeight:600};
-                                        return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:canEdit?'pointer':'default',border:`1px solid ${confirmed?'rgba(34,197,94,0.35)':'rgba(248,113,113,0.35)'}`,background:confirmed?'rgba(34,197,94,0.07)':'rgba(248,113,113,0.07)',color:confirmed?'#22c55e':'#f87171',fontWeight:400};
+                                        return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:canEdit?'pointer':'default',border:`1px solid ${confirmed?'rgba(34,197,94,0.35)':'rgba(248,113,113,0.35)'}`,background:confirmed?'rgba(34,197,94,0.07)':'rgba(248,113,113,0.07)',color:confirmed?'var(--green)':'#f87171',fontWeight:400};
                                       })()}>
                                         {m.real_name||m.name}
                                         {canEdit && <span onClick={async e=>{
@@ -1158,21 +1158,21 @@ function WorkshopScreen({ user, onBack }) {
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>setLunKongConfirm(null)}>
           <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:340}} onClick={e=>e.stopPropagation()}>
             <div style={{fontWeight:600,color:'#fbbf24',fontSize:14,marginBottom:8}}>⚠️ 设为轮空</div>
-            <div style={{fontSize:12,color:'#94a3b8',marginBottom:4,lineHeight:1.6}}>
-              此次早班将设为<strong style={{color:'#ef4444'}}>轮空</strong>，不安排培训。<br/>
+            <div style={{fontSize:12,color:'var(--muted)',marginBottom:4,lineHeight:1.6}}>
+              此次早班将设为<strong style={{color:'var(--red)'}}>轮空</strong>，不安排培训。<br/>
               后续日程不会自动级联变化，如需调整小组顺序请使用"重生"功能。
             </div>
-            <div style={{fontSize:11,color:'#64748b',marginBottom:5,marginTop:10}}>轮空原因（必填）</div>
+            <div style={{fontSize:11,color:'var(--muted)',marginBottom:5,marginTop:10}}>轮空原因（必填）</div>
             <input
               value={lunKongConfirm.noteInput}
               onChange={e=>setLunKongConfirm(prev=>({...prev,noteInput:e.target.value}))}
               placeholder="如：恶劣天气、临时调整…"
               autoFocus
-              style={{width:'100%',boxSizing:'border-box',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:6,padding:'8px 10px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none',marginBottom:14}}
+              style={{width:'100%',boxSizing:'border-box',background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:6,padding:'8px 10px',color:'var(--text)',fontSize:13,fontFamily:'inherit',outline:'none',marginBottom:14}}
             />
             <div style={{display:'flex',gap:8}}>
-              <button onClick={()=>setLunKongConfirm(null)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
-              <button disabled={!lunKongConfirm.noteInput.trim()} onClick={confirmLunKong} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#7c1d1d,#dc2626)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:!lunKongConfirm.noteInput.trim()?0.4:1}}>确认设为轮空</button>
+              <button onClick={()=>setLunKongConfirm(null)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
+              <button disabled={!lunKongConfirm.noteInput.trim()} onClick={confirmLunKong} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#7c1d1d,#dc2626)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:!lunKongConfirm.noteInput.trim()?0.4:1}}>确认设为轮空</button>
             </div>
           </div>
         </div>
@@ -1185,13 +1185,13 @@ function WorkshopScreen({ user, onBack }) {
 
             {/* 第一步：选目标培训日期 */}
             {memberModal.step==='pick-date' && (<>
-              <div style={{fontWeight:600,color:'#e2e8f0',fontSize:14,marginBottom:2}}>
+              <div style={{fontWeight:600,color:'var(--text)',fontSize:14,marginBottom:2}}>
                 {memberModal.staffName}
                 {memberModal.isAdded && <span style={{fontSize:10,color:'#60a5fa',marginLeft:6,fontWeight:400}}>（换入）</span>}
               </div>
-              <div style={{fontSize:11,color:'#64748b',marginBottom:10}}>调到哪一期？</div>
+              <div style={{fontSize:11,color:'var(--muted)',marginBottom:10}}>调到哪一期？</div>
               <div style={{maxHeight:260,overflowY:'auto',display:'flex',flexDirection:'column',gap:3}}>
-                {memberModal.dates.length===0 && <div style={{fontSize:12,color:'#475569',textAlign:'center',padding:'16px 0'}}>本月无其他培训日期</div>}
+                {memberModal.dates.length===0 && <div style={{fontSize:12,color:'var(--muted)',textAlign:'center',padding:'16px 0'}}>本月无其他培训日期</div>}
                 {memberModal.dates.map((d,i)=>{
                   const sel = memberModal.target?.id===d.id;
                   return (
@@ -1204,22 +1204,22 @@ function WorkshopScreen({ user, onBack }) {
                       const added2=(ov2.added||[]).map(a=>({id:a.id||a.staff_id,real_name:a.real_name||a.staff_name||a.name}));
                       const swapCandidates=[...base2,...added2].filter(m=>String(m.id)!==String(memberModal.staffId)).map(m=>({...m,planId:d.id,shiftDate:d.shift_date}));
                       setMemberModal(prev=>({...prev,target:{id:d.id,shift_date:d.shift_date,group_name:d.group?.name||'—'},swapCandidates,step:'pick-action'}));
-                    }} style={{padding:'8px 12px',borderRadius:7,border:`1px solid ${sel?'#60a5fa':'#1b3255'}`,background:sel?'rgba(59,130,246,0.15)':'rgba(13,17,23,0.4)',color:'#e2e8f0',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    }} style={{padding:'8px 12px',borderRadius:7,border:`1px solid ${sel?'#60a5fa':'var(--border)'}`,background:sel?'rgba(59,130,246,0.15)':'rgba(13,17,23,0.4)',color:'var(--text)',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                       <span style={{fontWeight:600}}>{d.shift_date?.slice(5)}</span>
-                      <span style={{fontSize:10,color:'#64748b'}}>{d.group?.name||'—'}</span>
+                      <span style={{fontSize:10,color:'var(--muted)'}}>{d.group?.name||'—'}</span>
                     </button>
                   );
                 })}
               </div>
-              <button onClick={()=>setMemberModal(null)} style={{width:'100%',marginTop:10,padding:'8px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>取消</button>
+              <button onClick={()=>setMemberModal(null)} style={{width:'100%',marginTop:10,padding:'8px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>取消</button>
             </>)}
 
             {/* 第二步：选操作方式（单独移过去 / 与对方互换） */}
             {memberModal.step==='pick-action' && memberModal.target && (<>
-              <div style={{fontWeight:600,color:'#e2e8f0',fontSize:13,marginBottom:2}}>
+              <div style={{fontWeight:600,color:'var(--text)',fontSize:13,marginBottom:2}}>
                 {memberModal.staffName} → {memberModal.target.shift_date?.slice(5)}
               </div>
-              <div style={{fontSize:11,color:'#64748b',marginBottom:12}}>选择调整方式</div>
+              <div style={{fontSize:11,color:'var(--muted)',marginBottom:12}}>选择调整方式</div>
               <div style={{display:'flex',flexDirection:'column',gap:8}}>
                 <button onClick={async()=>{
                   const {planId,staffId,target} = memberModal;
@@ -1239,39 +1239,39 @@ function WorkshopScreen({ user, onBack }) {
                   </button>
                 )}
               </div>
-              <button onClick={()=>setMemberModal(prev=>({...prev,step:'pick-date',target:null}))} style={{width:'100%',marginTop:10,padding:'8px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>返回</button>
+              <button onClick={()=>setMemberModal(prev=>({...prev,step:'pick-date',target:null}))} style={{width:'100%',marginTop:10,padding:'8px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>返回</button>
             </>)}
 
             {/* 第三步（互换）：选对方具体成员 */}
             {memberModal.step==='pick-member' && memberModal.target && (<>
-              <div style={{fontWeight:600,color:'#e2e8f0',fontSize:13,marginBottom:2}}>
+              <div style={{fontWeight:600,color:'var(--text)',fontSize:13,marginBottom:2}}>
                 {memberModal.staffName} ↔ ?（{memberModal.target.shift_date?.slice(5)}）
               </div>
-              <div style={{fontSize:11,color:'#64748b',marginBottom:10}}>选择要换回来的人</div>
+              <div style={{fontSize:11,color:'var(--muted)',marginBottom:10}}>选择要换回来的人</div>
               <div style={{maxHeight:240,overflowY:'auto',display:'flex',flexDirection:'column',gap:3}}>
                 {memberModal.swapCandidates.map((c,i)=>{
                   const sel = memberModal.swapTarget?.id===c.id;
                   return (
-                    <button key={i} onClick={()=>setMemberModal(prev=>({...prev,swapTarget:c}))} style={{padding:'8px 12px',borderRadius:7,border:`1px solid ${sel?'#60a5fa':'#1b3255'}`,background:sel?'rgba(59,130,246,0.15)':'rgba(13,17,23,0.4)',color:'#e2e8f0',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left'}}>
+                    <button key={i} onClick={()=>setMemberModal(prev=>({...prev,swapTarget:c}))} style={{padding:'8px 12px',borderRadius:7,border:`1px solid ${sel?'#60a5fa':'var(--border)'}`,background:sel?'rgba(59,130,246,0.15)':'rgba(13,17,23,0.4)',color:'var(--text)',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left'}}>
                       {c.real_name||c.name}
                     </button>
                   );
                 })}
               </div>
               {memberModal.swapTarget && (
-                <div style={{marginTop:8,padding:'7px 10px',background:'rgba(59,130,246,0.07)',borderRadius:6,border:'1px solid rgba(59,130,246,0.2)',fontSize:11,color:'#94a3b8'}}>
+                <div style={{marginTop:8,padding:'7px 10px',background:'rgba(59,130,246,0.07)',borderRadius:6,border:'1px solid rgba(59,130,246,0.2)',fontSize:11,color:'var(--muted)'}}>
                   <strong style={{color:'#60a5fa'}}>{memberModal.staffName}</strong> ↔ <strong style={{color:'#60a5fa'}}>{memberModal.swapTarget.real_name||memberModal.swapTarget.name}</strong>
                 </div>
               )}
               <div style={{display:'flex',gap:8,marginTop:10}}>
-                <button onClick={()=>setMemberModal(prev=>({...prev,step:'pick-action',swapTarget:null}))} style={{flex:1,padding:'9px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>返回</button>
+                <button onClick={()=>setMemberModal(prev=>({...prev,step:'pick-action',swapTarget:null}))} style={{flex:1,padding:'9px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>返回</button>
                 <button disabled={!memberModal.swapTarget} onClick={async()=>{
                   const {planId,staffId,target,swapTarget} = memberModal;
                   const now2=logNow();
                   const r=await apiJson('/api/admin/training-plan/member-swap',{method:'POST',headers:hdrs(),body:JSON.stringify({plan_id_a:planId,staff_id_a:staffId,plan_id_b:target.id,staff_id_b:swapTarget.id,note:`${now2} ${memberModal.staffName}↔${swapTarget.real_name||swapTarget.name}`})}).catch(()=>null);
                   if(r?.ok){setMemberModal(null);flashCard(planId);load(month);}
                   else alert(r?.error||'操作失败');
-                }} style={{flex:2,padding:'9px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#2563eb)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberModal.swapTarget?1:0.4}}>
+                }} style={{flex:2,padding:'9px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#2563eb)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberModal.swapTarget?1:0.4}}>
                   确认互换
                 </button>
               </div>
@@ -1279,12 +1279,12 @@ function WorkshopScreen({ user, onBack }) {
 
             {/* 中旬会：选人员 */}
             {memberModal.step==='zhxh_pick' && (<>
-              <div style={{fontWeight:600,color:'#e2e8f0',fontSize:13,marginBottom:4}}>登记人员</div>
+              <div style={{fontWeight:600,color:'var(--text)',fontSize:13,marginBottom:4}}>登记人员</div>
               <div style={{maxHeight:240,overflowY:'auto',display:'flex',flexDirection:'column',gap:3,marginBottom:10}}>
                 {(plan.allStaff||[]).filter(s=>!memberModal.specialEntries?.some(e=>e.staffId===s.id)).map((s,i)=>(
                   <button key={i} onClick={()=>setMemberModal(prev=>({...prev,target:{staffId:null,staffName:s.real_name||s.name},step:'zhxh_confirm'}))} style={{
-                    padding:'7px 12px',borderRadius:7,border:'1px solid #1b3255',
-                    background:'rgba(13,17,23,0.4)',color:'#e2e8f0',
+                    padding:'7px 12px',borderRadius:7,border:'1px solid var(--border)',
+                    background:'rgba(13,17,23,0.4)',color:'var(--text)',
                     fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left'
                   }}>
                     {s.real_name||s.name}
@@ -1292,13 +1292,13 @@ function WorkshopScreen({ user, onBack }) {
                 ))}
               </div>
               {/* 手动输入外部人员 */}
-              <div style={{fontSize:11,color:'#475569',marginBottom:5}}>或手动输入姓名</div>
+              <div style={{fontSize:11,color:'var(--muted)',marginBottom:5}}>或手动输入姓名</div>
               <div style={{display:'flex',flexDirection:'column',gap:6}}>
                 <input
                   value={memberModal.manualName||''}
                   onChange={e=>setMemberModal(prev=>({...prev,manualName:e.target.value}))}
                   placeholder="输入姓名…"
-                  style={{width:'100%',boxSizing:'border-box',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:6,padding:'7px 10px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none'}}
+                  style={{width:'100%',boxSizing:'border-box',background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:6,padding:'7px 10px',color:'var(--text)',fontSize:13,fontFamily:'inherit',outline:'none'}}
                 />
                 <button disabled={!(memberModal.manualName||'').trim()} onClick={()=>{
                   const name = (memberModal.manualName||'').trim();
@@ -1308,13 +1308,13 @@ function WorkshopScreen({ user, onBack }) {
                   下一步
                 </button>
               </div>
-              <button onClick={()=>setMemberModal(null)} style={{width:'100%',marginTop:8,padding:'7px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>取消</button>
+              <button onClick={()=>setMemberModal(null)} style={{width:'100%',marginTop:8,padding:'7px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>取消</button>
             </>)}
 
             {/* 中旬会：选类型（请假 / 临时参会） */}
             {memberModal.step==='zhxh_confirm' && memberModal.target && (<>
-              <div style={{fontWeight:600,color:'#e2e8f0',fontSize:14,marginBottom:4}}>{memberModal.target.staffName}</div>
-              <div style={{fontSize:11,color:'#475569',marginBottom:14}}>选择状态</div>
+              <div style={{fontWeight:600,color:'var(--text)',fontSize:14,marginBottom:4}}>{memberModal.target.staffName}</div>
+              <div style={{fontSize:11,color:'var(--muted)',marginBottom:14}}>选择状态</div>
               <div style={{display:'flex',gap:8}}>
                 {['请假','临时参会'].map(type=>(
                   <button key={type} onClick={async()=>{
@@ -1335,7 +1335,7 @@ function WorkshopScreen({ user, onBack }) {
                   }}>{type}</button>
                 ))}
               </div>
-              <button onClick={()=>setMemberModal(prev=>({...prev,step:'zhxh_pick',target:null}))} style={{width:'100%',marginTop:10,padding:'8px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>返回</button>
+              <button onClick={()=>setMemberModal(prev=>({...prev,step:'zhxh_pick',target:null}))} style={{width:'100%',marginTop:10,padding:'8px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>返回</button>
             </>)}
 
 
@@ -1349,36 +1349,36 @@ function WorkshopScreen({ user, onBack }) {
           <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:340}} onClick={e=>e.stopPropagation()}>
             {swapPlanModal.step==='pick' && (<>
               <div style={{fontWeight:600,color:'#60a5fa',fontSize:13,marginBottom:2}}>⇄ 整体对调</div>
-              <div style={{fontSize:11,color:'#64748b',marginBottom:10}}>将 <strong style={{color:'white'}}>{swapPlanModal.shiftDate?.slice(5)}</strong> 与哪一期对调？</div>
+              <div style={{fontSize:11,color:'var(--muted)',marginBottom:10}}>将 <strong style={{color:'var(--text)'}}>{swapPlanModal.shiftDate?.slice(5)}</strong> 与哪一期对调？</div>
               <div style={{maxHeight:280,overflowY:'auto',display:'flex',flexDirection:'column',gap:3}}>
                 {(plan.plans||[]).filter(x=>x.id!==swapPlanModal.planId&&x.plan_type!=='轮空').map((d,i)=>{
                   const sel=swapPlanModal.target?.id===d.id;
                   return (
                     <button key={i} onClick={()=>setSwapPlanModal(prev=>({...prev,target:{id:d.id,shift_date:d.shift_date,group_name:d.group?.name||d.plan_type},step:'confirm'}))}
-                      style={{padding:'9px 12px',borderRadius:7,border:`1px solid ${sel?'#60a5fa':'#1b3255'}`,background:sel?'rgba(59,130,246,0.15)':'rgba(13,17,23,0.4)',color:'#e2e8f0',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      style={{padding:'9px 12px',borderRadius:7,border:`1px solid ${sel?'#60a5fa':'var(--border)'}`,background:sel?'rgba(59,130,246,0.15)':'rgba(13,17,23,0.4)',color:'var(--text)',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                       <span style={{fontWeight:600}}>{d.shift_date?.slice(5)}</span>
-                      <span style={{fontSize:10,color:'#64748b'}}>{d.group?.name||d.plan_type}</span>
+                      <span style={{fontSize:10,color:'var(--muted)'}}>{d.group?.name||d.plan_type}</span>
                     </button>
                   );
                 })}
               </div>
-              <button onClick={()=>setSwapPlanModal(null)} style={{width:'100%',marginTop:10,padding:'8px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>取消</button>
+              <button onClick={()=>setSwapPlanModal(null)} style={{width:'100%',marginTop:10,padding:'8px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>取消</button>
             </>)}
             {swapPlanModal.step==='confirm' && swapPlanModal.target && (<>
               <div style={{fontWeight:600,color:'#60a5fa',fontSize:13,marginBottom:8}}>⇄ 确认对调</div>
-              <div style={{padding:'12px',background:'rgba(59,130,246,0.07)',borderRadius:8,border:'1px solid rgba(59,130,246,0.2)',fontSize:13,color:'#e2e8f0',marginBottom:14,lineHeight:1.8}}>
+              <div style={{padding:'12px',background:'rgba(59,130,246,0.07)',borderRadius:8,border:'1px solid rgba(59,130,246,0.2)',fontSize:13,color:'var(--text)',marginBottom:14,lineHeight:1.8}}>
                 <strong>{swapPlanModal.shiftDate?.slice(5)}</strong> 的内容（小组·人员·教员·地点）<br/>
                 ↕<br/>
                 <strong>{swapPlanModal.target.shift_date?.slice(5)}</strong> 的内容（{swapPlanModal.target.group_name}）
               </div>
-              <div style={{fontSize:11,color:'#64748b',marginBottom:14}}>包括所有人员调整记录，两期完全互换，操作不可撤销。</div>
+              <div style={{fontSize:11,color:'var(--muted)',marginBottom:14}}>包括所有人员调整记录，两期完全互换，操作不可撤销。</div>
               <div style={{display:'flex',gap:8}}>
-                <button onClick={()=>setSwapPlanModal(prev=>({...prev,step:'pick',target:null}))} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>返回</button>
+                <button onClick={()=>setSwapPlanModal(prev=>({...prev,step:'pick',target:null}))} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>返回</button>
                 <button onClick={async()=>{
                   const r=await apiJson('/api/admin/training-plan/swap',{method:'PUT',headers:hdrs(),body:JSON.stringify({id1:swapPlanModal.planId,id2:swapPlanModal.target.id})}).catch(()=>null);
                   if(r?.ok){setSwapPlanModal(null);flashCard(swapPlanModal.planId);load(month);}
                   else alert(r?.error||'操作失败');
-                }} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#2563eb)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                }} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#2563eb)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer'}}>
                   确认对调
                 </button>
               </div>
@@ -1393,33 +1393,33 @@ function WorkshopScreen({ user, onBack }) {
           <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:340}} onClick={e=>e.stopPropagation()}>
             {bulkPostponeModal.step==='pick' && (<>
               <div style={{fontWeight:600,color:'#fbbf24',fontSize:13,marginBottom:2}}>→↑ 全员延后</div>
-              <div style={{fontSize:11,color:'#64748b',marginBottom:10}}>将 <strong style={{color:'white'}}>{bulkPostponeModal.shiftDate?.slice(5)}</strong> 全体组员延后到哪一期？</div>
+              <div style={{fontSize:11,color:'var(--muted)',marginBottom:10}}>将 <strong style={{color:'var(--text)'}}>{bulkPostponeModal.shiftDate?.slice(5)}</strong> 全体组员延后到哪一期？</div>
               <div style={{maxHeight:280,overflowY:'auto',display:'flex',flexDirection:'column',gap:3}}>
                 {(plan.plans||[]).filter(x=>x.id!==bulkPostponeModal.planId&&x.plan_type!=='轮空'&&x.plan_type!=='中旬会'&&x.group_id).map((d,i)=>{
                   const sel=bulkPostponeModal.target?.id===d.id;
                   return (
                     <button key={i} onClick={()=>setBulkPostponeModal(prev=>({...prev,target:{id:d.id,shift_date:d.shift_date,group_name:d.group?.name||'—'},step:'confirm',setLunKong:false}))}
-                      style={{padding:'9px 12px',borderRadius:7,border:`1px solid ${sel?'#fbbf24':'#1b3255'}`,background:sel?'rgba(251,191,36,0.12)':'rgba(13,17,23,0.4)',color:'#e2e8f0',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      style={{padding:'9px 12px',borderRadius:7,border:`1px solid ${sel?'#fbbf24':'var(--border)'}`,background:sel?'rgba(251,191,36,0.12)':'rgba(13,17,23,0.4)',color:'var(--text)',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                       <span style={{fontWeight:600}}>{d.shift_date?.slice(5)}</span>
-                      <span style={{fontSize:10,color:'#64748b'}}>{d.group?.name||'—'}</span>
+                      <span style={{fontSize:10,color:'var(--muted)'}}>{d.group?.name||'—'}</span>
                     </button>
                   );
                 })}
               </div>
-              <button onClick={()=>setBulkPostponeModal(null)} style={{width:'100%',marginTop:10,padding:'8px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>取消</button>
+              <button onClick={()=>setBulkPostponeModal(null)} style={{width:'100%',marginTop:10,padding:'8px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>取消</button>
             </>)}
             {bulkPostponeModal.step==='confirm' && bulkPostponeModal.target && (<>
               <div style={{fontWeight:600,color:'#fbbf24',fontSize:13,marginBottom:8}}>→↑ 确认全员延后</div>
-              <div style={{padding:'12px',background:'rgba(251,191,36,0.06)',borderRadius:8,border:'1px solid rgba(251,191,36,0.2)',fontSize:13,color:'#e2e8f0',marginBottom:10,lineHeight:1.8}}>
+              <div style={{padding:'12px',background:'rgba(251,191,36,0.06)',borderRadius:8,border:'1px solid rgba(251,191,36,0.2)',fontSize:13,color:'var(--text)',marginBottom:10,lineHeight:1.8}}>
                 <strong>{bulkPostponeModal.shiftDate?.slice(5)}</strong> 全体组员<br/>
                 → 加入 <strong>{bulkPostponeModal.target.shift_date?.slice(5)}</strong>（{bulkPostponeModal.target.group_name}）
               </div>
-              <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:14,cursor:'pointer',fontSize:12,color:'#94a3b8'}}>
+              <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:14,cursor:'pointer',fontSize:12,color:'var(--muted)'}}>
                 <input type="checkbox" checked={bulkPostponeModal.setLunKong} onChange={e=>setBulkPostponeModal(prev=>({...prev,setLunKong:e.target.checked}))} style={{accentColor:'#fbbf24',width:14,height:14}}/>
                 同时将本期改为轮空
               </label>
               <div style={{display:'flex',gap:8}}>
-                <button onClick={()=>setBulkPostponeModal(prev=>({...prev,step:'pick',target:null}))} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>返回</button>
+                <button onClick={()=>setBulkPostponeModal(prev=>({...prev,step:'pick',target:null}))} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>返回</button>
                 <button onClick={async()=>{
                   const {planId,target,setLunKong} = bulkPostponeModal;
                   const r=await apiJson('/api/admin/training-plan/bulk-postpone',{method:'POST',headers:hdrs(),body:JSON.stringify({from_plan_id:planId,to_plan_id:target.id})}).catch(()=>null);
@@ -1428,7 +1428,7 @@ function WorkshopScreen({ user, onBack }) {
                     await apiJson(`/api/admin/training-plan/${planId}`,{method:'PUT',headers:hdrs(),body:JSON.stringify({plan_type:'轮空',group_id:null,leader_name:null,log_entry:`${logNow()} 全员延后后改为轮空`})}).catch(()=>null);
                   }
                   setBulkPostponeModal(null);flashCard(planId);load(month);
-                }} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#7c5c00,#d97706)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                }} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#7c5c00,#d97706)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer'}}>
                   确认延后
                 </button>
               </div>
@@ -1441,38 +1441,38 @@ function WorkshopScreen({ user, onBack }) {
       {instructorSwapModal && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:215,padding:16}} onClick={()=>setInstructorSwapModal(null)}>
           <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:360}} onClick={e=>e.stopPropagation()}>
-            <div style={{fontWeight:600,color:'#e2e8f0',fontSize:13,marginBottom:4}}>
+            <div style={{fontWeight:600,color:'var(--text)',fontSize:13,marginBottom:4}}>
               互换教员 · {instructorSwapModal.planDate?.slice(5)}
             </div>
-            <div style={{fontSize:11,color:'#475569',marginBottom:10}}>
+            <div style={{fontSize:11,color:'var(--muted)',marginBottom:10}}>
               当前教员 <strong style={{color:'#93c5fd'}}>{instructorSwapModal.instructorName}</strong>，选择要与之互换培训的另一位教员
             </div>
             <div style={{maxHeight:280,overflowY:'auto',display:'flex',flexDirection:'column',gap:4}}>
               {instructorSwapModal.candidates.length===0 && (
-                <div style={{fontSize:12,color:'#475569',textAlign:'center',padding:'16px 0'}}>无可互换计划</div>
+                <div style={{fontSize:12,color:'var(--muted)',textAlign:'center',padding:'16px 0'}}>无可互换计划</div>
               )}
               {instructorSwapModal.candidates.map((c,i)=>(
                 <button key={i} onClick={()=>setInstructorSwapModal(prev=>({...prev,target:c}))} style={{
                   padding:'8px 12px',borderRadius:7,
-                  border:`1px solid ${instructorSwapModal.target?.planId===c.planId?'#3b82f6':'#1b3255'}`,
+                  border:`1px solid ${instructorSwapModal.target?.planId===c.planId?'var(--blue)':'var(--border)'}`,
                   background:instructorSwapModal.target?.planId===c.planId?'rgba(59,130,246,0.15)':'rgba(13,17,23,0.4)',
-                  color:'#e2e8f0',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left',
+                  color:'var(--text)',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left',
                   display:'flex',justifyContent:'space-between',alignItems:'center'
                 }}>
-                  <span><span style={{color:'#94a3b8',marginRight:8}}>{c.shiftDate?.slice(5)}</span><strong style={{color:'#93c5fd'}}>{c.instructorName}</strong></span>
-                  <span style={{fontSize:10,color:'#475569'}}>{c.groupName}</span>
+                  <span><span style={{color:'var(--muted)',marginRight:8}}>{c.shiftDate?.slice(5)}</span><strong style={{color:'#93c5fd'}}>{c.instructorName}</strong></span>
+                  <span style={{fontSize:10,color:'var(--muted)'}}>{c.groupName}</span>
                 </button>
               ))}
             </div>
             {instructorSwapModal.target && (
-              <div style={{marginTop:10,padding:'8px 10px',background:'rgba(59,130,246,0.08)',borderRadius:6,border:'1px solid rgba(59,130,246,0.2)',fontSize:11,color:'#94a3b8'}}>
+              <div style={{marginTop:10,padding:'8px 10px',background:'rgba(59,130,246,0.08)',borderRadius:6,border:'1px solid rgba(59,130,246,0.2)',fontSize:11,color:'var(--muted)'}}>
                 互换后：<br/>
                 {instructorSwapModal.planDate?.slice(5)} 由 <strong style={{color:'#60a5fa'}}>{instructorSwapModal.target.instructorName}</strong> 上课<br/>
                 {instructorSwapModal.target.shiftDate?.slice(5)} 由 <strong style={{color:'#60a5fa'}}>{instructorSwapModal.instructorName}</strong> 上课
               </div>
             )}
             <div style={{display:'flex',gap:8,marginTop:12}}>
-              <button onClick={()=>setInstructorSwapModal(null)} style={{flex:1,padding:'9px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>取消</button>
+              <button onClick={()=>setInstructorSwapModal(null)} style={{flex:1,padding:'9px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>取消</button>
               <button disabled={!instructorSwapModal.target} onClick={async()=>{
                 const r = await apiJson('/api/admin/training-plan/instructor-swap',{method:'POST',headers:hdrs(),body:JSON.stringify({
                   plan_id_a: instructorSwapModal.planId,
@@ -1480,7 +1480,7 @@ function WorkshopScreen({ user, onBack }) {
                 })}).catch(()=>null);
                 if(r?.ok){setInstructorSwapModal(null);load(month);}
                 else alert(r?.error||'操作失败');
-              }} style={{flex:2,padding:'9px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#2563eb)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:instructorSwapModal.target?1:0.4}}>
+              }} style={{flex:2,padding:'9px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#2563eb)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:instructorSwapModal.target?1:0.4}}>
                 确认互换
               </button>
             </div>
@@ -1492,9 +1492,9 @@ function WorkshopScreen({ user, onBack }) {
       {photoModal && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:210,padding:0}} onClick={()=>setPhotoModal(null)}>
           <div style={{background:'#0f2744',borderRadius:'14px 14px 0 0',padding:20,width:'100%',maxWidth:480,maxHeight:'80vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
-            <div style={{fontWeight:600,color:'#e2e8f0',fontSize:14,marginBottom:14,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <div style={{fontWeight:600,color:'var(--text)',fontSize:14,marginBottom:14,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
               📷 现场记录
-              <button onClick={()=>setPhotoModal(null)} style={{background:'none',border:'none',color:'#475569',fontSize:18,cursor:'pointer',padding:0}}>×</button>
+              <button onClick={()=>setPhotoModal(null)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:18,cursor:'pointer',padding:0}}>×</button>
             </div>
 
             {/* 照片网格 */}
@@ -1504,14 +1504,14 @@ function WorkshopScreen({ user, onBack }) {
               )}
               <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6}}>
                 {photoModal.photos.map(ph=>(
-                  <div key={ph.id} style={{position:'relative',aspectRatio:'1',borderRadius:6,overflow:'hidden',border:'1px solid #1b3255'}}>
+                  <div key={ph.id} style={{position:'relative',aspectRatio:'1',borderRadius:6,overflow:'hidden',border:'1px solid var(--border)'}}>
                     <img src={ph.url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
                     <button onClick={async()=>{
                       if(!confirm('删除这张照片？')) return;
                       await apiJson(`/api/workshop/training-plan/photos/${ph.id}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);
                       setPhotoModal(prev=>({...prev,photos:prev.photos.filter(x=>x.id!==ph.id)}));
-                    }} style={{position:'absolute',top:3,right:3,width:20,height:20,borderRadius:'50%',background:'rgba(0,0,0,0.6)',border:'none',color:'white',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>×</button>
-                    <div style={{position:'absolute',bottom:0,left:0,right:0,background:'rgba(0,0,0,0.5)',fontSize:9,color:'#94a3b8',padding:'2px 4px',textAlign:'center'}}>{ph.uploaded_at?.slice(5,16)}</div>
+                    }} style={{position:'absolute',top:3,right:3,width:20,height:20,borderRadius:'50%',background:'rgba(0,0,0,0.6)',border:'none',color:'var(--text)',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>×</button>
+                    <div style={{position:'absolute',bottom:0,left:0,right:0,background:'rgba(0,0,0,0.5)',fontSize:9,color:'var(--muted)',padding:'2px 4px',textAlign:'center'}}>{ph.uploaded_at?.slice(5,16)}</div>
                   </div>
                 ))}
               </div>
@@ -1527,7 +1527,7 @@ function WorkshopScreen({ user, onBack }) {
                   e.target.value='';
                 }}/>
               </label>
-              <label style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid #1b3255',background:'rgba(27,50,85,0.2)',color:'#94a3b8',fontSize:13,fontWeight:600,cursor:'pointer',textAlign:'center'}}>
+              <label style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid var(--border)',background:'rgba(27,50,85,0.2)',color:'var(--muted)',fontSize:13,fontWeight:600,cursor:'pointer',textAlign:'center'}}>
                 🖼 相册
                 <input type="file" accept="image/*" style={{display:'none'}} onChange={e=>{
                   const file = e.target.files?.[0];
@@ -1549,22 +1549,22 @@ function WorkshopScreen({ user, onBack }) {
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
               <div>
                 <div style={{display:'flex',alignItems:'baseline',gap:6}}>
-                  <span style={{fontWeight:700,color:'#e2e8f0',fontSize:15}}>{memberCheckModal.staffName}</span>
+                  <span style={{fontWeight:700,color:'var(--text)',fontSize:15}}>{memberCheckModal.staffName}</span>
                   {!memberCheckLoading && memberCheckModal.monthTotal > 0 && (
                     <span style={{color:'#60a5fa',fontSize:13,fontWeight:700}}>({memberCheckModal.monthDone}/{memberCheckModal.monthTotal})</span>
                   )}
                 </div>
-                <div style={{fontSize:10,color:'#475569',marginTop:2}}>
+                <div style={{fontSize:10,color:'var(--muted)',marginTop:2}}>
                   {memberCheckModal.isFuture ? `${memberCheckModal.shiftDate} 尚未开始` : `${memberCheckModal.shiftDate} 本月完成情况`}
                 </div>
               </div>
-              <button onClick={()=>setMemberCheckModal(null)} style={{background:'none',border:'none',color:'#475569',fontSize:20,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
+              <button onClick={()=>setMemberCheckModal(null)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:20,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
             </div>
 
             {memberCheckLoading ? (
-              <div style={{textAlign:'center',color:'#475569',padding:'30px 0',fontSize:13}}>加载中…</div>
+              <div style={{textAlign:'center',color:'var(--muted)',padding:'30px 0',fontSize:13}}>加载中…</div>
             ) : (memberCheckModal.monthItems||[]).length === 0 ? (
-              <div style={{textAlign:'center',color:'#475569',padding:'30px 0',fontSize:13}}>本月暂无培训项点</div>
+              <div style={{textAlign:'center',color:'var(--muted)',padding:'30px 0',fontSize:13}}>本月暂无培训项点</div>
             ) : (<>
               {/* 项点清单 */}
               <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:5,marginBottom:12}}>
@@ -1607,15 +1607,15 @@ function WorkshopScreen({ user, onBack }) {
                         {alreadyDone ? '✅' : isSelected ? '✓' : ''}
                       </div>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:12,color:alreadyDone?'#86efac':isSelected?'#93c5fd':'#94a3b8',fontWeight:alreadyDone||isSelected?600:400,lineHeight:1.4}}>
+                        <div style={{fontSize:12,color:alreadyDone?'#86efac':isSelected?'#93c5fd':'var(--muted)',fontWeight:alreadyDone||isSelected?600:400,lineHeight:1.4}}>
                           {it.item}
-                          {inPlan && !alreadyDone && <span style={{marginLeft:5,fontSize:9,color:'#475569',fontWeight:400}}>本次项点</span>}
+                          {inPlan && !alreadyDone && <span style={{marginLeft:5,fontSize:9,color:'var(--muted)',fontWeight:400}}>本次项点</span>}
                         </div>
                         {alreadyDone && fmtDate && (
-                          <div style={{fontSize:10,color:'#475569',marginTop:2}}>{fmtDate}{it.confirmed_by ? ` · ${it.confirmed_by}` : ''}</div>
+                          <div style={{fontSize:10,color:'var(--muted)',marginTop:2}}>{fmtDate}{it.confirmed_by ? ` · ${it.confirmed_by}` : ''}</div>
                         )}
                         {tipped && <div style={{fontSize:10,color:'#fbbf24',marginTop:2}}>⏰ 未到培训时间</div>}
-                        {alreadyDone && it.has_comment && <div style={{fontSize:10,color:'#22c55e',marginTop:2}}>已填写评价</div>}
+                        {alreadyDone && it.has_comment && <div style={{fontSize:10,color:'var(--green)',marginTop:2}}>已填写评价</div>}
                       </div>
                     </div>
                   );
@@ -1630,7 +1630,7 @@ function WorkshopScreen({ user, onBack }) {
                   placeholder="填写本次培训情况、表现要点或改进建议…"
                   rows={3}
                   autoFocus
-                  style={{width:'100%',boxSizing:'border-box',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:8,padding:'10px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none',resize:'none',marginBottom:10}}
+                  style={{width:'100%',boxSizing:'border-box',background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:8,padding:'10px',color:'var(--text)',fontSize:13,fontFamily:'inherit',outline:'none',resize:'none',marginBottom:10}}
                 />
               )}
 
@@ -1650,7 +1650,7 @@ function WorkshopScreen({ user, onBack }) {
                         撤销确认
                       </button>
                     )}
-                    <button onClick={()=>setMemberCheckModal(prev=>({...prev,step:'comment'}))} style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid rgba(148,163,184,0.25)',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>
+                    <button onClick={()=>setMemberCheckModal(prev=>({...prev,step:'comment'}))} style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid rgba(148,163,184,0.25)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>
                       💬 评价
                     </button>
                     <button disabled={memberCheckModal.saving} onClick={async()=>{
@@ -1660,11 +1660,11 @@ function WorkshopScreen({ user, onBack }) {
                       const r = await apiJson(`/api/workshop/training-plan/${planId}/evaluations/${staffId}`,{method:'PUT',headers:hdrs(),body:JSON.stringify({staff_name:staffName,comment:comment||''})}).catch(()=>null);
                       setMemberCheckModal(null);
                       if(r?.ok) load(month);
-                    }} style={{flex:2,padding:'11px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#14532d,#16a34a)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberCheckModal.saving?0.6:1}}>
+                    }} style={{flex:2,padding:'11px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#14532d,#16a34a)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberCheckModal.saving?0.6:1}}>
                       {memberCheckModal.saving ? '保存中…' : `✅ 培训（${(memberCheckModal.selectedItems||[]).length}项）`}
                     </button>
                   </>) : (<>
-                    <button onClick={()=>setMemberCheckModal(prev=>({...prev,step:'check'}))} style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>返回</button>
+                    <button onClick={()=>setMemberCheckModal(prev=>({...prev,step:'check'}))} style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>返回</button>
                     <button disabled={memberCheckModal.saving} onClick={async()=>{
                       setMemberCheckModal(prev=>({...prev,saving:true}));
                       const {planId,staffId,staffName,selectedItems,comment} = memberCheckModal;
@@ -1672,7 +1672,7 @@ function WorkshopScreen({ user, onBack }) {
                       const r = await apiJson(`/api/workshop/training-plan/${planId}/evaluations/${staffId}`,{method:'PUT',headers:hdrs(),body:JSON.stringify({staff_name:staffName,comment:comment||''})}).catch(()=>null);
                       setMemberCheckModal(null);
                       if(r?.ok) load(month);
-                    }} style={{flex:2,padding:'11px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#14532d,#16a34a)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberCheckModal.saving?0.6:1}}>
+                    }} style={{flex:2,padding:'11px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#14532d,#16a34a)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberCheckModal.saving?0.6:1}}>
                       {memberCheckModal.saving ? '保存中…' : '✅ 确认培训'}
                     </button>
                   </>)}
@@ -1690,13 +1690,13 @@ function WorkshopScreen({ user, onBack }) {
 
             {/* 第零层：选择本次完成的项点 */}
             {evalModal.step==='items' && (<>
-              <div style={{fontWeight:600,color:'#e2e8f0',fontSize:14,marginBottom:4,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div style={{fontWeight:600,color:'var(--text)',fontSize:14,marginBottom:4,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                 本次完成项点
-                <button onClick={()=>setEvalModal(null)} style={{background:'none',border:'none',color:'#475569',fontSize:18,cursor:'pointer',padding:0}}>×</button>
+                <button onClick={()=>setEvalModal(null)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:18,cursor:'pointer',padding:0}}>×</button>
               </div>
-              <div style={{fontSize:11,color:'#64748b',marginBottom:12}}>勾选本次早班实际完成的培训项点</div>
+              <div style={{fontSize:11,color:'var(--muted)',marginBottom:12}}>勾选本次早班实际完成的培训项点</div>
               {evalModal.yearPlanItems.length===0
-                ? <div style={{color:'#475569',fontSize:13,textAlign:'center',padding:'20px 0'}}>本月无年度计划项点</div>
+                ? <div style={{color:'var(--muted)',fontSize:13,textAlign:'center',padding:'20px 0'}}>本月无年度计划项点</div>
                 : <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:6,marginBottom:14}}>
                   {evalModal.yearPlanItems.map((it,i)=>{
                     const sel=(evalModal.selectedItems||[]).includes(it.item);
@@ -1706,14 +1706,14 @@ function WorkshopScreen({ user, onBack }) {
                         const next=sel?cur.filter(x=>x!==it.item):[...cur,it.item];
                         return{...prev,selectedItems:next};
                       })} style={{
-                        padding:'10px 14px',borderRadius:8,border:`1px solid ${sel?'rgba(34,197,94,0.5)':'#1b3255'}`,
+                        padding:'10px 14px',borderRadius:8,border:`1px solid ${sel?'rgba(34,197,94,0.5)':'var(--border)'}`,
                         background:sel?'rgba(34,197,94,0.09)':'rgba(13,17,23,0.4)',
-                        color:'#e2e8f0',fontFamily:'inherit',fontSize:12,cursor:'pointer',
+                        color:'var(--text)',fontFamily:'inherit',fontSize:12,cursor:'pointer',
                         textAlign:'left',display:'flex',alignItems:'center',gap:10
                       }}>
-                        <span style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?'#22c55e':'#334155'}`,background:sel?'#22c55e':'transparent',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'white'}}>{sel?'✓':''}</span>
+                        <span style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?'var(--green)':'#334155'}`,background:sel?'var(--green)':'transparent',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'var(--text)'}}>{sel?'✓':''}</span>
                         <span style={{flex:1,fontWeight:sel?600:400}}>{it.item}</span>
-                        <span style={{fontSize:10,color:'#475569',flexShrink:0}}>{it.trainType}</span>
+                        <span style={{fontSize:10,color:'var(--muted)',flexShrink:0}}>{it.trainType}</span>
                       </button>
                     );
                   })}
@@ -1723,19 +1723,19 @@ function WorkshopScreen({ user, onBack }) {
                 setEvalModal(prev=>({...prev,saving:true}));
                 await apiJson(`/api/workshop/training-plan/${evalModal.planId}/completed-items`,{method:'PATCH',headers:hdrs(),body:JSON.stringify({items:evalModal.selectedItems||[]})}).catch(()=>{});
                 setEvalModal(prev=>({...prev,saving:false,step:'pick'}));
-              }} style={{padding:'11px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:evalModal.saving?0.6:1}}>
+              }} style={{padding:'11px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:evalModal.saving?0.6:1}}>
                 {evalModal.saving?'保存中…':`确认（已选 ${(evalModal.selectedItems||[]).length} 个项点）→`}
               </button>
             </>)}
 
             {/* 第一层：人员列表 */}
             {evalModal.step==='pick' && (<>
-              <div style={{fontWeight:600,color:'#e2e8f0',fontSize:14,marginBottom:4,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div style={{fontWeight:600,color:'var(--text)',fontSize:14,marginBottom:4,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                 ✅ 确认点评
-                <button onClick={()=>setEvalModal(null)} style={{background:'none',border:'none',color:'#475569',fontSize:18,cursor:'pointer',padding:0}}>×</button>
+                <button onClick={()=>setEvalModal(null)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:18,cursor:'pointer',padding:0}}>×</button>
               </div>
-              <div style={{fontSize:11,color:'#475569',marginBottom:8}}>选择人员进行培训确认和点评</div>
-              {(evalModal.selectedItems||[]).length>0&&<div style={{fontSize:10,color:'#60a5fa',marginBottom:10,padding:'5px 8px',background:'rgba(59,130,246,0.08)',borderRadius:5,border:'1px solid rgba(59,130,246,0.2)'}}>本次项点：{(evalModal.selectedItems||[]).join('、')} <button onClick={()=>setEvalModal(prev=>({...prev,step:'items'}))} style={{marginLeft:6,background:'none',border:'none',color:'#475569',fontSize:10,cursor:'pointer',padding:0}}>修改</button></div>}
+              <div style={{fontSize:11,color:'var(--muted)',marginBottom:8}}>选择人员进行培训确认和点评</div>
+              {(evalModal.selectedItems||[]).length>0&&<div style={{fontSize:10,color:'#60a5fa',marginBottom:10,padding:'5px 8px',background:'rgba(59,130,246,0.08)',borderRadius:5,border:'1px solid rgba(59,130,246,0.2)'}}>本次项点：{(evalModal.selectedItems||[]).join('、')} <button onClick={()=>setEvalModal(prev=>({...prev,step:'items'}))} style={{marginLeft:6,background:'none',border:'none',color:'var(--muted)',fontSize:10,cursor:'pointer',padding:0}}>修改</button></div>}
               <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:4}}>
                 {evalModal.members.map((m,i)=>{
                   const ev = evalModal.evaluations[m.id];
@@ -1747,14 +1747,14 @@ function WorkshopScreen({ user, onBack }) {
                       const data = await apiJson(`/api/workshop/member-month-items?staff_id=${staffId}&month=${curMonth}`).catch(()=>null);
                       setEvalModal(prev=>({...prev,step:'eval',target:{staffId,staffName},comment:ev?.comment||'',memberItems:data?.items||[],memberTotal:data?.total||0,memberDone:data?.done||0}));
                     }} style={{
-                      padding:'10px 14px',borderRadius:8,border:`1px solid ${ev?'rgba(34,197,94,0.4)':'#1b3255'}`,
+                      padding:'10px 14px',borderRadius:8,border:`1px solid ${ev?'rgba(34,197,94,0.4)':'var(--border)'}`,
                       background:ev?'rgba(34,197,94,0.07)':'rgba(13,17,23,0.4)',
-                      color:'#e2e8f0',fontFamily:'inherit',fontSize:13,cursor:'pointer',
+                      color:'var(--text)',fontFamily:'inherit',fontSize:13,cursor:'pointer',
                       textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'
                     }}>
-                      <span style={{fontWeight:600,color:ev?'#22c55e':'#f87171'}}>{m.real_name||m.name}</span>
+                      <span style={{fontWeight:600,color:ev?'var(--green)':'#f87171'}}>{m.real_name||m.name}</span>
                       {ev ? (
-                        <span style={{fontSize:10,color:'#22c55e'}}>✓ 已点评{ev.comment?'':' (无评价)'}</span>
+                        <span style={{fontSize:10,color:'var(--green)'}}>✓ 已点评{ev.comment?'':' (无评价)'}</span>
                       ) : (
                         <span style={{fontSize:10,color:'#f87171'}}>待确认</span>
                       )}
@@ -1766,11 +1766,11 @@ function WorkshopScreen({ user, onBack }) {
 
             {/* 第二层：确认 + 点评框 */}
             {evalModal.step==='eval' && evalModal.target && (<>
-              <div style={{fontWeight:600,color:'#e2e8f0',fontSize:14,marginBottom:2,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div style={{fontWeight:600,color:'var(--text)',fontSize:14,marginBottom:2,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                 {evalModal.target.staffName}
-                <button onClick={()=>setEvalModal(null)} style={{background:'none',border:'none',color:'#475569',fontSize:18,cursor:'pointer',padding:0}}>×</button>
+                <button onClick={()=>setEvalModal(null)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:18,cursor:'pointer',padding:0}}>×</button>
               </div>
-              <div style={{fontSize:11,color:'#475569',marginBottom:14}}>本次培训确认与评价</div>
+              <div style={{fontSize:11,color:'var(--muted)',marginBottom:14}}>本次培训确认与评价</div>
               {(evalModal.memberItems||[]).length > 0 && (
                 <div style={{marginBottom:12,borderRadius:7,border:'1px solid rgba(27,50,85,0.7)',background:'rgba(0,0,0,0.2)',padding:'8px 10px'}}>
                   <div style={{display:'flex',alignItems:'baseline',gap:6,marginBottom:6}}>
@@ -1782,26 +1782,26 @@ function WorkshopScreen({ user, onBack }) {
                       const fmtDate = it.session_date ? `${parseInt(it.session_date.slice(5,7))}月${parseInt(it.session_date.slice(8,10))}日` : '';
                       return (
                         <div key={i} style={{display:'flex',alignItems:'center',gap:6}}>
-                          <span style={{fontSize:11,color:'#94a3b8',flex:1}}>{it.item}</span>
+                          <span style={{fontSize:11,color:'var(--muted)',flex:1}}>{it.item}</span>
                           <span style={{fontSize:12}}>{it.confirmed?'✅':'❌'}</span>
-                          {it.confirmed ? (it.has_comment ? <span style={{fontSize:12}}>✅</span> : <span style={{fontSize:9,color:'#475569'}}>未评价</span>) : <span style={{fontSize:12}}>❌</span>}
-                          {fmtDate && <span style={{fontSize:9,color:'#475569'}}>{fmtDate}</span>}
+                          {it.confirmed ? (it.has_comment ? <span style={{fontSize:12}}>✅</span> : <span style={{fontSize:9,color:'var(--muted)'}}>未评价</span>) : <span style={{fontSize:12}}>❌</span>}
+                          {fmtDate && <span style={{fontSize:9,color:'var(--muted)'}}>{fmtDate}</span>}
                         </div>
                       );
                     })}
                   </div>
                 </div>
               )}
-              <div style={{fontSize:11,color:'#94a3b8',marginBottom:6}}>培训评价（可不填）</div>
+              <div style={{fontSize:11,color:'var(--muted)',marginBottom:6}}>培训评价（可不填）</div>
               <textarea
                 value={evalModal.comment}
                 onChange={e=>setEvalModal(prev=>({...prev,comment:e.target.value}))}
                 placeholder="填写本次培训情况、表现要点或改进建议…"
                 rows={4}
-                style={{width:'100%',boxSizing:'border-box',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:8,padding:'10px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none',resize:'none',marginBottom:14}}
+                style={{width:'100%',boxSizing:'border-box',background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:8,padding:'10px',color:'var(--text)',fontSize:13,fontFamily:'inherit',outline:'none',resize:'none',marginBottom:14}}
               />
               <div style={{display:'flex',gap:8}}>
-                <button onClick={()=>setEvalModal(prev=>({...prev,step:'pick',target:null}))} style={{flex:1,padding:'10px',borderRadius:8,border:'1px solid #1b3255',background:'transparent',color:'#64748b',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>返回</button>
+                <button onClick={()=>setEvalModal(prev=>({...prev,step:'pick',target:null}))} style={{flex:1,padding:'10px',borderRadius:8,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>返回</button>
                 {evalModal.evaluations[evalModal.target.staffId] && (
                   <button disabled={evalModal.saving} onClick={async()=>{
                     if(!window.confirm(`撤销 ${evalModal.target.staffName} 的本场培训确认？`)) return;
@@ -1839,7 +1839,7 @@ function WorkshopScreen({ user, onBack }) {
                     setEvalModal(prev=>({...prev,saving:false}));
                     alert('保存失败');
                   }
-                }} style={{flex:2,padding:'10px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#14532d,#16a34a)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:evalModal.saving?0.6:1}}>
+                }} style={{flex:2,padding:'10px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#14532d,#16a34a)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:evalModal.saving?0.6:1}}>
                   {evalModal.saving ? '保存中…' : '✅ 确认培训'}
                 </button>
               </div>
@@ -1866,41 +1866,41 @@ function WorkshopScreen({ user, onBack }) {
         const allPhotos = sorted;
         return (
           <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.92)',zIndex:250,display:'flex',flexDirection:'column'}} onClick={()=>setPhotoAlbum(null)}>
-            <div style={{background:'#0a1929',borderBottom:'1px solid #1b3255',flexShrink:0}} onClick={e=>e.stopPropagation()}>
+            <div style={{background:'#0a1929',borderBottom:'1px solid var(--border)',flexShrink:0}} onClick={e=>e.stopPropagation()}>
               {/* 标题栏 */}
               <div style={{padding:'12px 16px 8px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-                <div style={{fontWeight:700,color:'#e2e8f0',fontSize:15}}>📷 现场记录相册</div>
-                <button onClick={()=>setPhotoAlbum(null)} style={{background:'none',border:'none',color:'#475569',fontSize:22,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
+                <div style={{fontWeight:700,color:'var(--text)',fontSize:15}}>📷 现场记录相册</div>
+                <button onClick={()=>setPhotoAlbum(null)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:22,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
               </div>
               {/* 上传工具栏 */}
               <div style={{padding:'0 12px 10px',display:'flex',flexDirection:'column',gap:8}}>
                 {/* 拍照/导入按钮 */}
                 <div style={{display:'flex',gap:8}}>
                   <button onClick={()=>albumCameraRef.current?.click()} style={{flex:1,padding:'9px',borderRadius:8,border:'1px solid rgba(59,130,246,0.4)',background:'rgba(59,130,246,0.08)',color:'#60a5fa',cursor:'pointer',fontSize:12,fontWeight:600}}>📷 拍照</button>
-                  <button onClick={()=>albumFileRef.current?.click()} style={{flex:1,padding:'9px',borderRadius:8,border:'1px solid rgba(100,116,139,0.4)',background:'rgba(100,116,139,0.06)',color:'#94a3b8',cursor:'pointer',fontSize:12,fontWeight:600}}>🖼 导入图片</button>
+                  <button onClick={()=>albumFileRef.current?.click()} style={{flex:1,padding:'9px',borderRadius:8,border:'1px solid rgba(100,116,139,0.4)',background:'rgba(100,116,139,0.06)',color:'var(--muted)',cursor:'pointer',fontSize:12,fontWeight:600}}>🖼 导入图片</button>
                   <input ref={albumCameraRef} type="file" accept="image/*" capture="environment" multiple style={{display:'none'}} onChange={e=>{Array.from(e.target.files||[]).forEach(f=>albumUploadFile(f));e.target.value='';}}/>
                   <input ref={albumFileRef} type="file" accept="image/*" multiple style={{display:'none'}} onChange={e=>{Array.from(e.target.files||[]).forEach(f=>albumUploadFile(f));e.target.value='';}}/>
                 </div>
                 {/* 水印设置 */}
                 <div style={{display:'flex',flexDirection:'column',gap:6}}>
                   <label style={{display:'flex',alignItems:'center',gap:5,cursor:'pointer',userSelect:'none'}}>
-                    <input type="checkbox" checked={albumWatermark} onChange={e=>setAlbumWatermark(e.target.checked)} style={{accentColor:'#3b82f6',width:14,height:14}}/>
-                    <span style={{fontSize:11,color:'#94a3b8'}}>加水印</span>
+                    <input type="checkbox" checked={albumWatermark} onChange={e=>setAlbumWatermark(e.target.checked)} style={{accentColor:'var(--blue)',width:14,height:14}}/>
+                    <span style={{fontSize:11,color:'var(--muted)'}}>加水印</span>
                   </label>
                   {albumWatermark&&(<>
                     {/* 日期选择 */}
                     <div style={{display:'flex',alignItems:'center',gap:6}}>
-                      <span style={{fontSize:11,color:'#64748b',flexShrink:0}}>日期</span>
+                      <span style={{fontSize:11,color:'var(--muted)',flexShrink:0}}>日期</span>
                       <input type="date" value={albumDate} onChange={e=>setAlbumDate(e.target.value)}
-                        style={{flex:1,background:'#0d1e35',border:'1px solid #1b3255',borderRadius:5,padding:'4px 8px',color:'#e2e8f0',fontSize:11,fontFamily:'inherit',outline:'none'}}/>
+                        style={{flex:1,background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:5,padding:'4px 8px',color:'var(--text)',fontSize:11,fontFamily:'inherit',outline:'none'}}/>
                     </div>
                     {/* 地点 */}
                     <div style={{display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
-                      <span style={{fontSize:11,color:'#64748b',flexShrink:0}}>地点</span>
+                      <span style={{fontSize:11,color:'var(--muted)',flexShrink:0}}>地点</span>
                       {[['工人村','武汉地铁工人村车辆段'],['青菱','武汉地铁青菱车场'],['复兴路','复兴路地铁站']].map(([short,full])=>(
-                        <button key={short} onClick={()=>setAlbumLocation(albumLocation===full?'':full)} style={{padding:'3px 8px',borderRadius:5,border:`1px solid ${albumLocation===full?'#3b82f6':'#1b3255'}`,background:albumLocation===full?'rgba(59,130,246,0.15)':'transparent',color:albumLocation===full?'#60a5fa':'#64748b',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>{short}</button>
+                        <button key={short} onClick={()=>setAlbumLocation(albumLocation===full?'':full)} style={{padding:'3px 8px',borderRadius:5,border:`1px solid ${albumLocation===full?'var(--blue)':'var(--border)'}`,background:albumLocation===full?'rgba(59,130,246,0.15)':'transparent',color:albumLocation===full?'#60a5fa':'var(--muted)',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>{short}</button>
                       ))}
-                      <button onClick={albumGeolocate} disabled={albumLocLoading} style={{padding:'3px 8px',borderRadius:5,border:'1px solid rgba(34,197,94,0.25)',background:'transparent',color:albumLocLoading?'#475569':'#4ade80',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>
+                      <button onClick={albumGeolocate} disabled={albumLocLoading} style={{padding:'3px 8px',borderRadius:5,border:'1px solid rgba(34,197,94,0.25)',background:'transparent',color:albumLocLoading?'var(--muted)':'#4ade80',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>
                         {albumLocLoading?'…':'📍'}
                       </button>
                     </div>
@@ -1909,7 +1909,7 @@ function WorkshopScreen({ user, onBack }) {
               </div>
             </div>
             <div style={{flex:1,overflowY:'auto',padding:'10px 12px 24px'}} onClick={e=>e.stopPropagation()}>
-              {photoAlbum.loading && <div style={{textAlign:'center',color:'#475569',padding:'40px 0',fontSize:13}}>加载中…</div>}
+              {photoAlbum.loading && <div style={{textAlign:'center',color:'var(--muted)',padding:'40px 0',fontSize:13}}>加载中…</div>}
               {!photoAlbum.loading && instructors.length===0 && <div style={{textAlign:'center',color:'#334155',padding:'40px 0',fontSize:13}}>暂无现场照片</div>}
               {instructors.map(inst => {
                 const dateMap = instructorMap[inst];
@@ -1927,8 +1927,8 @@ function WorkshopScreen({ user, onBack }) {
                       const photos = dateMap[dateKey];
                       return (
                         <div key={dateKey} style={{marginBottom:12}}>
-                          <div style={{fontSize:11,color:'#475569',marginBottom:5,display:'flex',alignItems:'center',gap:6}}>
-                            <span style={{color:'#64748b',fontWeight:600}}>{dateKey}</span>
+                          <div style={{fontSize:11,color:'var(--muted)',marginBottom:5,display:'flex',alignItems:'center',gap:6}}>
+                            <span style={{color:'var(--muted)',fontWeight:600}}>{dateKey}</span>
                             <span style={{color:'#334155'}}>· {photos[0]?.plan_type||''} {photos[0]?.group_name||''}</span>
                             <span style={{marginLeft:'auto',color:'#334155'}}>{photos.length} 张</span>
                           </div>
@@ -1936,9 +1936,9 @@ function WorkshopScreen({ user, onBack }) {
                             {photos.map(ph => {
                               const globalIdx = allPhotos.indexOf(ph);
                               return (
-                                <div key={ph.photo_id} style={{position:'relative',aspectRatio:'1',borderRadius:7,overflow:'hidden',border:'1px solid #1b3255',background:'#0d1e35'}}>
+                                <div key={ph.photo_id} style={{position:'relative',aspectRatio:'1',borderRadius:7,overflow:'hidden',border:'1px solid var(--border)',background:'var(--input-bg)'}}>
                                   <img src={ph.url} alt="" loading="lazy" onClick={()=>setLightbox({photos:allPhotos,index:globalIdx})} style={{width:'100%',height:'100%',objectFit:'cover',cursor:'pointer'}}/>
-                                  <div style={{position:'absolute',bottom:0,left:0,right:0,fontSize:9,color:'rgba(255,255,255,0.45)',background:'rgba(0,0,0,0.3)',padding:'2px 4px',textAlign:'right',lineHeight:1.4}}>
+                                  <div style={{position:'absolute',bottom:0,left:0,right:0,fontSize:9,color:'var(--muted)',background:'rgba(0,0,0,0.3)',padding:'2px 4px',textAlign:'right',lineHeight:1.4}}>
                                     {ph.uploaded_at?.slice(11,16)}
                                   </div>
                                   {hasEditPerm&&(
@@ -1948,7 +1948,7 @@ function WorkshopScreen({ user, onBack }) {
                                       await apiJson(`/api/workshop/training-plan/photos/${ph.photo_id}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);
                                       const photos2=await apiJson('/api/workshop/photos').catch(()=>[]);
                                       setPhotoAlbum(prev=>prev?{...prev,photos:Array.isArray(photos2)?photos2:[]}:prev);
-                                    }} style={{position:'absolute',top:4,right:4,width:20,height:20,borderRadius:'50%',border:'none',background:'rgba(239,68,68,0.8)',color:'white',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1}}>×</button>
+                                    }} style={{position:'absolute',top:4,right:4,width:20,height:20,borderRadius:'50%',border:'none',background:'rgba(239,68,68,0.8)',color:'var(--text)',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1}}>×</button>
                                   )}
                                 </div>
                               );
@@ -1975,22 +1975,22 @@ function WorkshopScreen({ user, onBack }) {
           <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.97)',zIndex:300,display:'flex',flexDirection:'column'}} onClick={()=>setLightbox(null)}>
             {/* 顶栏 */}
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',flexShrink:0}} onClick={e=>e.stopPropagation()}>
-              <div style={{color:'#94a3b8',fontSize:12}}>{lightbox.index+1} / {total}</div>
+              <div style={{color:'var(--muted)',fontSize:12}}>{lightbox.index+1} / {total}</div>
               <a href={ph.url} download={ph.filename}
                 style={{fontSize:11,padding:'5px 12px',borderRadius:6,border:'1px solid rgba(59,130,246,0.5)',background:'rgba(59,130,246,0.12)',color:'#60a5fa',textDecoration:'none',fontWeight:600}}
                 onClick={e=>e.stopPropagation()}>
                 ⬇ 下载
               </a>
-              <button onClick={()=>setLightbox(null)} style={{background:'none',border:'none',color:'#475569',fontSize:22,cursor:'pointer',padding:0}}>×</button>
+              <button onClick={()=>setLightbox(null)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:22,cursor:'pointer',padding:0}}>×</button>
             </div>
             {/* 图片区 */}
             <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',overflow:'hidden'}} onClick={e=>e.stopPropagation()}>
-              {total>1 && <button onClick={goPrev} style={{position:'absolute',left:8,zIndex:1,background:'rgba(0,0,0,0.5)',border:'1px solid #1b3255',borderRadius:'50%',width:36,height:36,color:'white',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>‹</button>}
+              {total>1 && <button onClick={goPrev} style={{position:'absolute',left:8,zIndex:1,background:'rgba(0,0,0,0.5)',border:'1px solid var(--border)',borderRadius:'50%',width:36,height:36,color:'var(--text)',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>‹</button>}
               <img src={ph.url} alt="" style={{maxWidth:'100%',maxHeight:'100%',objectFit:'contain',borderRadius:4}}/>
-              {total>1 && <button onClick={goNext} style={{position:'absolute',right:8,zIndex:1,background:'rgba(0,0,0,0.5)',border:'1px solid #1b3255',borderRadius:'50%',width:36,height:36,color:'white',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>›</button>}
+              {total>1 && <button onClick={goNext} style={{position:'absolute',right:8,zIndex:1,background:'rgba(0,0,0,0.5)',border:'1px solid var(--border)',borderRadius:'50%',width:36,height:36,color:'var(--text)',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>›</button>}
             </div>
             {/* 底部信息 */}
-            <div style={{padding:'8px 14px',color:'#475569',fontSize:11,textAlign:'center',flexShrink:0}} onClick={e=>e.stopPropagation()}>
+            <div style={{padding:'8px 14px',color:'var(--muted)',fontSize:11,textAlign:'center',flexShrink:0}} onClick={e=>e.stopPropagation()}>
               {ph.plan_date} {ph.plan_type && `· ${ph.plan_type}`} {ph.group_name && `· ${ph.group_name}`}
             </div>
           </div>
@@ -2010,7 +2010,7 @@ function WorkshopScreen({ user, onBack }) {
               <span style={{fontSize:13}}>
                 {item.status==='uploading' ? '⏫' : item.status==='done' ? '✅' : '❌'}
               </span>
-              <span style={{color:'#e2e8f0',fontSize:12,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+              <span style={{color:'var(--text)',fontSize:12,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
                 {item.status==='uploading' ? `上传中… ${item.filename}` : item.status==='done' ? `上传成功` : `上传失败`}
               </span>
             </div>
@@ -2022,23 +2022,23 @@ function WorkshopScreen({ user, onBack }) {
       {showSettings && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>setShowSettings(false)}>
           <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:360}} onClick={e=>e.stopPropagation()}>
-            <div style={{fontWeight:600,color:'#e2e8f0',fontSize:15,marginBottom:14}}>月度设置 — {monthLabel(month)}</div>
-            <div style={{fontSize:11,color:'#64748b',marginBottom:5}}>中旬会日期（留空=自动取11~20首个工作日早班）</div>
+            <div style={{fontWeight:600,color:'var(--text)',fontSize:15,marginBottom:14}}>月度设置 — {monthLabel(month)}</div>
+            <div style={{fontSize:11,color:'var(--muted)',marginBottom:5}}>中旬会日期（留空=自动取11~20首个工作日早班）</div>
             <input type="date" value={safetyInput} onChange={e=>setSafetyInput(e.target.value)}
-              style={{width:'100%',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:6,padding:'7px 10px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none',boxSizing:'border-box',marginBottom:12}}/>
-            <div style={{fontSize:11,color:'#64748b',marginBottom:5}}>本月起始小组</div>
+              style={{width:'100%',background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:6,padding:'7px 10px',color:'var(--text)',fontSize:13,fontFamily:'inherit',outline:'none',boxSizing:'border-box',marginBottom:12}}/>
+            <div style={{fontSize:11,color:'var(--muted)',marginBottom:5}}>本月起始小组</div>
             <select value={startGroupInput} onChange={e=>setStartGroupInput(e.target.value)}
-              style={{width:'100%',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:6,padding:'7px 10px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none',marginBottom:10}}>
+              style={{width:'100%',background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:6,padding:'7px 10px',color:'var(--text)',fontSize:13,fontFamily:'inherit',outline:'none',marginBottom:10}}>
               <option value="">— 自动（第一小组）—</option>
               {(plan?.groups||[]).map(g=><option key={g.id} value={g.id}>{g.name}</option>)}
             </select>
-            <div style={{fontSize:11,color:'#64748b',marginBottom:5}}>班组长起始序号（0~N）</div>
+            <div style={{fontSize:11,color:'var(--muted)',marginBottom:5}}>班组长起始序号（0~N）</div>
             <input type="number" value={startLeaderInput} onChange={e=>setStartLeaderInput(e.target.value)} min={0}
-              style={{width:'100%',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:6,padding:'7px 10px',color:'white',fontSize:13,fontFamily:'inherit',outline:'none',boxSizing:'border-box',marginBottom:16}}
+              style={{width:'100%',background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:6,padding:'7px 10px',color:'var(--text)',fontSize:13,fontFamily:'inherit',outline:'none',boxSizing:'border-box',marginBottom:16}}
               placeholder={`0 ~ ${(plan?.leaderStaff?.length||1)-1}`}/>
             <div style={{display:'flex',gap:8}}>
-              <button onClick={()=>setShowSettings(false)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid #1b3255',background:'transparent',color:'#94a3b8',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
-              <button onClick={saveSettings} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'white',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>保存并重新生成</button>
+              <button onClick={()=>setShowSettings(false)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
+              <button onClick={saveSettings} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>保存并重新生成</button>
             </div>
           </div>
         </div>

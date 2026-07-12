@@ -127,17 +127,24 @@ router.get('/api/banks', (req, res) => {
   res.json(banks);
 });
 
+const VALID_BANK_TYPES = new Set(['emergency','event','knowledge','compliance','theory']);
 router.post('/api/banks', adminAuth, (req, res) => {
-  const { name, q_type, default_count } = req.body;
-  const r = db.prepare('INSERT INTO question_banks (name,q_type,default_count) VALUES (?,?,?)').run(name, q_type || '简答', default_count || 3);
+  const { name, q_type, default_count, bank_type } = req.body;
+  const type = VALID_BANK_TYPES.has(bank_type) ? bank_type : 'knowledge';
+  const r = db.prepare('INSERT INTO question_banks (name,q_type,default_count,bank_type) VALUES (?,?,?,?)').run(name, q_type || '简答', default_count || 3, type);
   res.json({ id: r.lastInsertRowid });
 });
 
 router.put('/api/banks/:id', adminAuth, (req, res) => {
-  const { name } = req.body;
+  const { name, bank_type } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: '题库名不能为空' });
-  db.prepare('UPDATE question_banks SET name=? WHERE id=?').run(name.trim(), req.params.id);
-  logAdmin('修改题库名', `ID=${req.params.id} → ${name.trim()}`, req.adminName);
+  const type = VALID_BANK_TYPES.has(bank_type) ? bank_type : null;
+  if (type) {
+    db.prepare('UPDATE question_banks SET name=?,bank_type=? WHERE id=?').run(name.trim(), type, req.params.id);
+  } else {
+    db.prepare('UPDATE question_banks SET name=? WHERE id=?').run(name.trim(), req.params.id);
+  }
+  logAdmin('修改题库', `ID=${req.params.id} → ${name.trim()}${type?' ['+type+']':''}`, req.adminName);
   res.json({ ok: true });
 });
 

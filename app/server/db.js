@@ -118,6 +118,25 @@ db.exec(`CREATE TABLE IF NOT EXISTS admin_logs (
 // 兼容旧 cycle_id NOT NULL 约束（某些记录可能缺失）
 try { db.exec("UPDATE sessions SET cycle_id='' WHERE cycle_id IS NULL"); } catch(e) {}
 
+// ─── bank_type 列迁移（5分类体系）──────────────────────────────────────────
+// 值: emergency | event | knowledge | compliance | theory
+try { db.exec("ALTER TABLE question_banks ADD COLUMN bank_type TEXT DEFAULT 'knowledge'"); } catch(e) {}
+// 按题库 id 和名称特征一次性打标，仅影响尚未分类（NULL 或默认 'knowledge'）的行
+try {
+  db.exec(`
+    UPDATE question_banks SET bank_type='emergency' WHERE id=1;
+    UPDATE question_banks SET bank_type='emergency' WHERE name='风险数据库';
+    UPDATE question_banks SET bank_type='theory'    WHERE q_type='选择/判断';
+    UPDATE question_banks SET bank_type='compliance' WHERE name LIKE '%违章%' OR name LIKE '%违纪%' OR name LIKE '%法律%' OR name LIKE '%法规%' OR name LIKE '%处罚%';
+    UPDATE question_banks SET bank_type='event' WHERE bank_type='knowledge' AND (
+      name LIKE '%事件%' OR name LIKE '%事故%' OR name LIKE '%脱轨%' OR
+      name LIKE '%冒进%' OR name LIKE '%跳闸%' OR name LIKE '%挤岔%' OR
+      name LIKE '%碰撞%' OR name LIKE '%倒灌%' OR name LIKE '%进人%' OR
+      name LIKE '%报告%' OR name LIKE '%分析%'
+    );
+  `);
+} catch(e) { console.error('[Migration] bank_type 打标失败', e.message); }
+
 // ─── Makeup Grant Table（早班逾期补答授权）──────────────────────────────────
 db.exec(`CREATE TABLE IF NOT EXISTS makeup_grants (
   staff_id TEXT NOT NULL,

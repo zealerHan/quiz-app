@@ -7,15 +7,15 @@ export const adminHeaders = pwd => ({ "x-admin-password": pwd });
 export function AppModal({ icon, title, body, buttons }) {
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:"0 32px"}}>
-      <div style={{background:"rgba(28,32,48,0.96)",borderRadius:18,width:"100%",maxWidth:320,overflow:"hidden",boxShadow:"0 24px 60px rgba(0,0,0,0.6)",border:"1px solid rgba(255,255,255,0.08)"}}>
+      <div style={{background:"var(--modal-bg,rgba(28,32,48,0.96))",borderRadius:18,width:"100%",maxWidth:320,overflow:"hidden",boxShadow:"0 24px 60px rgba(0,0,0,0.3)",border:"1px solid var(--border)"}}>
         <div style={{padding:"24px 20px 16px",textAlign:"center"}}>
           {icon&&<div style={{fontSize:32,marginBottom:10}}>{icon}</div>}
-          <div style={{fontSize:17,fontWeight:700,color:"white",marginBottom:8,letterSpacing:0.3}}>{title}</div>
-          {body&&<div style={{fontSize:13,color:"rgba(255,255,255,0.5)",lineHeight:1.7,whiteSpace:"pre-line"}}>{body}</div>}
+          <div style={{fontSize:17,fontWeight:700,color:"var(--text)",marginBottom:8,letterSpacing:0.3}}>{title}</div>
+          {body&&<div style={{fontSize:13,color:"var(--muted)",lineHeight:1.7,whiteSpace:"pre-line"}}>{body}</div>}
         </div>
-        <div style={{borderTop:"1px solid rgba(255,255,255,0.08)",display:"flex"}}>
+        <div style={{borderTop:"1px solid var(--border)",display:"flex"}}>
           {buttons.map((btn,i)=>(
-            <button key={i} onClick={btn.onClick} style={{flex:1,padding:"15px 0",background:"none",border:"none",borderRight:i<buttons.length-1?"1px solid rgba(255,255,255,0.08)":"none",color:btn.danger?"#ef4444":btn.primary?"#3b82f6":"rgba(255,255,255,0.45)",fontSize:16,cursor:"pointer",fontFamily:"inherit",fontWeight:btn.primary||btn.danger?600:400,letterSpacing:0.2}}>
+            <button key={i} onClick={btn.onClick} style={{flex:1,padding:"15px 0",background:"none",border:"none",borderRight:i<buttons.length-1?"1px solid var(--border)":"none",color:btn.danger?"var(--red)":btn.primary?"var(--blue)":"var(--muted)",fontSize:16,cursor:"pointer",fontFamily:"inherit",fontWeight:btn.primary||btn.danger?600:400,letterSpacing:0.2}}>
               {btn.label}
             </button>
           ))}
@@ -27,7 +27,7 @@ export function AppModal({ icon, title, body, buttons }) {
 
 export function ScoreRing({ score, size=80 }) {
   const r=size*.38, c=2*Math.PI*r, dash=(score/100)*c;
-  const col=score>=85?"#22c55e":score>=60?"#f59e0b":"#ef4444";
+  const col=score>=85?"var(--green)":score>=60?"var(--amber)":"var(--red)";
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#1e293b" strokeWidth={size*.1}/>
@@ -40,7 +40,7 @@ export function ScoreRing({ score, size=80 }) {
 }
 
 export function MiniBar({ label, value, max=100 }) {
-  const col=value>=85?"#22c55e":value>=70?"#f59e0b":"#ef4444";
+  const col=value>=85?"var(--green)":value>=70?"var(--amber)":"var(--red)";
   return (
     <div style={{marginBottom:9}}>
       <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}>
@@ -60,21 +60,21 @@ export function MiniTrend({ data }) {
   const pts=data.map((v,i)=>`${i*(w/(data.length-1))},${h-((v-min)/(max-min||1))*h}`).join(" ");
   return (
     <svg width={w} height={h}>
-      <polyline points={pts} fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinejoin="round"/>
-      {data.map((v,i)=><circle key={i} cx={i*(w/(data.length-1))} cy={h-((v-min)/(max-min||1))*h} r={i===data.length-1?4:2} fill={i===data.length-1?"#3b82f6":"#1e3a5f"} stroke="#3b82f6" strokeWidth="1"/>)}
+      <polyline points={pts} fill="none" stroke="var(--blue)" strokeWidth="2" strokeLinejoin="round"/>
+      {data.map((v,i)=><circle key={i} cx={i*(w/(data.length-1))} cy={h-((v-min)/(max-min||1))*h} r={i===data.length-1?4:2} fill={i===data.length-1?"var(--blue)":"#1e3a5f"} stroke="var(--blue)" strokeWidth="1"/>)}
     </svg>
   );
 }
 
-export function Badge({ label, color="#3b82f6" }) {
+export function Badge({ label, color="var(--blue)" }) {
   return <span style={{background:`${color}22`,border:`1px solid ${color}55`,color,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:600}}>{label}</span>;
 }
 
 export function Chip({ label, value, unit="" }) {
   return (
-    <div style={{flex:1,textAlign:"center",background:"#0d1e35",border:"1px solid #1b3255",borderRadius:10,padding:"10px 6px"}}>
-      <div style={{fontSize:20,fontWeight:900,color:"white"}}>{value}<span style={{fontSize:11,color:"#64748b"}}>{unit}</span></div>
-      <div style={{fontSize:10,color:"#64748b",marginTop:2}}>{label}</div>
+    <div style={{flex:1,textAlign:"center",background:"var(--input-bg)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 6px"}}>
+      <div style={{fontSize:20,fontWeight:900,color:"var(--text)"}}>{value}<span style={{fontSize:11,color:"var(--muted)"}}>{unit}</span></div>
+      <div style={{fontSize:10,color:"var(--muted)",marginTop:2}}>{label}</div>
     </div>
   );
 }

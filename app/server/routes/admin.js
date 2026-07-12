@@ -628,14 +628,16 @@ router.post('/api/admin/questions/ai-generate', adminAuth, async (req, res) => {
 
 // ─── 批量保存题目（智能出题预览确认后调用）────────────────────────────────
 router.post('/api/admin/questions/batch-save', adminAuth, (req, res) => {
-  const { questions, bank_id, bank_name } = req.body;
+  const { questions, bank_id, bank_name, bank_type } = req.body;
   if (!Array.isArray(questions) || questions.length === 0)
     return res.status(400).json({ error: '题目列表为空' });
+  const VALID_TYPES = new Set(['emergency','event','knowledge','compliance','theory']);
+  const safeType = VALID_TYPES.has(bank_type) ? bank_type : 'knowledge';
   let targetBankId = parseInt(bank_id) || null;
   if (bank_name?.trim()) {
-    const r = db.prepare('INSERT INTO question_banks (name, q_type, default_count) VALUES (?,?,?)').run(bank_name.trim(), '简答', 3);
+    const r = db.prepare('INSERT INTO question_banks (name, q_type, default_count, bank_type) VALUES (?,?,?,?)').run(bank_name.trim(), '简答', 3, safeType);
     targetBankId = r.lastInsertRowid;
-    logAdmin('新建题库', bank_name.trim(), req.adminName);
+    logAdmin('新建题库', `${bank_name.trim()} [${safeType}]`, req.adminName);
   }
   if (!targetBankId) return res.status(400).json({ error: '请指定题库' });
   const stmt = db.prepare('INSERT INTO questions (bank_id,text,reference,keywords,category) VALUES (?,?,?,?,?)');
@@ -665,7 +667,7 @@ router.get('/api/admin/pinned-questions', adminAuth, (req, res) => {
     pinned.cycle = cycleInfo;
     if (pinned.ids?.length > 0) {
       const placeholders = pinned.ids.map(() => '?').join(',');
-      const qs = db.prepare(`SELECT id, text, category FROM questions WHERE id IN (${placeholders})`).all(...pinned.ids);
+      const qs = db.prepare(`SELECT id, text, reference, category FROM questions WHERE id IN (${placeholders})`).all(...pinned.ids);
       pinned.questions = pinned.ids.map(id => qs.find(q => q.id === id)).filter(Boolean);
     } else {
       pinned.questions = [];
@@ -947,6 +949,25 @@ function buildGeneralPrompt(text, count) {
 ${text.slice(0, 8000)}`;
 }
 
+// 结构提取模式：以文档标题/条款为题目，对应内容为答案
+function buildStructureExtractPrompt(text, maxCount = 8) {
+  return `你是武汉地铁乘务培训专家。以下是一份培训材料原文。请识别其中所有有明确标题（条款编号或标题文字）的知识点，将标题改写为简洁问句作为题目，将对应正文内容作为参考答案。
+
+【要求】
+- 参考答案只能来自原文，不得添加原文中没有的内容
+- 每个知识点独立一道题，最多 ${maxCount} 道，优先选取内容最完整的
+- 答案各要点用分号分隔
+- 关键词从原文摘取2~4个核心词
+
+只返回JSON数组，格式：[{"text":"题目内容","reference":"要点1;要点2;要点3","keywords":"关键词1,关键词2","category":"业务知识"}]
+
+培训材料原文：
+${text.slice(0, 8000)}`;
+}
+
+// 安全事件固定3题模板
+const EVENT_TEMPLATES = ['请简要描述事件发生的经过', '本次事件中乘务员存在哪些问题？', '针对本次事件，整改措施有哪些？'];
+
 function buildCustomQuestionsPrompt(text, questions, isIncident) {
   const numbered = questions.map((q, i) => `${i + 1}. ${q}`).join('\n');
   return `你是武汉地铁乘务培训助手。以下是一份原文，以及教员手工指定的题目。请严格依据原文，为每道题目提取参考答案。
@@ -978,7 +999,7 @@ router.post('/api/admin/banks/parse-doc', adminAuth, upload.single('file'), asyn
   const KEY = process.env.DASHSCOPE_API_KEY;
   if (!KEY) return res.status(503).json({ error: '未配置DASHSCOPE_API_KEY' });
 
-  const { bank_id, bank_name, count = 5, mode = 'auto', custom_questions, paste_text } = req.body;
+  const { bank_id, bank_name, count = 5, mode = 'auto', custom_questions, paste_text, dest_cat } = req.body;
   let customList = [];
   if (mode === 'custom') {
     try {
@@ -1022,17 +1043,31 @@ ${numbered}
 
 只返回 JSON 数组（${customList.length} 个元素），格式：
 [{"text":"题目（事件类需含事件名称）","reference":"要点1;要点2","keywords":"词1,词2","category":"分类","docType":"custom"}]`;
+      } else if (dest_cat === 'event') {
+        imgPrompt = `你是武汉地铁乘务安全培训助手。请识别图片中的文字内容，然后为以下3道固定题目提取参考答案。
+
+固定题目（必须全部返回，共3道）：
+1. 请简要描述事件发生的经过
+2. 本次事件中乘务员存在哪些问题？
+3. 针对本次事件，整改措施有哪些？
+
+【要求】
+- text 字段必须把事件名称嵌入题目（从图片提炼：日期+线路/地点+事件类型，如"2026年3月XX日XX站XX事件"）
+  例如："请简要描述[事件名称]发生的经过"，"在[事件名称]中，乘务员存在哪些问题？"
+- 参考答案只来自图片内容，找不到则留""，答案各要点用分号分隔
+- category统一填"安全事件"，docType填"incident"
+
+只返回JSON数组（3个元素），格式：
+[{"text":"含事件名称的题目","reference":"要点1;要点2","keywords":"词1,词2","category":"安全事件","docType":"incident"}]`;
       } else {
-        imgPrompt = `你是武汉地铁乘务安全培训专家。请识别图片中的文字内容，判断是否为安全事件/事故分析报告。
+        imgPrompt = `你是武汉地铁乘务培训专家。请识别图片中的文字内容，提取所有有明确标题或条款编号的知识点，将标题改写为简洁问句作为题目，对应内容作为参考答案。
 
-如果是安全事件报告，只生成1道题：
-- 题目格式："请简要概述[线路/地点+事件类型]，口述事件简要经过、乘务员存在问题、整改措施及反思。"
-- 答案要点按顺序用分号分隔：①简要经过（日期年月日+线路/地点+车号+一句话概括）②乘务员存在的问题（逐条）③整改措施及反思（逐条）
-- docType填"incident"。
+【要求】
+- 参考答案只来自图片内容，答案各要点用分号分隔
+- 最多返回8道题，优先选内容完整的知识点
+- 关键词从原文摘取2~4个核心词，docType填"general"
 
-如果是普通培训材料，生成 ${count} 道业务操作考核题目，docType填"general"。
-
-只返回JSON数组，格式：[{"text":"题目","reference":"参考答案（各要点用分号分隔）","keywords":"关键词1,关键词2","category":"分类名称","docType":"incident或general"}]`;
+只返回JSON数组，格式：[{"text":"题目内容","reference":"要点1;要点2","keywords":"关键词1,关键词2","category":"业务知识","docType":"general"}]`;
       }
       rawJson = await callQwenVision(KEY, base64, imgMime, imgPrompt);
     } else if (ext.endsWith('.docx')) {
@@ -1067,12 +1102,15 @@ print(''.join(page.get_text() for page in doc))
 
     if (!isImage) {
       if (!extractedText?.trim()) return res.status(400).json({ error: '文件内容为空或无法提取文本' });
-      const isIncident = isIncidentReport(extractedText);
-      const prompt = mode === 'custom'
-        ? buildCustomQuestionsPrompt(extractedText, customList, isIncident)
-        : isIncident
-          ? buildIncidentPrompt(extractedText, parseInt(count))
-          : buildGeneralPrompt(extractedText, parseInt(count));
+      let prompt;
+      if (mode === 'custom') {
+        const isIncident = isIncidentReport(extractedText) || dest_cat === 'event';
+        prompt = buildCustomQuestionsPrompt(extractedText, customList, isIncident);
+      } else if (dest_cat === 'event') {
+        prompt = buildCustomQuestionsPrompt(extractedText, EVENT_TEMPLATES, true);
+      } else {
+        prompt = buildStructureExtractPrompt(extractedText, Math.min(parseInt(count) || 8, 10));
+      }
       rawJson = await callQwenText(KEY, prompt);
     }
 
@@ -1122,7 +1160,7 @@ print(''.join(page.get_text() for page in doc))
       logAdmin('智能出题保存', `题库ID=${targetBankId} 生成${questions.length}题 docType=${docType}`, req.adminName);
     }
 
-    res.json({ ok: true, questions, docType, ids: savedIds });
+    res.json({ ok: true, questions, docType, ids: savedIds, extractedText: (extractedText||'').slice(0, 3000) });
   } catch (e) {
     res.status(500).json({ error: '处理失败: ' + e.message });
   }

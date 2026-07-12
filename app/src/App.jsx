@@ -85,7 +85,7 @@ function LoginScreen({ onLogin, onAdmin }) {
               onFocus={e=>{e.target.style.borderColor="#c8394b";e.target.style.background="rgba(200,57,75,0.07)";e.target.style.boxShadow="0 0 0 3px rgba(200,57,75,0.1)";}}
               onBlur={e=>{e.target.style.borderColor="rgba(255,255,255,0.1)";e.target.style.background="rgba(255,255,255,0.06)";e.target.style.boxShadow="none";}}/>
           </div>
-          {err&&<div style={{color:"#ef4444",fontSize:12,marginBottom:8}}>⚠ {err}</div>}
+          {err&&<div style={{color:"var(--red)",fontSize:12,marginBottom:8}}>⚠ {err}</div>}
           <button type="submit" disabled={loading}
             style={{width:"100%",height:46,marginTop:6,background:loading?"#555":"#c8394b",border:"none",borderRadius:4,fontFamily:"inherit",fontSize:13,fontWeight:600,letterSpacing:5,color:"white",cursor:loading?"not-allowed":"pointer",transition:"all 0.2s"}}>
             {loading?"登录中…":"欢迎登录"}
@@ -517,14 +517,14 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
     <div style={{position:"relative",width:"100%",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,background:"#080a0c"}}>
       <div style={{position:"absolute",inset:0,backgroundImage:`url(${IMG_TUNNEL})`,backgroundSize:"cover",backgroundPosition:"center",filter:"brightness(0.3)",pointerEvents:"none"}}/>
       <div style={{position:"relative",zIndex:1,textAlign:"center"}}>
-        {phase==="error"?<><div style={{fontSize:30}}>⚠</div><div style={{color:"#ef4444",marginTop:8}}>加载失败，请检查服务器</div></>:<><div className="spinner"/><div style={{color:"rgba(255,255,255,0.5)",marginTop:12,fontSize:14}}>加载题目中…</div></>}
+        {phase==="error"?<><div style={{fontSize:30}}>⚠</div><div style={{color:"var(--red)",marginTop:8}}>加载失败，请检查服务器</div></>:<><div className="spinner"/><div style={{color:"rgba(255,255,255,0.5)",marginTop:12,fontSize:14}}>加载题目中…</div></>}
       </div>
     </div>
   );
   if (!q) return (
     <div style={{position:"relative",width:"100%",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,background:"#080a0c"}}>
       <div style={{fontSize:30}}>⚠</div>
-      <div style={{color:"#ef4444",marginTop:8,fontSize:14}}>题库暂无题目，请联系管理员</div>
+      <div style={{color:"var(--red)",marginTop:8,fontSize:14}}>题库暂无题目，请联系管理员</div>
       <button onClick={onBack} style={{marginTop:16,padding:"10px 28px",borderRadius:8,border:"1px solid rgba(255,255,255,0.2)",background:"none",color:"white",fontSize:14,cursor:"pointer"}}>返回</button>
     </div>
   );
@@ -546,11 +546,11 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
             <button onClick={()=>setShowBackConfirm(true)} title="返回主页" style={{background:"none",border:"none",color:"rgba(255,255,255,0.45)",fontSize:22,cursor:"pointer",padding:"0 4px 0 0",lineHeight:1,fontWeight:300}}>‹</button>
             <div style={{width:7,height:7,borderRadius:"50%",background:"#c8394b",boxShadow:"0 0 8px rgba(200,57,75,0.7)",animation:"liveDot 2s ease-in-out infinite"}}/>
             <span style={{fontSize:12,fontWeight:500,letterSpacing:1.5,color:"rgba(255,255,255,0.8)"}}>第 {qi+1} 题 / 共 {questions.length} 题</span>
-            {isPractice&&<span style={{fontSize:10,fontWeight:700,color:"#f59e0b",background:"rgba(245,158,11,0.15)",border:"1px solid rgba(245,158,11,0.35)",borderRadius:8,padding:"1px 7px",letterSpacing:1}}>练习</span>}
+            {isPractice&&<span style={{fontSize:10,fontWeight:700,color:"var(--amber)",background:"rgba(245,158,11,0.15)",border:"1px solid rgba(245,158,11,0.35)",borderRadius:8,padding:"1px 7px",letterSpacing:1}}>练习</span>}
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            {tabSwitchCount>0&&<span style={{fontSize:10,fontWeight:700,color:"#ef4444",background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:8,padding:"1px 6px",letterSpacing:0.5}}>切屏×{tabSwitchCount}</span>}
-            {countdown!==null && <span style={{fontSize:13,fontWeight:700,color:countdown<=10?"#ef4444":"#f59e0b",letterSpacing:1}}>{countdown}s</span>}
+            {tabSwitchCount>0&&<span style={{fontSize:10,fontWeight:700,color:"var(--red)",background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:8,padding:"1px 6px",letterSpacing:0.5}}>切屏×{tabSwitchCount}</span>}
+            {countdown!==null && <span style={{fontSize:13,fontWeight:700,color:countdown<=10?"var(--red)":"var(--amber)",letterSpacing:1}}>{countdown}s</span>}
             <button onClick={()=>setMuted(m=>!m)} title={muted?"点击开启朗读":"点击静音"}
               style={{background:muted?"rgba(255,255,255,0.08)":"rgba(200,57,75,0.2)",border:`1px solid ${muted?"rgba(255,255,255,0.15)":"rgba(200,57,75,0.5)"}`,borderRadius:20,padding:"4px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:5,color:muted?"rgba(255,255,255,0.45)":"#c8394b",fontSize:11,fontWeight:600,transition:"all 0.2s"}}>
               <span style={{fontSize:14}}>{muted?"🔇":"🔊"}</span>
@@ -621,15 +621,15 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
                 <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,padding:"10px 0"}}>
                   <div style={{display:"flex",gap:3,alignItems:"flex-end",height:40}}>
                     {[10,22,34,28,40,32,18,36,26,14].map((h,i)=>(
-                      <div key={i} style={{width:4,borderRadius:3,background:"#22c55e",animation:`wave 0.5s ease-in-out ${i*0.07}s infinite alternate`,height:h}}/>
+                      <div key={i} style={{width:4,borderRadius:3,background:"var(--green)",animation:`wave 0.5s ease-in-out ${i*0.07}s infinite alternate`,height:h}}/>
                     ))}
                   </div>
-                  <span style={{fontSize:11,color:"#22c55e",letterSpacing:1.5,fontWeight:600}}>录音中，请自然说话…</span>
+                  <span style={{fontSize:11,color:"var(--green)",letterSpacing:1.5,fontWeight:600}}>录音中，请自然说话…</span>
                 </div>
               ) : isRecognizing ? (
                 <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,padding:"10px 0"}}>
                   <div className="spinner" style={{width:22,height:22}}/>
-                  <span style={{fontSize:11,color:"#f59e0b",letterSpacing:1.5,fontWeight:600}}>正在识别…</span>
+                  <span style={{fontSize:11,color:"var(--amber)",letterSpacing:1.5,fontWeight:600}}>正在识别…</span>
                 </div>
               ) : transcriptItems.length > 0 ? (
                 <div>
@@ -719,14 +719,14 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
                   disabled={phase==="intro"||phase==="processing"}
                   style={{width:96,height:96,borderRadius:"50%",background:isRec?"linear-gradient(135deg,#c8394b,#9e2a39)":isRecognizing?"#374151":"linear-gradient(135deg,#166534,#22c55e)",border:isRec?"3px solid rgba(200,57,75,0.5)":isRecognizing?"3px solid rgba(255,255,255,0.1)":"3px solid rgba(34,197,94,0.4)",cursor:(phase==="intro"||phase==="processing")?"not-allowed":"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,boxShadow:isRec?"0 0 0 10px rgba(200,57,75,0.15),0 0 0 20px rgba(200,57,75,0.07),0 8px 24px rgba(200,57,75,0.4)":"0 0 0 8px rgba(34,197,94,0.08),0 6px 20px rgba(34,197,94,0.25)",transition:"all 0.15s",userSelect:"none",WebkitUserSelect:"none",animation:isRec?"micPulse 1.5s ease-out infinite":"none",touchAction:"none",WebkitTouchCallout:"none"}}>
                   {isRecognizing
-                    ? <div style={{width:8,height:8,borderRadius:"50%",background:"#f59e0b",animation:"blink 0.8s step-end infinite"}}/>
+                    ? <div style={{width:8,height:8,borderRadius:"50%",background:"var(--amber)",animation:"blink 0.8s step-end infinite"}}/>
                     : isRec
                     ? <svg width="26" height="26" viewBox="0 0 24 24" fill="white"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
                     : <svg width="26" height="26" viewBox="0 0 24 24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
                   }
                   <span style={{fontSize:13,fontWeight:700,color:"rgba(255,255,255,0.95)",letterSpacing:1,lineHeight:1,maxWidth:68,textAlign:"center",display:"block"}}>{isRec?"点击停止":isRecognizing?"识别中":"点击录音"}</span>
                 </button>
-                <span style={{fontSize:12,fontWeight:600,color:isRec?"#c8394b":isRecognizing?"#f59e0b":"rgba(255,255,255,0.35)",letterSpacing:1.5}}>{isRec?"录音中…":isRecognizing?"识别中…":"语音输入"}</span>
+                <span style={{fontSize:12,fontWeight:600,color:isRec?"#c8394b":isRecognizing?"var(--amber)":"rgba(255,255,255,0.35)",letterSpacing:1.5}}>{isRec?"录音中…":isRecognizing?"识别中…":"语音输入"}</span>
               </div>
 
               {/* 右：提交 */}
@@ -761,16 +761,16 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
               <div style={{background:"rgba(8,10,14,0.9)",backdropFilter:"blur(16px)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:12,padding:"16px"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
                   <div style={{fontSize:36,fontWeight:900,color:"white"}}>{aiRes.score}<span style={{fontSize:13,color:"rgba(255,255,255,0.4)",fontWeight:400}}> 分</span></div>
-                  <Badge label={aiRes.level} color={aiRes.level==="优秀"?"#22c55e":aiRes.level==="合格"?"#f59e0b":"#ef4444"}/>
+                  <Badge label={aiRes.level} color={aiRes.level==="优秀"?"var(--green)":aiRes.level==="合格"?"var(--amber)":"var(--red)"}/>
                 </div>
                 <p style={{fontSize:13,color:"rgba(255,255,255,0.75)",marginBottom:10,lineHeight:1.7}}>{aiRes.summary}</p>
                 {/* 标准答案 — 列表化 */}
                 {(()=>{const refItems=splitToItems(q.reference||'');return(
                 <div style={{marginBottom:10,padding:"10px 12px",background:"rgba(34,197,94,0.08)",border:"1px solid rgba(34,197,94,0.25)",borderRadius:6}}>
-                  <div style={{fontSize:11,color:"#22c55e",letterSpacing:1,marginBottom:7,fontWeight:600}}>📋 标准答案</div>
+                  <div style={{fontSize:11,color:"var(--green)",letterSpacing:1,marginBottom:7,fontWeight:600}}>📋 标准答案</div>
                   {refItems.length>0?refItems.map((item,i)=>(
                     <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"4px 0",borderBottom:i<refItems.length-1?"1px solid rgba(34,197,94,0.1)":"none"}}>
-                      <span style={{fontSize:14,fontWeight:700,color:"#22c55e",flexShrink:0,minWidth:22,lineHeight:1.6}}>{i+1}.</span>
+                      <span style={{fontSize:14,fontWeight:700,color:"var(--green)",flexShrink:0,minWidth:22,lineHeight:1.6}}>{i+1}.</span>
                       <span style={{fontSize:14,color:"rgba(255,255,255,0.88)",lineHeight:1.6}}>{item}</span>
                     </div>
                   )):<div style={{fontSize:14,color:"rgba(255,255,255,0.7)"}}>{q.reference}</div>}
@@ -782,25 +782,25 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
                   const cp=aiRes.correct_points||[], op=aiRes.order_errors||[], mp=aiRes.missing_points||[];
                   return(
                   <div style={{marginBottom:10,padding:"10px 12px",background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.25)",borderRadius:6}}>
-                    <div style={{fontSize:11,color:"#3b82f6",letterSpacing:1,marginBottom:7,fontWeight:600}}>🎙 您的作答</div>
+                    <div style={{fontSize:11,color:"var(--blue)",letterSpacing:1,marginBottom:7,fontWeight:600}}>🎙 您的作答</div>
                     {uItems.length===0&&<div style={{fontSize:14,color:"rgba(255,255,255,0.35)"}}>（未识别到内容）</div>}
                     {uItems.map((item,i)=>{
                       const isCorrect=hasOverlap(item,cp);
                       const isOrder=!isCorrect&&hasOverlap(item,op);
-                      const clr=isCorrect?"#22c55e":isOrder?"#f59e0b":"rgba(255,255,255,0.78)";
+                      const clr=isCorrect?"var(--green)":isOrder?"var(--amber)":"rgba(255,255,255,0.78)";
                       return(
                         <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"4px 0",borderBottom:i<uItems.length-1?"1px solid rgba(59,130,246,0.1)":"none"}}>
                           <span style={{fontSize:14,fontWeight:700,color:clr,flexShrink:0,minWidth:22,lineHeight:1.6}}>{CIRCLE_NUMS[i]||`${i+1}.`}</span>
                           <span style={{flex:1,fontSize:14,color:clr,lineHeight:1.6}}>
                             {item}
-                            {isOrder&&<span style={{fontSize:11,color:"#f59e0b",marginLeft:6,opacity:0.85}}>→ 顺序有误</span>}
+                            {isOrder&&<span style={{fontSize:11,color:"var(--amber)",marginLeft:6,opacity:0.85}}>→ 顺序有误</span>}
                           </span>
                         </div>
                       );
                     })}
                     {mp.map((p,i)=>(
                       <div key={`m${i}`} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"5px 4px",marginTop:3,background:"rgba(239,68,68,0.08)",borderRadius:4}}>
-                        <span style={{fontSize:14,color:"#ef4444",flexShrink:0,lineHeight:1.6}}>✗</span>
+                        <span style={{fontSize:14,color:"var(--red)",flexShrink:0,lineHeight:1.6}}>✗</span>
                         <span style={{fontSize:14,color:"rgba(239,68,68,0.85)",lineHeight:1.6}}>未提及：{p}</span>
                       </div>
                     ))}
@@ -843,42 +843,42 @@ function HistoryScreen({ user, onBack }) {
   return (
     <div className="screen" style={{padding:'16px'}}>
       <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
-        <button onClick={onBack} style={{background:'none',border:'none',color:'#3b82f6',fontSize:22,cursor:'pointer',padding:'0 4px'}}>←</button>
-        <span style={{fontSize:15,fontWeight:700,color:'white'}}>我的答题历史</span>
+        <button onClick={onBack} style={{background:'none',border:'none',color:'var(--blue)',fontSize:22,cursor:'pointer',padding:'0 4px'}}>←</button>
+        <span style={{fontSize:15,fontWeight:700,color:'var(--text)'}}>我的答题历史</span>
       </div>
-      {loading&&<div style={{color:'#64748b',textAlign:'center',marginTop:40}}>加载中…</div>}
-      {!loading&&sessions.length===0&&<div style={{color:'#475569',textAlign:'center',marginTop:40,fontSize:13}}>暂无答题记录</div>}
+      {loading&&<div style={{color:'var(--muted)',textAlign:'center',marginTop:40}}>加载中…</div>}
+      {!loading&&sessions.length===0&&<div style={{color:'var(--muted)',textAlign:'center',marginTop:40,fontSize:13}}>暂无答题记录</div>}
       {sessions.map((s)=>{
         const avg=Math.round(s.total_score||0);
-        const scoreCol=avg>=85?'#22c55e':avg>=60?'#f59e0b':'#ef4444';
+        const scoreCol=avg>=85?'var(--green)':avg>=60?'var(--amber)':'var(--red)';
         const perQ=Math.round(100/(s.q_count||3));
         const isOpen=!!expanded[s.id];
         return(
           <div key={s.id} className="card" style={{marginBottom:8,padding:0,overflow:'hidden'}}>
             <div onClick={()=>toggle(s.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',cursor:'pointer'}}>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:12,color:'#64748b'}}>
+                <div style={{fontSize:12,color:'var(--muted)'}}>
                   {s.created_at?s.created_at.slice(5,10)+' '+s.created_at.slice(11,16):'--'}
-                  {s.cycle_label&&<span style={{marginLeft:6,color:'#475569'}}>{s.cycle_label}</span>}
-                  {s.is_practice?<span style={{marginLeft:6,fontSize:10,color:'#f59e0b'}}>练习</span>:null}
+                  {s.cycle_label&&<span style={{marginLeft:6,color:'var(--muted)'}}>{s.cycle_label}</span>}
+                  {s.is_practice?<span style={{marginLeft:6,fontSize:10,color:'var(--amber)'}}>练习</span>:null}
                 </div>
-                <div style={{fontSize:11,color:'#475569',marginTop:2}}>{s.q_count||0}题</div>
+                <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{s.q_count||0}题</div>
               </div>
-              <span style={{fontSize:20,fontWeight:800,color:scoreCol,flexShrink:0}}>{avg}<span style={{fontSize:10,fontWeight:400,color:'rgba(255,255,255,0.35)'}}>分</span></span>
-              <span style={{fontSize:14,color:'#475569',flexShrink:0,transform:isOpen?'rotate(180deg)':'none',transition:'transform 0.2s'}}>⌄</span>
+              <span style={{fontSize:20,fontWeight:800,color:scoreCol,flexShrink:0}}>{avg}<span style={{fontSize:10,fontWeight:400,color:'var(--muted)'}}>分</span></span>
+              <span style={{fontSize:14,color:'var(--muted)',flexShrink:0,transform:isOpen?'rotate(180deg)':'none',transition:'transform 0.2s'}}>⌄</span>
             </div>
             {isOpen&&(
               <div style={{borderTop:'1px solid rgba(27,50,85,0.6)',padding:'8px 14px 12px'}}>
                 {s.answers?.map((a,ai)=>{
                   const pts=Math.round(a.score/(s.q_count||3));
-                  const ac=a.score>=99?'#22c55e':a.score>=67?'#f59e0b':'#ef4444';
+                  const ac=a.score>=99?'var(--green)':a.score>=67?'var(--amber)':'var(--red)';
                   return(
                     <div key={ai} style={{paddingTop:ai>0?10:4,borderTop:ai>0?'1px solid rgba(27,50,85,0.4)':'none'}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
-                        <span style={{fontSize:11,color:'#94a3b8',flex:1,lineHeight:1.4}}>{ai+1}. {a.question_text}</span>
-                        <span style={{fontSize:13,fontWeight:700,color:ac,flexShrink:0,marginLeft:8}}>{pts}<span style={{fontSize:10,color:'rgba(255,255,255,0.3)',fontWeight:400}}>/{perQ}</span></span>
+                        <span style={{fontSize:11,color:'var(--muted)',flex:1,lineHeight:1.4}}>{ai+1}. {a.question_text}</span>
+                        <span style={{fontSize:13,fontWeight:700,color:ac,flexShrink:0,marginLeft:8}}>{pts}<span style={{fontSize:10,color:'var(--muted)',fontWeight:400}}>/{perQ}</span></span>
                       </div>
-                      <div style={{fontSize:11,color:'#64748b',lineHeight:1.5,paddingLeft:10}}>↳ {a.answer_text||'（无作答）'}</div>
+                      <div style={{fontSize:11,color:'var(--muted)',lineHeight:1.5,paddingLeft:10}}>↳ {a.answer_text||'（无作答）'}</div>
                     </div>
                   );
                 })}
@@ -914,27 +914,27 @@ function BanksPreviewScreen({ onBack }) {
   return (
     <div className="screen" style={{padding:'16px'}}>
       <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
-        <button onClick={onBack} style={{background:'none',border:'none',color:'#3b82f6',fontSize:22,cursor:'pointer',padding:'0 4px'}}>←</button>
-        <span style={{fontSize:15,fontWeight:700,color:'white'}}>题库预览</span>
+        <button onClick={onBack} style={{background:'none',border:'none',color:'var(--blue)',fontSize:22,cursor:'pointer',padding:'0 4px'}}>←</button>
+        <span style={{fontSize:15,fontWeight:700,color:'var(--text)'}}>题库预览</span>
       </div>
       <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}>
         {banks.map(b=>(
           <button key={b.id} onClick={()=>{setSelBank(b.id);fetchQ(b.id);}}
-            style={{padding:'6px 14px',borderRadius:20,border:'none',background:selBank===b.id?'#3b82f6':'#1b3255',color:'white',fontSize:12,cursor:'pointer',fontWeight:selBank===b.id?700:400}}>
+            style={{padding:'6px 14px',borderRadius:20,border:'none',background:selBank===b.id?'var(--blue)':'#1b3255',color:'var(--text)',fontSize:12,cursor:'pointer',fontWeight:selBank===b.id?700:400}}>
             {b.name}{b.is_active?' ✓':''}
           </button>
         ))}
       </div>
-      {loading&&<div style={{color:'#64748b',textAlign:'center',marginTop:40}}>加载中…</div>}
-      {!loading&&questions.length===0&&<div style={{color:'#475569',textAlign:'center',marginTop:40,fontSize:13}}>该题库暂无题目</div>}
+      {loading&&<div style={{color:'var(--muted)',textAlign:'center',marginTop:40}}>加载中…</div>}
+      {!loading&&questions.length===0&&<div style={{color:'var(--muted)',textAlign:'center',marginTop:40,fontSize:13}}>该题库暂无题目</div>}
       {questions.map((q,i)=>(
         <div key={i} className="card" style={{marginBottom:10,padding:'12px 14px'}}>
           <div style={{display:'flex',gap:8,marginBottom:6}}>
-            <span style={{fontSize:10,color:'#64748b',background:'#1b3255',padding:'2px 8px',borderRadius:10}}>{q.category||'--'}</span>
-            <span style={{fontSize:10,color:'#64748b'}}>难度 {q.difficulty||'--'}</span>
+            <span style={{fontSize:10,color:'var(--muted)',background:'#1b3255',padding:'2px 8px',borderRadius:10}}>{q.category||'--'}</span>
+            <span style={{fontSize:10,color:'var(--muted)'}}>难度 {q.difficulty||'--'}</span>
           </div>
-          <div style={{fontSize:13,color:'#cbd5e1',lineHeight:1.6,marginBottom:6}}>{q.text||q.question_text}</div>
-          {q.reference&&<div style={{fontSize:11,color:'#475569',lineHeight:1.5}}>参考：{q.reference}</div>}
+          <div style={{fontSize:13,color:'var(--muted)',lineHeight:1.6,marginBottom:6}}>{q.text||q.question_text}</div>
+          {q.reference&&<div style={{fontSize:11,color:'var(--muted)',lineHeight:1.5}}>参考：{q.reference}</div>}
         </div>
       ))}
     </div>
@@ -1116,9 +1116,11 @@ function HomeScreen({ user, nav }) {
 
       {/* ── 顶部欢迎 ── */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'18px 16px 6px' }}>
-        <div style={{ fontSize:16, fontWeight:700, color:'var(--text)' }}>
-          你好，<span style={{ color:'var(--gold)' }}>{user.name || user.staffId}</span>
-          {isExempt && <span style={{ marginLeft:6, fontSize:10, color:'var(--muted)', fontWeight:400, verticalAlign:'middle' }}>班组长</span>}
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          <div style={{ fontSize:16, fontWeight:700, color:'var(--text)' }}>
+            你好，<span style={{ color:'var(--gold)' }}>{user.name || user.staffId}</span>
+            {isExempt && <span style={{ marginLeft:6, fontSize:10, color:'var(--muted)', fontWeight:400, verticalAlign:'middle' }}>班组长</span>}
+          </div>
         </div>
         {/* 右侧：两排状态 */}
         {(() => {
@@ -1165,7 +1167,7 @@ function HomeScreen({ user, nav }) {
               <div style={{ fontSize:9, color:'var(--muted)' }}>{getShiftDeadline()}</div>
             </div>
             <div style={{
-              flex:1, background:'#081828', border:'1px solid var(--border)',
+              flex:1, background:'var(--card-deep)', border:'1px solid var(--border)',
               borderRadius:8, padding:'9px 10px', fontSize:11, color:'var(--text)', lineHeight:1.6, minHeight:48
             }}>
               {pinnedInfo
@@ -1187,9 +1189,9 @@ function HomeScreen({ user, nav }) {
                         const breakdown = catOrder.filter(k=>catMap[k]).map(k=>`${catMap[k]}题${k}`).join('，');
                         return (
                           <div style={{display:'flex',flexDirection:'column',gap:4}}>
-                            <div style={{color:'#22c55e',fontWeight:700,fontSize:10}}>📌 今日指定题目</div>
-                            <div style={{color:'#e2e8f0',fontSize:11,lineHeight:1.7}}>{breakdown}，随机抽{cnt}题</div>
-                            <div style={{color:'#94a3b8',fontSize:10}}>每题{pts}分</div>
+                            <div style={{color:'var(--green)',fontWeight:700,fontSize:10}}>📌 今日指定题目</div>
+                            <div style={{color:'var(--text)',fontSize:11,lineHeight:1.7}}>{breakdown}，随机抽{cnt}题</div>
+                            <div style={{color:'var(--muted)',fontSize:10}}>每题{pts}分</div>
                           </div>
                         );
                       }
@@ -1200,9 +1202,9 @@ function HomeScreen({ user, nav }) {
                       else bankLabel = pinnedInfo.bank_name || '指定题库';
                       return (
                         <div style={{display:'flex',flexDirection:'column',gap:4}}>
-                          <div style={{color:'#22c55e',fontWeight:700,fontSize:10}}>📌 今日指定题目</div>
-                          <div style={{color:'#e2e8f0',fontSize:11,lineHeight:1.7}}>{bankLabel}，随机{cnt}题</div>
-                          <div style={{color:'#94a3b8',fontSize:10}}>每题{pts}分</div>
+                          <div style={{color:'var(--green)',fontWeight:700,fontSize:10}}>📌 今日指定题目</div>
+                          <div style={{color:'var(--text)',fontSize:11,lineHeight:1.7}}>{bankLabel}，随机{cnt}题</div>
+                          <div style={{color:'var(--muted)',fontSize:10}}>每题{pts}分</div>
                         </div>
                       );
                     }
@@ -1210,11 +1212,11 @@ function HomeScreen({ user, nav }) {
                     const manualPts = Math.round(100 / manualCnt);
                     return (
                       <div style={{display:'flex',flexDirection:'column',gap:5}}>
-                        <div style={{color:'#22c55e',fontWeight:700,fontSize:10}}>📌 今日指定题目 · {manualCnt}题 · 每题{manualPts}分</div>
+                        <div style={{color:'var(--green)',fontWeight:700,fontSize:10}}>📌 今日指定题目 · {manualCnt}题 · 每题{manualPts}分</div>
                         {(pinnedInfo.questions||[]).map((q,i)=>(
                           <div key={q.id||i} style={{display:'flex',gap:5,alignItems:'flex-start'}}>
-                            <span style={{color:'#60a5fa',fontWeight:700,flexShrink:0,fontSize:10,lineHeight:1.65}}>{i+1}.</span>
-                            <span style={{color:'#e2e8f0',fontSize:11,lineHeight:1.65}}>{q.text}</span>
+                            <span style={{color:'var(--blue)',fontWeight:700,flexShrink:0,fontSize:10,lineHeight:1.65}}>{i+1}.</span>
+                            <span style={{color:'var(--text)',fontSize:11,lineHeight:1.65}}>{q.text}</span>
                           </div>
                         ))}
                       </div>
@@ -1237,10 +1239,10 @@ function HomeScreen({ user, nav }) {
               : taskDone
               ? <button className="btn-done" style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid rgba(34,197,94,.4)', background:'rgba(34,197,94,.08)', color:'var(--green)', fontSize:11, fontWeight:700, fontFamily:'var(--font)' }}>✓ 今日已完成</button>
               : makeupGrant
-              ? <button onClick={() => nav('quiz')} style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#b84d00,#f97316)', color:'white', fontSize:12, fontWeight:800, fontFamily:'var(--font)', letterSpacing:'1px' }}>⏰ 补答（限时）</button>
+              ? <button onClick={() => nav('quiz')} style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#b84d00,#f97316)', color:'var(--text)', fontSize:12, fontWeight:800, fontFamily:'var(--font)', letterSpacing:'1px' }}>⏰ 补答（限时）</button>
               : pinnedInfo
               ? <button onClick={() => nav('quiz')} style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#9a6f10,#c8a84b)', color:'#07101f', fontSize:12, fontWeight:800, fontFamily:'var(--font)', letterSpacing:'1px' }}>开始抽问</button>
-              : <button disabled style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid rgba(255,255,255,0.08)', cursor:'not-allowed', background:'rgba(255,255,255,0.05)', color:'rgba(255,255,255,0.25)', fontSize:11, fontWeight:700, fontFamily:'var(--font)', letterSpacing:'0.5px' }}>管理员尚未发布本套班抽问</button>
+              : <button disabled style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid var(--border)', cursor:'not-allowed', background:'var(--card-deep)', color:'var(--muted)', fontSize:11, fontWeight:700, fontFamily:'var(--font)', letterSpacing:'0.5px', opacity:0.6 }}>管理员尚未发布本套班抽问</button>
             }
           </div>
 
@@ -1265,7 +1267,7 @@ function HomeScreen({ user, nav }) {
                   <div style={{ fontSize:9, color:'var(--muted)' }}>{getMonthRange()}</div>
                 </div>
                 <div style={{
-                  flex:1, background:'#081828', border:'1px solid var(--border)',
+                  flex:1, background:'var(--card-deep)', border:'1px solid var(--border)',
                   borderRadius:8, padding:'9px 10px', fontSize:10, lineHeight:1.9, minHeight:48,
                   display:'flex', flexDirection:'column', gap:3
                 }}>
@@ -1278,7 +1280,7 @@ function HomeScreen({ user, nav }) {
                     return (
                       <div key={i} style={{display:'flex',alignItems:'center',gap:4}}>
                         <span style={{fontSize:10,flexShrink:0}}>{done?'✅':'❌'}</span>
-                        <span style={{color: done?'#86efac':'#94a3b8',fontSize:10,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{it.item}</span>
+                        <span style={{color: done?'#86efac':'var(--muted)',fontSize:10,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{it.item}</span>
                       </div>
                     );
                   })}
@@ -1286,7 +1288,7 @@ function HomeScreen({ user, nav }) {
                 {allItemsDone ? (
                   <button disabled style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid rgba(34,197,94,.4)', background:'rgba(34,197,94,.08)', color:'var(--green)', fontSize:11, fontWeight:700, fontFamily:'var(--font)' }}>☑ 本月已全部完成</button>
                 ) : (
-                  <button onClick={()=>nav('workshop')} style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#7c3400,#f97316)', color:'white', fontSize:11, fontWeight:700, fontFamily:'var(--font)' }}>
+                  <button onClick={()=>nav('workshop')} style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#7c3400,#f97316)', color:'var(--text)', fontSize:11, fontWeight:700, fontFamily:'var(--font)' }}>
                     进入日程，进行签到 →
                   </button>
                 )}
@@ -1333,7 +1335,7 @@ function HomeScreen({ user, nav }) {
             ].map(({ label, val, action, dev }) => (
               <div key={label} onClick={action} style={{
                 flex:1, display:'flex', alignItems:'center', justifyContent:'space-between',
-                padding:'0 11px', background:'#081828', borderRadius:9,
+                padding:'0 11px', background:'var(--card-deep)', borderRadius:9,
                 border:'1px solid transparent', cursor: dev ? 'default' : 'pointer',
                 opacity: dev ? 0.6 : 1, transition:'border-color .2s', minHeight:40,
               }}
@@ -1357,37 +1359,37 @@ function HomeScreen({ user, nav }) {
       {/* ══ 板块三：积分榜 ══ */}
       {lbModal && (
         <div onClick={()=>{setLbModal(null);setLbDetail(null);}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-          <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'#0d1e35',border:'1px solid rgba(59,130,246,0.3)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'75vh',overflowY:'auto'}}>
+          <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'var(--input-bg)',border:'1px solid rgba(59,130,246,0.3)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'75vh',overflowY:'auto'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
               <div style={{display:'flex',gap:10,alignItems:'flex-start'}}>
                 {lbDetail?.sessions?.[0]?.avatar
                   ? <img src={lbDetail.sessions[0].avatar} style={{width:44,height:44,borderRadius:'50%',objectFit:'cover',flexShrink:0,border:'2px solid rgba(59,130,246,0.4)'}}/>
-                  : <div style={{width:44,height:44,borderRadius:'50%',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'white',flexShrink:0}}>{lbModal.staffName?.[0]}</div>
+                  : <div style={{width:44,height:44,borderRadius:'50%',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'var(--text)',flexShrink:0}}>{lbModal.staffName?.[0]}</div>
                 }
                 <div>
-                  <div style={{fontSize:15,fontWeight:700,color:'white'}}>{lbModal.staffName}</div>
-                  <div style={{fontSize:10,color:'#64748b',marginTop:2}}>{lbModal.type==='cycle'?'轮班答题记录':'本月答题记录'}</div>
+                  <div style={{fontSize:15,fontWeight:700,color:'var(--text)'}}>{lbModal.staffName}</div>
+                  <div style={{fontSize:10,color:'var(--muted)',marginTop:2}}>{lbModal.type==='cycle'?'轮班答题记录':'本月答题记录'}</div>
                 </div>
               </div>
-              <button onClick={()=>{setLbModal(null);setLbDetail(null);}} style={{background:'none',border:'1px solid #1b3255',color:'#64748b',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontSize:12,flexShrink:0}}>关闭</button>
+              <button onClick={()=>{setLbModal(null);setLbDetail(null);}} style={{background:'none',border:'1px solid #1b3255',color:'var(--muted)',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontSize:12,flexShrink:0}}>关闭</button>
             </div>
             {lbDetailLoading&&<div style={{textAlign:'center',padding:'20px 0'}}><div className="spinner" style={{margin:'0 auto'}}/></div>}
-            {!lbDetailLoading&&lbDetail&&lbDetail.sessions?.length===0&&<div style={{color:'#475569',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无答题记录</div>}
+            {!lbDetailLoading&&lbDetail&&lbDetail.sessions?.length===0&&<div style={{color:'var(--muted)',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无答题记录</div>}
             {!lbDetailLoading&&lbDetail?.sessions?.map((s,si)=>(
               <div key={si} style={{marginBottom:12,background:'rgba(15,38,66,0.6)',border:'1px solid #1b3255',borderRadius:10,padding:'12px 14px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                   <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
-                    <span style={{fontSize:11,color:'#64748b'}}>{s.created_at?.slice(5,10)}{s.created_at?.length>=16?` ${s.created_at.slice(11,16)}`:''}{s.cycle_label?` · ${s.cycle_label}`:''}</span>
-                    {s.tab_switch_count>0&&<span style={{fontSize:10,color:'#ef4444',background:'rgba(239,68,68,0.12)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
+                    <span style={{fontSize:11,color:'var(--muted)'}}>{s.created_at?.slice(5,10)}{s.created_at?.length>=16?` ${s.created_at.slice(11,16)}`:''}{s.cycle_label?` · ${s.cycle_label}`:''}</span>
+                    {s.tab_switch_count>0&&<span style={{fontSize:10,color:'var(--red)',background:'rgba(239,68,68,0.12)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
                   </div>
                   <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                    <span style={{fontSize:12,fontWeight:700,color:'white'}}>{Math.round(s.total_score)}分</span>
+                    <span style={{fontSize:12,fontWeight:700,color:'var(--text)'}}>{Math.round(s.total_score)}分</span>
                   </div>
                 </div>
                 {s.answers?.map((a,ai)=>(
                   <div key={ai} style={{padding:'6px 0',borderTop:'1px solid rgba(27,50,85,0.5)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
-                    <span style={{fontSize:11,color:'rgba(255,255,255,0.7)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
-                    <span style={{fontSize:12,fontWeight:700,flexShrink:0,color:a.score>=99?'#22c55e':a.score>=67?'#f59e0b':'#ef4444'}}>{Math.round(a.score/(s.answers.length||3))}</span>
+                    <span style={{fontSize:11,color:'var(--text)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
+                    <span style={{fontSize:12,fontWeight:700,flexShrink:0,color:a.score>=99?'var(--green)':a.score>=67?'var(--amber)':'var(--red)'}}>{Math.round(a.score/(s.answers.length||3))}</span>
                   </div>
                 ))}
               </div>
@@ -1459,46 +1461,46 @@ function HomeScreen({ user, nav }) {
 
 function ResultScreen({ user, results, points, onHome, mode='normal', onContinuePractice }) {
   const avg=results.length?Math.min(100,Math.round(results.reduce((s,r)=>s+r.score,0)/results.length)):0;
-  const col=avg>=85?'#22c55e':avg>=60?'#f59e0b':'#ef4444';
+  const col=avg>=85?'var(--green)':avg>=60?'var(--amber)':'var(--red)';
   const isPractice = mode !== 'normal';
   return(
     <div className="screen" style={{padding:'32px 16px',alignItems:'center'}}>
       <div style={{fontSize:36,marginBottom:8}}>{isPractice?'📝':'🎯'}</div>
-      <div style={{fontSize:20,fontWeight:700,color:'white',marginBottom:4}}>{isPractice?'练习完成！':'答题完成！'}</div>
-      <div style={{fontSize:12,color:'#64748b',marginBottom:24}}>{user.name} · {results.length}题 · {new Date().toLocaleDateString('zh-CN')}</div>
+      <div style={{fontSize:20,fontWeight:700,color:'var(--text)',marginBottom:4}}>{isPractice?'练习完成！':'答题完成！'}</div>
+      <div style={{fontSize:12,color:'var(--muted)',marginBottom:24}}>{user.name} · {results.length}题 · {new Date().toLocaleDateString('zh-CN')}</div>
       <ScoreRing score={avg} size={110}/>
-      <div style={{fontSize:11,color:'rgba(255,255,255,0.4)',marginTop:4,letterSpacing:1}}>{results.length}题综合均分</div>
+      <div style={{fontSize:11,color:'var(--muted)',marginTop:4,letterSpacing:1}}>{results.length}题综合均分</div>
       {isPractice&&points&&(
         <div style={{margin:'20px 0',padding:'12px 20px',background:'rgba(245,158,11,0.08)',border:'1px solid rgba(245,158,11,0.25)',borderRadius:12,textAlign:'center'}}>
           {points.practiceBonus>0
-            ? <><div style={{fontSize:14,fontWeight:700,color:'#f59e0b'}}>+1 练习加分已获得</div>
-                <div style={{fontSize:11,color:'rgba(255,255,255,0.4)',marginTop:4}}>本月已用 {points.practiceUsed} / {points.practiceMax} 次加分机会</div></>
-            : <><div style={{fontSize:14,fontWeight:600,color:'rgba(255,255,255,0.5)'}}>本月练习加分已用完</div>
-                <div style={{fontSize:11,color:'rgba(255,255,255,0.3)',marginTop:4}}>下月继续加油（每月最多 +3 分）</div></>
+            ? <><div style={{fontSize:14,fontWeight:700,color:'var(--amber)'}}>+1 练习加分已获得</div>
+                <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>本月已用 {points.practiceUsed} / {points.practiceMax} 次加分机会</div></>
+            : <><div style={{fontSize:14,fontWeight:600,color:'var(--muted)'}}>本月练习加分已用完</div>
+                <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>下月继续加油（每月最多 +3 分）</div></>
           }
         </div>
       )}
       {!isPractice&&points&&(
-        <div style={{display:'flex',justifyContent:'center',margin:'20px 0',padding:'14px 20px',background:'#0d1e35',border:'1px solid #1b3255',borderRadius:12}}>
-          <div style={{textAlign:'center'}}><div style={{fontSize:32,fontWeight:900,color:'#22c55e'}}>{points.total}</div><div style={{fontSize:11,color:'#64748b'}}>本次得分（满分100）</div></div>
+        <div style={{display:'flex',justifyContent:'center',margin:'20px 0',padding:'14px 20px',background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:12}}>
+          <div style={{textAlign:'center'}}><div style={{fontSize:32,fontWeight:900,color:'var(--green)'}}>{points.total}</div><div style={{fontSize:11,color:'var(--muted)'}}>本次得分（满分100）</div></div>
         </div>
       )}
       <div style={{width:'100%',maxWidth:380,marginBottom:24}}>
         {results.map((r,i)=>(
-          <div key={i} style={{background:'#0f2642',border:'1px solid #1b3255',borderRadius:10,padding:'12px 14px',marginBottom:8}}>
+          <div key={i} style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px',marginBottom:8}}>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
-              <span style={{fontSize:11,color:'#64748b'}}>第{r.qNum}题 · {r.category}</span>
-              <div style={{display:'flex',gap:6,alignItems:'center'}}><Badge label={r.level} color={r.level==='优秀'?'#22c55e':r.level==='合格'?'#f59e0b':'#ef4444'}/><span style={{fontWeight:700,color:r.score>=99?'#22c55e':r.score>=67?'#f59e0b':'#ef4444'}}>{Math.round(r.score/results.length)}<span style={{fontSize:10,color:'rgba(255,255,255,0.4)',fontWeight:400}}>/{Math.round(100/results.length)}分</span></span></div>
+              <span style={{fontSize:11,color:'var(--muted)'}}>第{r.qNum}题 · {r.category}</span>
+              <div style={{display:'flex',gap:6,alignItems:'center'}}><Badge label={r.level} color={r.level==='优秀'?'var(--green)':r.level==='合格'?'var(--amber)':'var(--red)'}/><span style={{fontWeight:700,color:r.score>=99?'var(--green)':r.score>=67?'var(--amber)':'var(--red)'}}>{Math.round(r.score/results.length)}<span style={{fontSize:10,color:'var(--muted)',fontWeight:400}}>/{Math.round(100/results.length)}分</span></span></div>
             </div>
-            <div style={{fontSize:12,color:'#94a3b8'}}>{r.questionText}</div>
-            {r.missing_points?.length>0&&<div style={{fontSize:11,color:'#ef4444',marginTop:5}}>遗漏：{r.missing_points.join('、')}</div>}
+            <div style={{fontSize:12,color:'var(--muted)'}}>{r.questionText}</div>
+            {r.missing_points?.length>0&&<div style={{fontSize:11,color:'var(--red)',marginTop:5}}>遗漏：{r.missing_points.join('、')}</div>}
           </div>
         ))}
       </div>
       {isPractice?(
         <div style={{width:'100%',maxWidth:380,display:'flex',flexDirection:'column',gap:10}}>
           <button className="btn-primary" onClick={onContinuePractice} style={{background:'linear-gradient(135deg,#92400e,#f59e0b)'}}>继续练习</button>
-          <button onClick={onHome} style={{padding:'13px',borderRadius:10,border:'1px solid #1b3255',background:'none',color:'rgba(255,255,255,0.45)',fontSize:14,cursor:'pointer',fontFamily:'var(--font)'}}>返回首页</button>
+          <button onClick={onHome} style={{padding:'13px',borderRadius:10,border:'1px solid #1b3255',background:'none',color:'var(--muted)',fontSize:14,cursor:'pointer',fontFamily:'var(--font)'}}>返回首页</button>
         </div>
       ):(
         <button className="btn-primary" style={{maxWidth:380}} onClick={onHome}>返回首页</button>
@@ -1547,20 +1549,20 @@ function PracticeScreen({ user, onBack, onStart }) {
   return (
     <div className="screen" style={{padding:'16px'}}>
       <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:20}}>
-        <button onClick={onBack} style={{background:'none',border:'none',color:'#3b82f6',fontSize:22,cursor:'pointer',padding:'0 4px'}}>←</button>
-        <span style={{fontSize:16,fontWeight:700,color:'white'}}>练习强化</span>
+        <button onClick={onBack} style={{background:'none',border:'none',color:'var(--blue)',fontSize:22,cursor:'pointer',padding:'0 4px'}}>←</button>
+        <span style={{fontSize:16,fontWeight:700,color:'var(--text)'}}>练习强化</span>
       </div>
 
       {/* 月度加分状态 */}
       <div style={{background:'rgba(245,158,11,0.08)',border:'1px solid rgba(245,158,11,0.2)',borderRadius:14,padding:'14px 16px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
         <div>
-          <div style={{fontSize:12,color:'rgba(255,255,255,0.5)',marginBottom:4}}>本月练习加分</div>
-          <div style={{fontSize:11,color:'rgba(255,255,255,0.35)'}}>每完成一次练习 +1 分，每月最多 +3 分</div>
+          <div style={{fontSize:12,color:'var(--muted)',marginBottom:4}}>本月练习加分</div>
+          <div style={{fontSize:11,color:'var(--muted)'}}>每完成一次练习 +1 分，每月最多 +3 分</div>
         </div>
         <div style={{textAlign:'center',minWidth:52}}>
           {status
-            ? <><div style={{fontSize:26,fontWeight:900,color:'#f59e0b',lineHeight:1}}>{status.used}</div>
-                <div style={{fontSize:10,color:'rgba(255,255,255,0.3)',marginTop:2}}>/ 3 分</div></>
+            ? <><div style={{fontSize:26,fontWeight:900,color:'var(--amber)',lineHeight:1}}>{status.used}</div>
+                <div style={{fontSize:10,color:'var(--muted)',marginTop:2}}>/ 3 分</div></>
             : <div style={{width:28,height:28,border:'2px solid rgba(245,158,11,0.3)',borderTop:'2px solid #f59e0b',borderRadius:'50%',animation:'spin 0.8s linear infinite',margin:'0 auto'}}/>
           }
         </div>
@@ -1568,7 +1570,7 @@ function PracticeScreen({ user, onBack, onStart }) {
 
       {/* 模式选择 */}
       <div style={{marginBottom:16}}>
-        <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:8,fontWeight:600}}>① 选择练习模式</div>
+        <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,marginBottom:8,fontWeight:600}}>① 选择练习模式</div>
         <div style={{display:'flex',gap:8}}>
           {PRACTICE_MODES.map(m=>{
             const active = mode===m.key;
@@ -1576,31 +1578,31 @@ function PracticeScreen({ user, onBack, onStart }) {
               <div key={m.key} onClick={()=>setMode(m.key)}
                 style={{
                   flex:1,padding:'10px 8px',borderRadius:10,cursor:'pointer',textAlign:'center',
-                  background: active?'rgba(59,130,246,0.15)':'rgba(255,255,255,0.03)',
-                  border:`1px solid ${active?'#3b82f6':'rgba(255,255,255,0.08)'}`,
+                  background: active?'rgba(59,130,246,0.15)':'var(--card-deep)',
+                  border:`1px solid ${active?'var(--blue)':'var(--border)'}`,
                   transition:'all .15s',
                 }}>
-                <div style={{fontSize:13,fontWeight:700,color:active?'#60a5fa':'white',marginBottom:2}}>{m.label}</div>
-                <div style={{fontSize:10,color:'rgba(255,255,255,0.4)',lineHeight:1.3}}>{m.desc}</div>
+                <div style={{fontSize:13,fontWeight:700,color:active?'#60a5fa':'var(--text)',marginBottom:2}}>{m.label}</div>
+                <div style={{fontSize:10,color:'var(--muted)',lineHeight:1.3}}>{m.desc}</div>
               </div>
             );
           })}
         </div>
       </div>
 
-      <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:8,fontWeight:600}}>② 选择题库</div>
+      <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,marginBottom:8,fontWeight:600}}>② 选择题库</div>
 
       {/* 应急抽问 */}
-      <div onClick={startEmergency} style={{background:'linear-gradient(135deg,#0d2d5a,#1a4a8a)',border:'1px solid rgba(59,130,246,0.4)',borderRadius:14,padding:'18px',marginBottom:12,cursor:'pointer',transition:'transform .15s'}}
+      <div onClick={startEmergency} style={{background:'linear-gradient(135deg,var(--task-start),var(--task-end))',border:'1px solid rgba(59,130,246,0.4)',borderRadius:14,padding:'18px',marginBottom:12,cursor:'pointer',transition:'transform .15s'}}
         onMouseEnter={e=>e.currentTarget.style.transform='translateY(-2px)'}
         onMouseLeave={e=>e.currentTarget.style.transform='none'}>
         <div style={{display:'flex',alignItems:'center',gap:12}}>
           <div style={{width:44,height:44,borderRadius:12,background:'rgba(59,130,246,0.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>🎯</div>
           <div style={{flex:1}}>
-            <div style={{fontSize:15,fontWeight:700,color:'white',marginBottom:4}}>应急抽问</div>
-            <div style={{fontSize:12,color:'rgba(255,255,255,0.45)',lineHeight:1.5}}>从应急题库练习 · {PRACTICE_MODES.find(m=>m.key===mode)?.label}</div>
+            <div style={{fontSize:15,fontWeight:700,color:'var(--text)',marginBottom:4}}>应急抽问</div>
+            <div style={{fontSize:12,color:'var(--muted)',lineHeight:1.5}}>从应急题库练习 · {PRACTICE_MODES.find(m=>m.key===mode)?.label}</div>
           </div>
-          <span style={{fontSize:20,color:'rgba(255,255,255,0.3)'}}>›</span>
+          <span style={{fontSize:20,color:'var(--muted)'}}>›</span>
         </div>
       </div>
 
@@ -1609,15 +1611,15 @@ function PracticeScreen({ user, onBack, onStart }) {
         <div onClick={()=>setBankPickerOpen(o=>!o)} style={{display:'flex',alignItems:'center',gap:12,cursor:'pointer'}}>
           <div style={{width:44,height:44,borderRadius:12,background:'rgba(34,197,94,0.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>📚</div>
           <div style={{flex:1}}>
-            <div style={{fontSize:15,fontWeight:700,color:'white',marginBottom:4}}>选择题库</div>
-            <div style={{fontSize:12,color:'rgba(255,255,255,0.45)',lineHeight:1.5}}>从管理员上传的题库中挑选强化方向</div>
+            <div style={{fontSize:15,fontWeight:700,color:'var(--text)',marginBottom:4}}>选择题库</div>
+            <div style={{fontSize:12,color:'var(--muted)',lineHeight:1.5}}>从管理员上传的题库中挑选强化方向</div>
           </div>
-          <span style={{fontSize:20,color:'rgba(255,255,255,0.3)',transition:'transform .2s',transform:bankPickerOpen?'rotate(90deg)':'none'}}>›</span>
+          <span style={{fontSize:20,color:'var(--muted)',transition:'transform .2s',transform:bankPickerOpen?'rotate(90deg)':'none'}}>›</span>
         </div>
         {bankPickerOpen && (
           <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid rgba(34,197,94,0.18)'}}>
             <select value={selectedBankId} onChange={e=>setSelectedBankId(e.target.value)}
-              style={{width:'100%',padding:'10px 12px',borderRadius:8,border:'1px solid rgba(34,197,94,0.3)',background:'#0d1117',color:'#e2e8f0',fontSize:13,marginBottom:10}}>
+              style={{width:'100%',padding:'10px 12px',borderRadius:8,border:'1px solid rgba(34,197,94,0.3)',background:'var(--card-deep)',color:'var(--text)',fontSize:13,marginBottom:10}}>
               <option value=''>── 请选择题库 ──</option>
               {(() => {
                 const tagOf = b => ({ choice:'选择', fill:'填空', short:'简答', mixed:'混合', empty:'' }[b.bank_type_summary] || '');
@@ -1633,15 +1635,15 @@ function PracticeScreen({ user, onBack, onStart }) {
               style={{
                 width:'100%',padding:'10px',borderRadius:8,border:'none',cursor:selectedBankId?'pointer':'not-allowed',
                 background:selectedBankId?'linear-gradient(135deg,#22c55e,#16a34a)':'rgba(34,197,94,0.15)',
-                color:selectedBankId?'white':'rgba(255,255,255,0.3)',
+                color:selectedBankId?'white':'var(--muted)',
                 fontSize:13,fontWeight:700,
               }}>开始练习</button>
           </div>
         )}
       </div>
 
-      <div style={{marginTop:8,padding:'12px 14px',background:'rgba(255,255,255,0.03)',borderRadius:10,border:'1px solid rgba(255,255,255,0.06)'}}>
-        <div style={{fontSize:11,color:'rgba(255,255,255,0.3)',lineHeight:1.7}}>
+      <div style={{marginTop:8,padding:'12px 14px',background:'var(--card-deep)',borderRadius:10,border:'1px solid var(--border)'}}>
+        <div style={{fontSize:11,color:'var(--muted)',lineHeight:1.7}}>
           · 练习分数不计入积分榜排名<br/>
           · 每完成一次练习，总榜积分 +1（每月上限 3 次）<br/>
           · 加分与正式答题积分合并计入排行榜
@@ -1773,7 +1775,7 @@ function PracticeFlowScreen({ user, mode, bankId, onBack, onHome }) {
   if (phase === 'loading') {
     return (
       <div className="screen" style={{padding:20,display:'flex',alignItems:'center',justifyContent:'center'}}>
-        <div style={{textAlign:'center',color:'#94a3b8'}}>
+        <div style={{textAlign:'center',color:'var(--muted)'}}>
           <div className="spinner" style={{margin:'0 auto 12px'}}/>
           加载中…
         </div>
@@ -1784,10 +1786,10 @@ function PracticeFlowScreen({ user, mode, bankId, onBack, onHome }) {
     return (
       <div className="screen" style={{padding:20}}>
         <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:20}}>
-          <button onClick={onBack} style={{background:'none',border:'none',color:'#3b82f6',fontSize:22,cursor:'pointer'}}>←</button>
-          <span style={{fontSize:16,fontWeight:700,color:'white'}}>练习</span>
+          <button onClick={onBack} style={{background:'none',border:'none',color:'var(--blue)',fontSize:22,cursor:'pointer'}}>←</button>
+          <span style={{fontSize:16,fontWeight:700,color:'var(--text)'}}>练习</span>
         </div>
-        <div style={{color:'#ef4444',marginTop:40,textAlign:'center',lineHeight:1.6}}>
+        <div style={{color:'var(--red)',marginTop:40,textAlign:'center',lineHeight:1.6}}>
           {phase==='empty'
             ? (skippedCount > 0
                 ? `该题库 ${skippedCount} 道题全部是简答题\n请回到练习页通过"应急抽问"或语音模式练习`
@@ -1805,32 +1807,32 @@ function PracticeFlowScreen({ user, mode, bankId, onBack, onHome }) {
     return (
       <div className="screen" style={{padding:'16px'}}>
         <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:20}}>
-          <button onClick={onHome} style={{background:'none',border:'none',color:'#3b82f6',fontSize:22,cursor:'pointer'}}>←</button>
-          <span style={{fontSize:16,fontWeight:700,color:'white'}}>练习完成</span>
+          <button onClick={onHome} style={{background:'none',border:'none',color:'var(--blue)',fontSize:22,cursor:'pointer'}}>←</button>
+          <span style={{fontSize:16,fontWeight:700,color:'var(--text)'}}>练习完成</span>
         </div>
-        <div style={{textAlign:'center',padding:'28px 16px',background:'linear-gradient(135deg,#0d2d5a,#1a4a8a)',borderRadius:14,marginBottom:16}}>
-          <div style={{fontSize:12,color:'rgba(255,255,255,0.5)',marginBottom:6}}>得分</div>
-          <div style={{fontSize:48,fontWeight:900,color:score>=80?'#22c55e':score>=60?'#f59e0b':'#ef4444',lineHeight:1}}>{score}</div>
-          <div style={{fontSize:13,color:'rgba(255,255,255,0.6)',marginTop:10}}>共 {results.length} 题 · 答对 {correctCount} 题 · 答错 {results.length-correctCount} 题</div>
+        <div style={{textAlign:'center',padding:'28px 16px',background:'linear-gradient(135deg,var(--task-start),var(--task-end))',borderRadius:14,marginBottom:16}}>
+          <div style={{fontSize:12,color:'var(--muted)',marginBottom:6}}>得分</div>
+          <div style={{fontSize:48,fontWeight:900,color:score>=80?'var(--green)':score>=60?'var(--amber)':'var(--red)',lineHeight:1}}>{score}</div>
+          <div style={{fontSize:13,color:'var(--muted)',marginTop:10}}>共 {results.length} 题 · 答对 {correctCount} 题 · 答错 {results.length-correctCount} 题</div>
           {skippedCount > 0 && <div style={{fontSize:11,color:'rgba(245,158,11,0.8)',marginTop:6}}>另有 {skippedCount} 道简答题已跳过（需语音模式）</div>}
-          {points?.practiceBonus > 0 && <div style={{fontSize:12,color:'#f59e0b',marginTop:8}}>本次练习 +{points.practiceBonus} 分（本月 {points.practiceUsed}/{points.practiceMax}）</div>}
+          {points?.practiceBonus > 0 && <div style={{fontSize:12,color:'var(--amber)',marginTop:8}}>本次练习 +{points.practiceBonus} 分（本月 {points.practiceUsed}/{points.practiceMax}）</div>}
         </div>
 
-        <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:8,fontWeight:600}}>错题回顾</div>
+        <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,marginBottom:8,fontWeight:600}}>错题回顾</div>
         {results.filter(r => !r.isCorrect).length === 0 && (
-          <div style={{textAlign:'center',color:'#22c55e',padding:20}}>🎉 全部答对！</div>
+          <div style={{textAlign:'center',color:'var(--green)',padding:20}}>🎉 全部答对！</div>
         )}
         {results.filter(r => !r.isCorrect).map((r, i) => (
           <div key={i} style={{background:'rgba(239,68,68,0.06)',border:'1px solid rgba(239,68,68,0.2)',borderRadius:10,padding:'12px 14px',marginBottom:10}}>
-            <div style={{fontSize:13,color:'white',marginBottom:8,lineHeight:1.5}}>{r.text}</div>
+            <div style={{fontSize:13,color:'var(--text)',marginBottom:8,lineHeight:1.5}}>{r.text}</div>
             {r.type === 'fill_blank' ? (
-              <div style={{fontSize:12,color:'#94a3b8',lineHeight:1.7}}>
-                <div>你的答案：<span style={{color:'#ef4444'}}>{r.userAnswer || '(未填)'}</span></div>
-                <div>正确答案：<span style={{color:'#22c55e'}}>{r.correct}</span></div>
+              <div style={{fontSize:12,color:'var(--muted)',lineHeight:1.7}}>
+                <div>你的答案：<span style={{color:'var(--red)'}}>{r.userAnswer || '(未填)'}</span></div>
+                <div>正确答案：<span style={{color:'var(--green)'}}>{r.correct}</span></div>
               </div>
             ) : (
               ['A','B','C','D','E','F'].filter(l => r.options[l]).map(l => (
-                <div key={l} style={{fontSize:12,color:r.correct.includes(l)?'#22c55e':(r.userAnswer.includes(l)?'#ef4444':'#94a3b8'),padding:'3px 0'}}>
+                <div key={l} style={{fontSize:12,color:r.correct.includes(l)?'var(--green)':(r.userAnswer.includes(l)?'var(--red)':'var(--muted)'),padding:'3px 0'}}>
                   <span style={{fontWeight:700,marginRight:6}}>{l}.</span>{r.options[l]}
                   {r.correct.includes(l) && <span style={{marginLeft:6,fontSize:10}}>✓ 正确</span>}
                   {r.userAnswer.includes(l) && !r.correct.includes(l) && <span style={{marginLeft:6,fontSize:10}}>✗ 你的选择</span>}
@@ -1841,45 +1843,45 @@ function PracticeFlowScreen({ user, mode, bankId, onBack, onHome }) {
         ))}
 
         <button onClick={onBack} style={{width:'100%',padding:'12px',marginTop:16,borderRadius:10,border:'1px solid rgba(59,130,246,0.4)',background:'rgba(59,130,246,0.1)',color:'#60a5fa',fontSize:14,fontWeight:700,cursor:'pointer'}}>再练一次</button>
-        <button onClick={onHome} style={{width:'100%',padding:'12px',marginTop:8,borderRadius:10,border:'none',background:'linear-gradient(135deg,#3b82f6,#1e40af)',color:'white',fontSize:14,fontWeight:700,cursor:'pointer'}}>返回首页</button>
+        <button onClick={onHome} style={{width:'100%',padding:'12px',marginTop:8,borderRadius:10,border:'none',background:'linear-gradient(135deg,#3b82f6,#1e40af)',color:'var(--text)',fontSize:14,fontWeight:700,cursor:'pointer'}}>返回首页</button>
       </div>
     );
   }
 
   // 答题中
   const last = results[results.length-1];
-  const TYPE_BADGE = { choice_single:{label:'单选',color:'#60a5fa'}, choice_multi:{label:'多选',color:'#f59e0b'}, true_false:{label:'判断',color:'#a78bfa'}, fill_blank:{label:'填空',color:'#22c55e'} };
+  const TYPE_BADGE = { choice_single:{label:'单选',color:'#60a5fa'}, choice_multi:{label:'多选',color:'var(--amber)'}, true_false:{label:'判断',color:'#a78bfa'}, fill_blank:{label:'填空',color:'var(--green)'} };
   const badge = TYPE_BADGE[q?.type];
   return (
     <div className="screen" style={{padding:'16px'}}>
       <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
-        <button onClick={() => setShowBackConfirm(true)} style={{background:'none',border:'none',color:'#3b82f6',fontSize:22,cursor:'pointer'}}>←</button>
-        <span style={{fontSize:16,fontWeight:700,color:'white'}}>练习</span>
+        <button onClick={() => setShowBackConfirm(true)} style={{background:'none',border:'none',color:'var(--blue)',fontSize:22,cursor:'pointer'}}>←</button>
+        <span style={{fontSize:16,fontWeight:700,color:'var(--text)'}}>练习</span>
       </div>
 
       {/* 进度 */}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-        <span style={{fontSize:13,color:'#94a3b8'}}>第 {qi+1} / {questions.length} 题
+        <span style={{fontSize:13,color:'var(--muted)'}}>第 {qi+1} / {questions.length} 题
           {badge && <span style={{marginLeft:8,color:badge.color,fontSize:11,background:badge.color+'22',border:`1px solid ${badge.color}55`,borderRadius:4,padding:'1px 6px'}}>{badge.label}</span>}
         </span>
-        <span style={{fontSize:11,color:'#64748b'}}>{q.category || ''}</span>
+        <span style={{fontSize:11,color:'var(--muted)'}}>{q.category || ''}</span>
       </div>
-      <div style={{height:4,background:'rgba(255,255,255,0.06)',borderRadius:2,marginBottom:18,overflow:'hidden'}}>
+      <div style={{height:4,background:'var(--card-deep)',borderRadius:2,marginBottom:18,overflow:'hidden'}}>
         <div style={{height:'100%',width:`${(qi+(phase==='showing'?1:0))/questions.length*100}%`,background:'linear-gradient(90deg,#3b82f6,#22c55e)',transition:'width .3s'}}/>
       </div>
 
       {/* 题干 */}
-      <div style={{fontSize:15,color:'white',lineHeight:1.6,marginBottom:18,padding:'14px 16px',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>{q.text}</div>
+      <div style={{fontSize:15,color:'var(--text)',lineHeight:1.6,marginBottom:18,padding:'14px 16px',background:'var(--card-deep)',border:'1px solid var(--border)',borderRadius:12}}>{q.text}</div>
 
       {/* 选择题/判断题：选项卡片 */}
       {isChoiceLike && ['A','B','C','D','E','F'].filter(l => opts[l]).map(letter => {
         const isSel = selected.includes(letter);
         const isCorrectOpt = correctLetters.includes(letter);
         const showFeedback = phase === 'showing';
-        let bg='rgba(255,255,255,0.03)', border='rgba(255,255,255,0.1)', letterColor='#94a3b8';
-        if (showFeedback && isCorrectOpt) { bg='rgba(34,197,94,0.12)'; border='#22c55e'; letterColor='#22c55e'; }
-        else if (showFeedback && isSel && !isCorrectOpt) { bg='rgba(239,68,68,0.12)'; border='#ef4444'; letterColor='#ef4444'; }
-        else if (isSel) { bg='rgba(59,130,246,0.12)'; border='#3b82f6'; letterColor='#60a5fa'; }
+        let bg='var(--card-deep)', border='var(--border)', letterColor='var(--muted)';
+        if (showFeedback && isCorrectOpt) { bg='rgba(34,197,94,0.12)'; border='var(--green)'; letterColor='var(--green)'; }
+        else if (showFeedback && isSel && !isCorrectOpt) { bg='rgba(239,68,68,0.12)'; border='var(--red)'; letterColor='var(--red)'; }
+        else if (isSel) { bg='rgba(59,130,246,0.12)'; border='var(--blue)'; letterColor='#60a5fa'; }
         return (
           <div key={letter} onClick={() => handleSelect(letter)}
             style={{
@@ -1888,9 +1890,9 @@ function PracticeFlowScreen({ user, mode, bankId, onBack, onHome }) {
               display:'flex',gap:10,alignItems:'flex-start',transition:'all .15s',
             }}>
             <span style={{fontWeight:700,color:letterColor,minWidth:20,fontSize:15}}>{letter}</span>
-            <span style={{flex:1,fontSize:14,color:'#e2e8f0',lineHeight:1.5}}>{opts[letter]}</span>
-            {showFeedback && isCorrectOpt && <span style={{color:'#22c55e',fontSize:16,fontWeight:700}}>✓</span>}
-            {showFeedback && isSel && !isCorrectOpt && <span style={{color:'#ef4444',fontSize:16,fontWeight:700}}>✗</span>}
+            <span style={{flex:1,fontSize:14,color:'var(--text)',lineHeight:1.5}}>{opts[letter]}</span>
+            {showFeedback && isCorrectOpt && <span style={{color:'var(--green)',fontSize:16,fontWeight:700}}>✓</span>}
+            {showFeedback && isSel && !isCorrectOpt && <span style={{color:'var(--red)',fontSize:16,fontWeight:700}}>✗</span>}
           </div>
         );
       })}
@@ -1901,7 +1903,7 @@ function PracticeFlowScreen({ user, mode, bankId, onBack, onHome }) {
           style={{
             width:'100%',padding:'12px',marginTop:8,borderRadius:10,border:'none',
             background:selected.length>0?'linear-gradient(135deg,#3b82f6,#1e40af)':'rgba(59,130,246,0.15)',
-            color:selected.length>0?'white':'rgba(255,255,255,0.3)',
+            color:selected.length>0?'white':'var(--muted)',
             fontSize:14,fontWeight:700,cursor:selected.length>0?'pointer':'not-allowed',
           }}>提交</button>
       )}
@@ -1915,8 +1917,8 @@ function PracticeFlowScreen({ user, mode, bankId, onBack, onHome }) {
             placeholder="请输入答案，按 Enter 或点击提交"
             style={{
               width:'100%',padding:'14px 16px',borderRadius:10,
-              border:`1px solid ${phase==='showing' ? (last?.isCorrect?'#22c55e':'#ef4444') : 'rgba(34,197,94,0.4)'}`,
-              background:'rgba(0,0,0,0.25)',color:'white',fontSize:15,marginBottom:10,
+              border:`1px solid ${phase==='showing' ? (last?.isCorrect?'var(--green)':'var(--red)') : 'rgba(34,197,94,0.4)'}`,
+              background:'rgba(0,0,0,0.25)',color:'var(--text)',fontSize:15,marginBottom:10,
               outline:'none',
             }}/>
           {phase==='answering' && (
@@ -1924,7 +1926,7 @@ function PracticeFlowScreen({ user, mode, bankId, onBack, onHome }) {
               style={{
                 width:'100%',padding:'12px',borderRadius:10,border:'none',
                 background:textInput.trim()?'linear-gradient(135deg,#22c55e,#16a34a)':'rgba(34,197,94,0.15)',
-                color:textInput.trim()?'white':'rgba(255,255,255,0.3)',
+                color:textInput.trim()?'white':'var(--muted)',
                 fontSize:14,fontWeight:700,cursor:textInput.trim()?'pointer':'not-allowed',
               }}>提交</button>
           )}
@@ -1935,11 +1937,11 @@ function PracticeFlowScreen({ user, mode, bankId, onBack, onHome }) {
       {phase==='showing' && last && (
         <>
           <div style={{padding:'12px 14px',background:last.isCorrect?'rgba(34,197,94,0.1)':'rgba(239,68,68,0.1)',border:`1px solid ${last.isCorrect?'rgba(34,197,94,0.3)':'rgba(239,68,68,0.3)'}`,borderRadius:10,marginTop:12,marginBottom:10}}>
-            <div style={{fontSize:14,fontWeight:700,color:last.isCorrect?'#22c55e':'#ef4444',marginBottom:last.isCorrect?0:4}}>
+            <div style={{fontSize:14,fontWeight:700,color:last.isCorrect?'var(--green)':'var(--red)',marginBottom:last.isCorrect?0:4}}>
               {last.isCorrect ? '✓ 答对了' : '✗ 答错了'}
             </div>
             {!last.isCorrect && (
-              <div style={{fontSize:12,color:'rgba(255,255,255,0.6)'}}>
+              <div style={{fontSize:12,color:'var(--muted)'}}>
                 {last.type === 'fill_blank'
                   ? <>正确答案：{last.correct} · 你的答案：{last.userAnswer || '(未填)'}</>
                   : <>正确答案：{last.correct} · 你的答案：{last.userAnswer || '(未选)'}</>}
@@ -1949,7 +1951,7 @@ function PracticeFlowScreen({ user, mode, bankId, onBack, onHome }) {
           <button onClick={handleNext}
             style={{
               width:'100%',padding:'12px',borderRadius:10,border:'none',
-              background:'linear-gradient(135deg,#3b82f6,#1e40af)',color:'white',
+              background:'linear-gradient(135deg,#3b82f6,#1e40af)',color:'var(--text)',
               fontSize:14,fontWeight:700,cursor:'pointer',
             }}>{qi < questions.length-1 ? '下一题 →' : '完成练习'}</button>
         </>
@@ -1958,12 +1960,12 @@ function PracticeFlowScreen({ user, mode, bankId, onBack, onHome }) {
       {/* 返回确认 */}
       {showBackConfirm && (
         <div onClick={() => setShowBackConfirm(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
-          <div onClick={e => e.stopPropagation()} style={{background:'#0d1e35',border:'1px solid #1b3255',borderRadius:14,padding:20,maxWidth:340,width:'100%'}}>
-            <div style={{fontSize:15,fontWeight:700,color:'white',marginBottom:8}}>退出练习？</div>
-            <div style={{fontSize:13,color:'#94a3b8',marginBottom:16}}>本次进度将不保存</div>
+          <div onClick={e => e.stopPropagation()} style={{background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:14,padding:20,maxWidth:340,width:'100%'}}>
+            <div style={{fontSize:15,fontWeight:700,color:'var(--text)',marginBottom:8}}>退出练习？</div>
+            <div style={{fontSize:13,color:'var(--muted)',marginBottom:16}}>本次进度将不保存</div>
             <div style={{display:'flex',gap:10}}>
-              <button onClick={() => setShowBackConfirm(false)} style={{flex:1,padding:'10px',borderRadius:8,border:'1px solid #1b3255',background:'none',color:'#94a3b8',fontSize:13,cursor:'pointer'}}>继续答题</button>
-              <button onClick={onBack} style={{flex:1,padding:'10px',borderRadius:8,border:'none',background:'#ef4444',color:'white',fontSize:13,fontWeight:700,cursor:'pointer'}}>确认退出</button>
+              <button onClick={() => setShowBackConfirm(false)} style={{flex:1,padding:'10px',borderRadius:8,border:'1px solid #1b3255',background:'none',color:'var(--muted)',fontSize:13,cursor:'pointer'}}>继续答题</button>
+              <button onClick={onBack} style={{flex:1,padding:'10px',borderRadius:8,border:'none',background:'var(--red)',color:'var(--text)',fontSize:13,fontWeight:700,cursor:'pointer'}}>确认退出</button>
             </div>
           </div>
         </div>
@@ -2006,68 +2008,68 @@ function LeaderboardScreen({ user, onBack }) {
           {[data[1],data[0],data[2]].map((p,i)=>p&&(
             <div key={i} onClick={()=>openMember(p.staff_id,p.staff_name)} style={{display:'flex',flexDirection:'column',alignItems:'center',width:90,transform:i===1?'translateY(-10px)':'none',cursor:'pointer'}}>
               <div style={{fontSize:18,height:22}}>{medal[[1,0,2][i]]||''}</div>
-              <div style={{width:46,height:46,borderRadius:23,background:i===1?'linear-gradient(135deg,#c8a84b,#e8c96a)':i===0?'#94a3b8':'#cd7f32',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'white',marginBottom:4}}>{p.staff_name[0]}</div>
-              <div style={{fontSize:11,color:p.staff_id===user.staffId?'#c8a84b':'#e2e8f0',fontWeight:p.staff_id===user.staffId?700:400,textAlign:'center'}}>{p.staff_name}</div>
-              <div style={{fontSize:14,fontWeight:900,color:'white'}}>{p.total_points}</div>
-              {p.attempts>1&&<div style={{fontSize:9,color:'#f59e0b',marginTop:1}}>答了{p.attempts}次</div>}
+              <div style={{width:46,height:46,borderRadius:23,background:i===1?'linear-gradient(135deg,#c8a84b,#e8c96a)':i===0?'#94a3b8':'#cd7f32',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'var(--text)',marginBottom:4}}>{p.staff_name[0]}</div>
+              <div style={{fontSize:11,color:p.staff_id===user.staffId?'var(--gold)':'var(--text)',fontWeight:p.staff_id===user.staffId?700:400,textAlign:'center'}}>{p.staff_name}</div>
+              <div style={{fontSize:14,fontWeight:900,color:'var(--text)'}}>{p.total_points}</div>
+              {p.attempts>1&&<div style={{fontSize:9,color:'var(--amber)',marginTop:1}}>答了{p.attempts}次</div>}
               {p.cycle_count>0&&<div style={{fontSize:9,color:'#60a5fa',marginTop:1}}>{p.cycle_count}轮</div>}
-              <div style={{width:90,background:'#0f2642',border:'1px solid #1b3255',borderRadius:'4px 4px 0 0',textAlign:'center',color:'#64748b',fontSize:12,padding:`${[32,44,24][i]}px 0 6px`,marginTop:6}}>#{[2,1,3][i]}</div>
+              <div style={{width:90,background:'var(--card)',border:'1px solid var(--border)',borderRadius:'4px 4px 0 0',textAlign:'center',color:'var(--muted)',fontSize:12,padding:`${[32,44,24][i]}px 0 6px`,marginTop:6}}>#{[2,1,3][i]}</div>
             </div>
           ))}
         </div>
       )}
       <div style={{padding:'8px 14px 24px'}}>
         {data.slice(3).map((r,i)=>(
-          <div key={i} onClick={()=>openMember(r.staff_id,r.staff_name)} style={{display:'flex',alignItems:'center',gap:10,padding:'11px 13px',background:'#0f2642',border:`1px solid ${r.staff_id===user.staffId?'#c8a84b':'#1b3255'}`,borderRadius:10,marginBottom:7,cursor:'pointer'}}>
-            <span style={{width:22,color:'#64748b',fontWeight:700,fontSize:13,textAlign:'center'}}>{i+4}</span>
-            <div style={{width:34,height:34,borderRadius:17,background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,color:'white',fontSize:13}}>{r.staff_name[0]}</div>
+          <div key={i} onClick={()=>openMember(r.staff_id,r.staff_name)} style={{display:'flex',alignItems:'center',gap:10,padding:'11px 13px',background:'#0f2642',border:`1px solid ${r.staff_id===user.staffId?'var(--gold)':'#1b3255'}`,borderRadius:10,marginBottom:7,cursor:'pointer'}}>
+            <span style={{width:22,color:'var(--muted)',fontWeight:700,fontSize:13,textAlign:'center'}}>{i+4}</span>
+            <div style={{width:34,height:34,borderRadius:17,background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,color:'var(--text)',fontSize:13}}>{r.staff_name[0]}</div>
             <div style={{flex:1}}>
-              <div style={{fontSize:13,fontWeight:600,color:r.staff_id===user.staffId?'#c8a84b':'white',display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
+              <div style={{fontSize:13,fontWeight:600,color:r.staff_id===user.staffId?'var(--gold)':'white',display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
                 {r.staff_name}{r.staff_id===user.staffId?' (我)':''}
-                {r.attempts>1&&<span style={{fontSize:9,color:'#f59e0b',background:'rgba(245,158,11,0.12)',border:'1px solid rgba(245,158,11,0.3)',borderRadius:4,padding:'0 4px',fontWeight:700}}>首次·答了{r.attempts}次</span>}
+                {r.attempts>1&&<span style={{fontSize:9,color:'var(--amber)',background:'rgba(245,158,11,0.12)',border:'1px solid rgba(245,158,11,0.3)',borderRadius:4,padding:'0 4px',fontWeight:700}}>首次·答了{r.attempts}次</span>}
               </div>
-              <div style={{fontSize:11,color:'#64748b',marginTop:1}}>
+              <div style={{fontSize:11,color:'var(--muted)',marginTop:1}}>
                 {r.cycle_count>0?<span>参与{r.cycle_count}轮</span>:<span>得分{r.score??r.avg_score} · {r.q_count}题</span>}
               </div>
             </div>
-            <div style={{fontSize:18,fontWeight:900,color:'white'}}>{r.total_points}</div>
+            <div style={{fontSize:18,fontWeight:900,color:'var(--text)'}}>{r.total_points}</div>
           </div>
         ))}
-        {data.length===0&&<div style={{textAlign:'center',color:'#475569',padding:40}}>暂无数据</div>}
+        {data.length===0&&<div style={{textAlign:'center',color:'var(--muted)',padding:40}}>暂无数据</div>}
       </div>
       {lbModal&&(
         <div onClick={()=>{setLbModal(null);setLbDetail(null);}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-          <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'#0d1e35',border:'1px solid rgba(59,130,246,0.3)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'75vh',overflowY:'auto'}}>
+          <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'var(--input-bg)',border:'1px solid rgba(59,130,246,0.3)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'75vh',overflowY:'auto'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
               <div style={{display:'flex',gap:10,alignItems:'flex-start'}}>
                 {lbDetail?.sessions?.[0]?.avatar
                   ?<img src={lbDetail.sessions[0].avatar} style={{width:44,height:44,borderRadius:'50%',objectFit:'cover',flexShrink:0,border:'2px solid rgba(59,130,246,0.4)'}}/>
-                  :<div style={{width:44,height:44,borderRadius:'50%',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'white',flexShrink:0}}>{lbModal.staffName?.[0]}</div>
+                  :<div style={{width:44,height:44,borderRadius:'50%',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'var(--text)',flexShrink:0}}>{lbModal.staffName?.[0]}</div>
                 }
                 <div>
-                  <div style={{fontSize:15,fontWeight:700,color:'white'}}>{lbModal.staffName}</div>
-                  <div style={{fontSize:10,color:'#64748b',marginTop:2}}>{lbModal.type==='monthly'?'本月答题记录':'轮班答题记录'}</div>
+                  <div style={{fontSize:15,fontWeight:700,color:'var(--text)'}}>{lbModal.staffName}</div>
+                  <div style={{fontSize:10,color:'var(--muted)',marginTop:2}}>{lbModal.type==='monthly'?'本月答题记录':'轮班答题记录'}</div>
                 </div>
               </div>
-              <button onClick={()=>{setLbModal(null);setLbDetail(null);}} style={{background:'none',border:'1px solid #1b3255',color:'#64748b',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontSize:12,flexShrink:0}}>关闭</button>
+              <button onClick={()=>{setLbModal(null);setLbDetail(null);}} style={{background:'none',border:'1px solid #1b3255',color:'var(--muted)',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontSize:12,flexShrink:0}}>关闭</button>
             </div>
             {lbDetailLoading&&<div style={{textAlign:'center',padding:'20px 0'}}><div className="spinner" style={{margin:'0 auto'}}/></div>}
-            {!lbDetailLoading&&lbDetail&&lbDetail.sessions?.length===0&&<div style={{color:'#475569',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无答题记录</div>}
+            {!lbDetailLoading&&lbDetail&&lbDetail.sessions?.length===0&&<div style={{color:'var(--muted)',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无答题记录</div>}
             {!lbDetailLoading&&lbDetail?.sessions?.map((s,si)=>(
               <div key={si} style={{marginBottom:12,background:'rgba(15,38,66,0.6)',border:'1px solid #1b3255',borderRadius:10,padding:'12px 14px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                   <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
-                    <span style={{fontSize:11,color:'#64748b'}}>{s.created_at?.slice(5,10)}{s.created_at?.length>=16?` ${s.created_at.slice(11,16)}`:''}{s.cycle_label?` · ${s.cycle_label}`:''}</span>
-                    {s.tab_switch_count>0&&<span style={{fontSize:10,color:'#ef4444',background:'rgba(239,68,68,0.12)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
+                    <span style={{fontSize:11,color:'var(--muted)'}}>{s.created_at?.slice(5,10)}{s.created_at?.length>=16?` ${s.created_at.slice(11,16)}`:''}{s.cycle_label?` · ${s.cycle_label}`:''}</span>
+                    {s.tab_switch_count>0&&<span style={{fontSize:10,color:'var(--red)',background:'rgba(239,68,68,0.12)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
                   </div>
                   <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                    <span style={{fontSize:12,fontWeight:700,color:'white'}}>{Math.round(s.total_score)}分</span>
+                    <span style={{fontSize:12,fontWeight:700,color:'var(--text)'}}>{Math.round(s.total_score)}分</span>
                   </div>
                 </div>
                 {s.answers?.map((a,ai)=>(
                   <div key={ai} style={{padding:'6px 0',borderTop:'1px solid rgba(27,50,85,0.5)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
-                    <span style={{fontSize:11,color:'rgba(255,255,255,0.7)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
-                    <span style={{fontSize:12,fontWeight:700,flexShrink:0,color:a.score>=99?'#22c55e':a.score>=67?'#f59e0b':'#ef4444'}}>{Math.round(a.score/(s.answers.length||3))}</span>
+                    <span style={{fontSize:11,color:'var(--text)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
+                    <span style={{fontSize:12,fontWeight:700,flexShrink:0,color:a.score>=99?'var(--green)':a.score>=67?'var(--amber)':'var(--red)'}}>{Math.round(a.score/(s.answers.length||3))}</span>
                   </div>
                 ))}
               </div>
@@ -2117,7 +2119,7 @@ function ProfileScreen({ user, onBack }) {
   if(!d)return(
     <div style={{display:'flex',flex:1,alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'var(--bg)',flexDirection:'column',gap:16}}>
       <div className="spinner"/>
-      <button onClick={onBack} style={{background:'none',border:'none',color:'#3b82f6',fontSize:14,cursor:'pointer',fontFamily:'var(--font)'}}>← 返回</button>
+      <button onClick={onBack} style={{background:'none',border:'none',color:'var(--blue)',fontSize:14,cursor:'pointer',fontFamily:'var(--font)'}}>← 返回</button>
     </div>
   );
 
@@ -2151,10 +2153,10 @@ function ProfileScreen({ user, onBack }) {
           const [x,y]=[cx+r*Math.cos(angle(i)),cy+r*Math.sin(angle(i))];
           return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="rgba(59,130,246,0.15)" strokeWidth="1"/>;
         })}
-        <polygon points={dataPts} fill="rgba(59,130,246,0.25)" stroke="#3b82f6" strokeWidth="2"/>
+        <polygon points={dataPts} fill="rgba(59,130,246,0.25)" stroke="var(--blue)" strokeWidth="2"/>
         {cats.map((c,i)=>{
           const [x,y]=pt(i,c.avg);
-          return <circle key={i} cx={x} cy={y} r={4} fill="#3b82f6"/>;
+          return <circle key={i} cx={x} cy={y} r={4} fill="var(--blue)"/>;
         })}
         {cats.map((c,i)=>{
           const labelR=r+18;
@@ -2163,8 +2165,8 @@ function ProfileScreen({ user, onBack }) {
           const anchor=lx<cx-5?'end':lx>cx+5?'start':'middle';
           return (
             <g key={i}>
-              <text x={lx} y={ly-4} textAnchor={anchor} fill="rgba(255,255,255,0.7)" fontSize={9}>{c.category}</text>
-              <text x={lx} y={ly+8} textAnchor={anchor} fill={c.avg>=85?'#22c55e':c.avg>=60?'#f59e0b':'#ef4444'} fontSize={10} fontWeight="700">{c.avg}</text>
+              <text x={lx} y={ly-4} textAnchor={anchor} fill="var(--muted)" fontSize={9}>{c.category}</text>
+              <text x={lx} y={ly+8} textAnchor={anchor} fill={c.avg>=85?'var(--green)':c.avg>=60?'var(--amber)':'var(--red)'} fontSize={10} fontWeight="700">{c.avg}</text>
             </g>
           );
         })}
@@ -2174,14 +2176,14 @@ function ProfileScreen({ user, onBack }) {
 
   // 趋势折线图
   const TrendChart = ({data}) => {
-    if(!data||data.length<2) return <div style={{color:'#475569',fontSize:12,textAlign:'center',padding:'20px 0'}}>答题场次不足，趋势待生成</div>;
+    if(!data||data.length<2) return <div style={{color:'var(--muted)',fontSize:12,textAlign:'center',padding:'20px 0'}}>答题场次不足，趋势待生成</div>;
     const w=280,h=70,max=Math.max(...data,60),min=Math.max(0,Math.min(...data)-10);
     const px=i=>i*(w/(data.length-1));
     const py=v=>h-((v-min)/(max-min||1))*h;
     const pts=data.map((v,i)=>`${px(i)},${py(v)}`).join(' ');
     const fillPts=`${px(0)},${h} ${pts} ${px(data.length-1)},${h}`;
     const last=data[data.length-1];
-    const col=last>=85?'#22c55e':last>=60?'#f59e0b':'#ef4444';
+    const col=last>=85?'var(--green)':last>=60?'var(--amber)':'var(--red)';
     return (
       <svg width={w} height={h+20} style={{display:'block',margin:'0 auto',overflow:'visible'}}>
         <defs>
@@ -2212,28 +2214,28 @@ function ProfileScreen({ user, onBack }) {
       <div style={{padding:'14px 14px 32px',display:'flex',flexDirection:'column',gap:12}}>
 
         {/* Hero卡片 */}
-        <div className="card" style={{background:'linear-gradient(135deg,#0d2d5a,#1a3a6e)',border:'1px solid rgba(59,130,246,0.3)'}}>
+        <div className="card" style={{background:'linear-gradient(135deg,var(--task-start),var(--task-end))',border:'1px solid rgba(59,130,246,0.3)'}}>
           <div style={{display:'flex',alignItems:'center',gap:14,marginBottom:14}}>
-            <div style={{width:52,height:52,borderRadius:26,background:'linear-gradient(135deg,#3b82f6,#0ea5e9)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,fontWeight:700,color:'white',flexShrink:0,boxShadow:'0 4px 14px rgba(59,130,246,0.4)'}}>{user.name[0]}</div>
+            <div style={{width:52,height:52,borderRadius:26,background:'linear-gradient(135deg,#3b82f6,#0ea5e9)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,fontWeight:700,color:'var(--text)',flexShrink:0,boxShadow:'0 4px 14px rgba(59,130,246,0.4)'}}>{user.name[0]}</div>
             <div style={{flex:1}}>
-              <div style={{fontSize:17,fontWeight:700,color:'white'}}>{user.name}</div>
-              <div style={{fontSize:11,color:'rgba(255,255,255,0.5)',marginTop:2}}>Y{user.staffId} · 武汉地铁5号线</div>
+              <div style={{fontSize:17,fontWeight:700,color:'var(--text)'}}>{user.name}</div>
+              <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>Y{user.staffId} · 武汉地铁5号线</div>
             </div>
             <div style={{textAlign:'right'}}>
-              <div style={{fontSize:24,fontWeight:900,color:'white',lineHeight:1}}>{d.streak||0}<span style={{fontSize:12,color:'rgba(255,255,255,0.5)',fontWeight:400}}>天</span></div>
-              <div style={{fontSize:10,color:'rgba(255,255,255,0.4)',marginTop:2}}>连续答题🔥</div>
+              <div style={{fontSize:24,fontWeight:900,color:'var(--text)',lineHeight:1}}>{d.streak||0}<span style={{fontSize:12,color:'var(--muted)',fontWeight:400}}>天</span></div>
+              <div style={{fontSize:10,color:'var(--muted)',marginTop:2}}>连续答题🔥</div>
             </div>
           </div>
           <div style={{display:'flex',gap:8}}>
             {[
-              {label:'答题天数',val:d.stats?.total_days||0,unit:'天',col:'#3b82f6'},
-              {label:'累计积分',val:d.stats?.total_points||0,unit:'分',col:'#c8a84b'},
-              {label:'综合均分',val:avg,unit:'',col:avg>=85?'#22c55e':avg>=60?'#f59e0b':'#ef4444'},
+              {label:'答题天数',val:d.stats?.total_days||0,unit:'天',col:'var(--blue)'},
+              {label:'累计积分',val:d.stats?.total_points||0,unit:'分',col:'var(--gold)'},
+              {label:'综合均分',val:avg,unit:'',col:avg>=85?'var(--green)':avg>=60?'var(--amber)':'var(--red)'},
               ...(d.cycleRank?[{label:'本轮排名',val:`#${d.cycleRank}`,unit:'',col:'#a855f7'}]:[]),
             ].map((item,i)=>(
               <div key={i} style={{flex:1,textAlign:'center',background:'rgba(0,0,0,0.25)',borderRadius:8,padding:'8px 4px'}}>
-                <div style={{fontSize:18,fontWeight:900,color:item.col,lineHeight:1}}>{item.val}<span style={{fontSize:10,color:'rgba(255,255,255,0.4)',fontWeight:400}}>{item.unit}</span></div>
-                <div style={{fontSize:9,color:'rgba(255,255,255,0.4)',marginTop:3}}>{item.label}</div>
+                <div style={{fontSize:18,fontWeight:900,color:item.col,lineHeight:1}}>{item.val}<span style={{fontSize:10,color:'var(--muted)',fontWeight:400}}>{item.unit}</span></div>
+                <div style={{fontSize:9,color:'var(--muted)',marginTop:3}}>{item.label}</div>
               </div>
             ))}
           </div>
@@ -2243,14 +2245,14 @@ function ProfileScreen({ user, onBack }) {
         {cats.length>0&&(
           <div style={{display:'flex',gap:8}}>
             {maxCat&&<div style={{flex:1,padding:'10px 12px',background:'rgba(34,197,94,0.08)',border:'1px solid rgba(34,197,94,0.25)',borderRadius:10}}>
-              <div style={{fontSize:9,color:'#22c55e',letterSpacing:1,marginBottom:4}}>💪 最强科目</div>
-              <div style={{fontSize:13,fontWeight:700,color:'white'}}>{maxCat.category}</div>
-              <div style={{fontSize:18,fontWeight:900,color:'#22c55e'}}>{maxCat.avg}<span style={{fontSize:10,fontWeight:400,color:'rgba(255,255,255,0.4)'}}>分</span></div>
+              <div style={{fontSize:9,color:'var(--green)',letterSpacing:1,marginBottom:4}}>💪 最强科目</div>
+              <div style={{fontSize:13,fontWeight:700,color:'var(--text)'}}>{maxCat.category}</div>
+              <div style={{fontSize:18,fontWeight:900,color:'var(--green)'}}>{maxCat.avg}<span style={{fontSize:10,fontWeight:400,color:'var(--muted)'}}>分</span></div>
             </div>}
             {minCat&&minCat.category!==maxCat?.category&&<div style={{flex:1,padding:'10px 12px',background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.25)',borderRadius:10}}>
-              <div style={{fontSize:9,color:'#ef4444',letterSpacing:1,marginBottom:4}}>⚠ 需要加强</div>
-              <div style={{fontSize:13,fontWeight:700,color:'white'}}>{minCat.category}</div>
-              <div style={{fontSize:18,fontWeight:900,color:'#ef4444'}}>{minCat.avg}<span style={{fontSize:10,fontWeight:400,color:'rgba(255,255,255,0.4)'}}>分</span></div>
+              <div style={{fontSize:9,color:'var(--red)',letterSpacing:1,marginBottom:4}}>⚠ 需要加强</div>
+              <div style={{fontSize:13,fontWeight:700,color:'var(--text)'}}>{minCat.category}</div>
+              <div style={{fontSize:18,fontWeight:900,color:'var(--red)'}}>{minCat.avg}<span style={{fontSize:10,fontWeight:400,color:'var(--muted)'}}>分</span></div>
             </div>}
           </div>
         )}
@@ -2258,7 +2260,7 @@ function ProfileScreen({ user, onBack }) {
         {/* 雷达图 */}
         {cats.length>=3&&(
           <div className="card">
-            <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:12,fontWeight:600}}>各科目掌握度雷达图</div>
+            <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,marginBottom:12,fontWeight:600}}>各科目掌握度雷达图</div>
             <RadarChart cats={cats}/>
           </div>
         )}
@@ -2266,7 +2268,7 @@ function ProfileScreen({ user, onBack }) {
         {/* 条形图备用（科目少于3时显示） */}
         {cats.length>0&&cats.length<3&&(
           <div className="card">
-            <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:10,fontWeight:600}}>各科目掌握度</div>
+            <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,marginBottom:10,fontWeight:600}}>各科目掌握度</div>
             {cats.map((c,i)=><MiniBar key={i} label={c.category} value={c.avg}/>)}
           </div>
         )}
@@ -2274,8 +2276,8 @@ function ProfileScreen({ user, onBack }) {
         {/* 得分趋势 */}
         <div className="card">
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-            <div style={{fontSize:11,color:'#64748b',letterSpacing:1,fontWeight:600}}>近期得分趋势</div>
-            {trendData.length>=2&&<span style={{fontSize:11,color:trendUp?'#22c55e':'#ef4444',fontWeight:600}}>{trendUp?'↑ 上升':'↓ 下降'}</span>}
+            <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,fontWeight:600}}>近期得分趋势</div>
+            {trendData.length>=2&&<span style={{fontSize:11,color:trendUp?'var(--green)':'var(--red)',fontWeight:600}}>{trendUp?'↑ 上升':'↓ 下降'}</span>}
           </div>
           <TrendChart data={trendData}/>
         </div>
@@ -2285,30 +2287,30 @@ function ProfileScreen({ user, onBack }) {
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
             <div style={{fontSize:11,color:'#a855f7',letterSpacing:1,fontWeight:600}}>🤖 AI教练分析</div>
             {!aiAnalysis&&!aiLoading&&(
-              <button onClick={()=>loadAiAnalysis(d)} style={{background:'linear-gradient(135deg,#6d28d9,#a855f7)',border:'none',borderRadius:6,padding:'5px 12px',color:'white',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}>生成分析</button>
+              <button onClick={()=>loadAiAnalysis(d)} style={{background:'linear-gradient(135deg,#6d28d9,#a855f7)',border:'none',borderRadius:6,padding:'5px 12px',color:'var(--text)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}>生成分析</button>
             )}
           </div>
           {aiLoading&&(
             <div style={{display:'flex',alignItems:'center',gap:8,padding:'12px 0'}}>
               <div className="spinner" style={{width:20,height:20,borderWidth:2}}/>
-              <span style={{fontSize:12,color:'rgba(255,255,255,0.5)'}}>AI教练分析中…</span>
+              <span style={{fontSize:12,color:'var(--muted)'}}>AI教练分析中…</span>
             </div>
           )}
-          {aiAnalysis&&<div style={{fontSize:13,color:'rgba(255,255,255,0.85)',lineHeight:1.8,fontStyle:'italic'}}>「{aiAnalysis}」</div>}
-          {!aiAnalysis&&!aiLoading&&<div style={{fontSize:12,color:'rgba(255,255,255,0.3)'}}>点击生成按钮，获取专属训练建议</div>}
+          {aiAnalysis&&<div style={{fontSize:13,color:'var(--text)',lineHeight:1.8,fontStyle:'italic'}}>「{aiAnalysis}」</div>}
+          {!aiAnalysis&&!aiLoading&&<div style={{fontSize:12,color:'var(--muted)'}}>点击生成按钮，获取专属训练建议</div>}
         </div>
 
         {/* 薄弱知识点 */}
         {d.weakCats?.length>0&&(
           <div className="card" style={{border:'1px solid rgba(239,68,68,0.2)'}}>
-            <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:10,fontWeight:600}}>⚠ 重点强化科目</div>
+            <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,marginBottom:10,fontWeight:600}}>⚠ 重点强化科目</div>
             {d.weakCats.map((c,i)=>(
               <div key={i} style={{display:'flex',alignItems:'center',gap:10,marginBottom:i<d.weakCats.length-1?8:0,padding:'10px 12px',background:'rgba(239,68,68,0.06)',borderRadius:8,border:'1px solid rgba(239,68,68,0.15)'}}>
-                <div style={{width:24,height:24,borderRadius:12,background:'rgba(239,68,68,0.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:'#ef4444',flexShrink:0}}>{i+1}</div>
-                <span style={{flex:1,fontSize:13,color:'#e2e8f0'}}>{c.category}</span>
+                <div style={{width:24,height:24,borderRadius:12,background:'rgba(239,68,68,0.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:'var(--red)',flexShrink:0}}>{i+1}</div>
+                <span style={{flex:1,fontSize:13,color:'var(--text)'}}>{c.category}</span>
                 <div style={{textAlign:'right'}}>
-                  <div style={{fontSize:15,fontWeight:700,color:'#ef4444'}}>{c.avg}分</div>
-                  <div style={{fontSize:9,color:'rgba(255,255,255,0.3)'}}>需达到80+</div>
+                  <div style={{fontSize:15,fontWeight:700,color:'var(--red)'}}>{c.avg}分</div>
+                  <div style={{fontSize:9,color:'var(--muted)'}}>需达到80+</div>
                 </div>
               </div>
             ))}
@@ -2317,22 +2319,22 @@ function ProfileScreen({ user, onBack }) {
 
         {/* 近期记录 */}
         <div className="card">
-          <div style={{fontSize:11,color:'#64748b',letterSpacing:1,marginBottom:10,fontWeight:600}}>近期答题记录</div>
+          <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,marginBottom:10,fontWeight:600}}>近期答题记录</div>
           {d.recent?.length>0?d.recent.map((s,i)=>(
             <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 0',borderBottom:i<d.recent.length-1?'1px solid rgba(27,50,85,0.7)':'none'}}>
-              <div style={{width:36,fontSize:10,color:'#64748b',flexShrink:0,textAlign:'center'}}>
+              <div style={{width:36,fontSize:10,color:'var(--muted)',flexShrink:0,textAlign:'center'}}>
                 <div>{s.created_at?.slice(5,7)}月</div>
-                <div style={{fontSize:13,fontWeight:700,color:'rgba(255,255,255,0.6)'}}>{s.created_at?.slice(8,10)}日</div>
+                <div style={{fontSize:13,fontWeight:700,color:'var(--muted)'}}>{s.created_at?.slice(8,10)}日</div>
               </div>
               <div style={{flex:1}}>
-                <div style={{fontSize:12,color:'rgba(255,255,255,0.7)'}}>{s.q_count}题</div>
+                <div style={{fontSize:12,color:'var(--text)'}}>{s.q_count}题</div>
               </div>
-              <Badge label={s.total_score>=85?'优秀':s.total_score>=60?'合格':'需加强'} color={s.total_score>=85?'#22c55e':s.total_score>=60?'#f59e0b':'#ef4444'}/>
+              <Badge label={s.total_score>=85?'优秀':s.total_score>=60?'合格':'需加强'} color={s.total_score>=85?'var(--green)':s.total_score>=60?'var(--amber)':'var(--red)'}/>
               <div style={{textAlign:'right',minWidth:50}}>
-                <div style={{fontWeight:700,color:'white',fontSize:14}}>{Math.round(s.total_score)}分</div>
+                <div style={{fontWeight:700,color:'var(--text)',fontSize:14}}>{Math.round(s.total_score)}分</div>
               </div>
             </div>
-          )):<div style={{color:'#475569',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无记录，完成答题后显示</div>}
+          )):<div style={{color:'var(--muted)',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无记录，完成答题后显示</div>}
         </div>
 
       </div>
@@ -2355,6 +2357,16 @@ export default function App() {
   const [practiceMode,setPracticeMode]=useState('practice_random');
   const [practiceBankId,setPracticeBankId]=useState(null);
   const nav=s=>setScreen(s);
+
+  // 班次主题色：基准 2026-03-22=白班，4天一循环（白/夜/早/休）
+  useEffect(()=>{
+    const SHIFT_NAMES=['白班','夜班','早班','休息'];
+    const base=new Date('2026-03-22T00:00:00+08:00');
+    const now=new Date();
+    const diff=Math.floor((now-base)/86400000);
+    const phase=((diff%4)+4)%4;
+    document.documentElement.setAttribute('data-shift',SHIFT_NAMES[phase]);
+  },[]);
 
   // Magic link 自动登录 + 深链导航
   useEffect(()=>{
@@ -2414,7 +2426,12 @@ export default function App() {
 const CSS=`
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-:root{--bg:#07101f;--card:#0f2642;--border:#1b3255;--gold:#c8a84b;--blue:#3b82f6;--green:#22c55e;--red:#ef4444;--amber:#f59e0b;--text:#e2e8f0;--muted:#64748b;--font:'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;}
+:root{--bg:#07101f;--card:#0f2642;--border:#1b3255;--gold:#c8a84b;--blue:#3b82f6;--green:#22c55e;--red:#ef4444;--amber:#f59e0b;--text:#e2e8f0;--muted:#64748b;--input-bg:#0d1e35;--card-deep:#081828;--task-start:#0d2d5a;--task-end:#1a4a8a;--modal-bg:rgba(28,32,48,0.96);--font:'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;}
+/* ── 班次主题色（任务卡片渐变 + 活跃强调色）── */
+:root[data-shift="白班"]{--task-start:#0d2d5a;--task-end:#1a4a8a;--shift-accent:#3b82f6;}
+:root[data-shift="夜班"]{--task-start:#1e0a4a;--task-end:#5b21b6;--shift-accent:#7c3aed;}
+:root[data-shift="早班"]{--task-start:#431407;--task-end:#c2410c;--shift-accent:#f97316;}
+:root[data-shift="休息"]{--task-start:#0d2d5a;--task-end:#1a4a8a;--shift-accent:#3b82f6;}
 body{font-family:var(--font);background:var(--bg);color:var(--text);-webkit-tap-highlight-color:transparent;}
 .app-frame{width:100%;max-width:440px;margin:0 auto;min-height:100vh;background:var(--bg);}
 .screen{min-height:100vh;display:flex;flex-direction:column;background:var(--bg);overflow-y:auto;}
@@ -2423,7 +2440,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);-webkit-tap-
 .home-header{padding:18px 16px 10px;display:flex;align-items:flex-start;justify-content:space-between;}
 .avatar-btn{background:none;border:none;cursor:pointer;}
 .user-avatar{width:38px;height:38px;border-radius:19px;background:linear-gradient(135deg,var(--blue),#0ea5e9);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:white;}
-.task-card{background:linear-gradient(135deg,#0d2d5a,#1a4a8a);border:1px solid rgba(59,130,246,.4);border-radius:14px;padding:18px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;box-shadow:0 8px 22px rgba(59,130,246,.18);transition:transform .2s;}
+.task-card{background:linear-gradient(135deg,var(--task-start),var(--task-end));border:1px solid rgba(59,130,246,.4);border-radius:14px;padding:18px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;box-shadow:0 8px 22px rgba(59,130,246,.18);transition:transform .2s;}
 .task-card:hover{transform:translateY(-2px);}
 .nav-card{background:var(--card);border:1px solid var(--border);border-radius:11px;padding:12px 6px;text-align:center;cursor:pointer;transition:all .2s;}
 .nav-card:hover{border-color:var(--blue);}
@@ -2432,17 +2449,17 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);-webkit-tap-
 .brand-icon{width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,#1e3a5f,#3b82f6);display:flex;align-items:center;justify-content:center;font-size:21px;}
 .field{margin-bottom:12px;}
 .field label{display:block;font-size:11px;color:var(--muted);margin-bottom:5px;}
-.field input{width:100%;background:#0d1e35;border:1px solid var(--border);border-radius:8px;padding:11px 13px;color:var(--text);font-size:15px;font-family:var(--font);outline:none;transition:border-color .2s;}
+.field input{width:100%;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;padding:11px 13px;color:var(--text);font-size:15px;font-family:var(--font);outline:none;transition:border-color .2s;box-sizing:border-box;}
 .field input:focus{border-color:var(--blue);}
 .err-msg{color:var(--red);font-size:12px;margin-bottom:8px;}
 .btn-primary{width:100%;padding:13px;border-radius:9px;border:none;cursor:pointer;background:linear-gradient(135deg,#1e3a5f,#3b82f6);color:white;font-size:15px;font-weight:600;font-family:var(--font);transition:all .2s;letter-spacing:1px;}
 .link-btn{width:100%;margin-top:12px;background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;text-decoration:underline;font-family:var(--font);}
-.page-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);background:#0d1e35;}
-.page-header h2{font-size:15px;font-weight:700;color:white;}
+.page-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);background:var(--input-bg);}
+.page-header h2{font-size:15px;font-weight:700;color:var(--text);}
 .back-btn{background:none;border:1px solid var(--border);color:var(--text);width:30px;height:30px;border-radius:7px;cursor:pointer;font-size:15px;}
 .tab-row{display:flex;gap:5px;padding:10px 12px;border-bottom:1px solid var(--border);}
 .tab{flex:1;padding:7px 4px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-family:var(--font);font-size:12px;transition:all .2s;}
-.tab.active{background:var(--blue);border-color:var(--blue);color:white;font-weight:600;}
+.tab.active{background:var(--shift-accent,var(--blue));border-color:var(--shift-accent,var(--blue));color:white;font-weight:600;}
 .spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;}
 /* Animations */
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
