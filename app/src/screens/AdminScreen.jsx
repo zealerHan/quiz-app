@@ -1606,6 +1606,7 @@ function AdminScreen({ onBack }) {
   // 题库展开状态（bankId -> true/false）和题目缓存（bankId -> questions[]）
   const [bankExpanded,setBankExpanded]=useState({});
   const [bankQsCache,setBankQsCache]=useState({});
+  const [manualPickExpanded,setManualPickExpanded]=useState({}); // 手动选题：题库展开状态
   const [bankSectionOpen,setBankSectionOpen]=useState({});
   const [bankSubTab,setBankSubTab]=useState('quiz'); // 'quiz' | 'manage'
   const [editQModal,setEditQModal]=useState(null); // {id,bankId,text,reference,keywords,category}
@@ -2395,31 +2396,33 @@ function AdminScreen({ onBack }) {
             const isCycleOver = cycleRestDate ? todayStr >= cycleRestDate : false;
             const bankGroups2 = groupBanksByType(banks); // quiz 子tab 用
             const quizBanksInCat = quizCat ? (bankGroups2[quizCat]||[]) : [];
-            const canSave = !!quizCat && (
-              quizCat==='emergency' ||
-              quizBanksInCat.length > 0
-            );
+            const canSave = pinMode==='manual'
+              ? qSelected.length > 0
+              : !!quizCat && (quizCat==='emergency' || quizBanksInCat.length > 0);
 
             const doSave = async()=>{
-              let mode, bank_id=null, bank_ids=[];
-              if (quizCat==='emergency') {
+              let mode, bank_id=null, bank_ids=[], ids=[], count=pinCount;
+              if (pinMode==='manual') {
+                mode = 'manual'; ids = qSelected; count = Math.min(pinCount, qSelected.length);
+              } else if (quizCat==='emergency') {
                 mode = 'emergency';
               } else if (quizBankId) {
                 mode = 'random'; bank_id = parseInt(quizBankId);
               } else {
                 mode = 'random'; bank_ids = quizBanksInCat.map(b=>b.id);
               }
-              const body = { mode, count:pinCount, scope:pinScope, ids:[], bank_id, bank_ids, bank_fallback_id:null };
+              const body = { mode, count, scope:pinScope, ids, bank_id, bank_ids, bank_fallback_id:null };
               const r=await apiJson('/api/admin/pinned-questions',{method:'PUT',headers:hdrs(),body:JSON.stringify(body)}).catch(()=>null);
               if(r?.ok){
                 apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(d=>{
                   setQPinned(d); setPinCount(d.count||3);
-                  if(d.mode==='emergency') setQuizCat('emergency');
-                  else if(d.bank_id) { const b=banks.find(x=>x.id===d.bank_id); if(b){setQuizCat(b.bank_type||'knowledge');setQuizBankId(String(b.id));} }
-                  else if(d.bank_ids?.length>0) { const b=banks.find(x=>x.id===d.bank_ids[0]); if(b){setQuizCat(b.bank_type||'knowledge');setQuizBankId(null);} }
+                  if(d.mode==='manual'){setPinMode('manual');setQSelected(d.ids||[]);}
+                  else if(d.mode==='emergency'){setPinMode('emergency');setQuizCat('emergency');}
+                  else if(d.bank_id){setPinMode('random');const b=banks.find(x=>x.id===d.bank_id);if(b){setQuizCat(b.bank_type||'knowledge');setQuizBankId(String(b.id));}}
+                  else if(d.bank_ids?.length>0){setPinMode('random');const b=banks.find(x=>x.id===d.bank_ids[0]);if(b){setQuizCat(b.bank_type||'knowledge');setQuizBankId(null);}}
                 });
                 setPinSaveModal(false); setPinFormOpen(false);
-                apiJson('/api/admin/dingtalk/notify-start',{method:'POST',headers:hdrs(),body:JSON.stringify({ids:[],mode,count:pinCount,bank_id,bank_ids,scope:pinScope})}).catch(()=>null);
+                apiJson('/api/admin/dingtalk/notify-start',{method:'POST',headers:hdrs(),body:JSON.stringify({ids,mode,count,bank_id,bank_ids,scope:pinScope})}).catch(()=>null);
               } else { alert('设置失败'); }
             };
 
@@ -2488,6 +2491,24 @@ function AdminScreen({ onBack }) {
                 {/* 表单：未发布时直接显示，已发布时折叠 */}
                 {(!isActive||pinFormOpen)&&<>
 
+                {/* 模式切换：随机出题 / 手动选题 */}
+                <div style={{marginBottom:12,display:'flex',gap:4}}>
+                  {[['random','🎲 随机出题'],['manual','🎯 手动选题']].map(([m,label])=>{
+                    const active = m==='manual' ? pinMode==='manual' : pinMode!=='manual';
+                    return (
+                      <button key={m} onClick={()=>{
+                        if(m==='manual'){setPinMode('manual');setQuizCat(null);}
+                        else {setPinMode(quizCat==='emergency'?'emergency':'random');setQSelected([]);}
+                      }} style={{flex:1,padding:'9px',borderRadius:7,border:`2px solid ${active?'var(--blue)':'var(--border)'}`,background:active?'rgba(59,130,246,0.15)':'rgba(13,17,23,0.4)',color:active?'#60a5fa':'var(--muted)',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* ── 随机出题模式 ── */}
+                {pinMode!=='manual'&&<>
+
                 {/* Step 1: 题库来源 */}
                 <div style={{marginBottom:12}}>
                   <div style={{fontSize:11,color:'var(--muted)',fontWeight:600,marginBottom:6}}>① 题库来源</div>
@@ -2505,8 +2526,6 @@ function AdminScreen({ onBack }) {
                       );
                     })}
                   </div>
-
-                  {/* 分类选定后：展示该类下的题库（供细选） */}
                   {quizCat && quizCat!=='emergency' && quizBanksInCat.length > 0 && (
                     <div style={{marginTop:8,padding:'8px 10px',background:'rgba(13,17,23,0.5)',border:'1px solid var(--border)',borderRadius:8}}>
                       <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
@@ -2548,9 +2567,120 @@ function AdminScreen({ onBack }) {
                   </div>
                 </div>
 
-                {/* 生效范围（紧凑一行） */}
+                </>}
+
+                {/* ── 手动选题模式 ── */}
+                {pinMode==='manual'&&<>
+
+                {/* 已选题目汇总 */}
+                {qSelected.length>0&&(
+                  <div style={{marginBottom:10,padding:'8px 10px',background:'rgba(59,130,246,0.06)',border:'1px solid rgba(59,130,246,0.25)',borderRadius:8}}>
+                    <div style={{fontSize:10,color:'#60a5fa',fontWeight:600,marginBottom:6}}>已选 {qSelected.length} 题</div>
+                    <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                      {qSelected.map(id=>{
+                        const q=Object.values(bankQsCache).flat().find(x=>x.id===id);
+                        return (
+                          <div key={id} style={{display:'flex',alignItems:'center',gap:3,background:'rgba(59,130,246,0.12)',border:'1px solid rgba(59,130,246,0.3)',borderRadius:4,padding:'3px 7px',maxWidth:'100%'}}>
+                            <span style={{fontSize:10,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:170}}>{q?.text||`题目#${id}`}</span>
+                            <button onClick={()=>setQSelected(s=>s.filter(x=>x!==id))} style={{background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:12,padding:'0 2px',lineHeight:1,flexShrink:0}}>×</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 题库浏览器 */}
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:11,color:'var(--muted)',fontWeight:600,marginBottom:8}}>① 从各题库中选题（可多选）</div>
+                  {BANK_TYPES.map(t=>{
+                    const bks=bankGroups2[t.key]||[];
+                    if(bks.length===0) return null;
+                    return (
+                      <div key={t.key} style={{marginBottom:6}}>
+                        <div style={{fontSize:10,color:t.color,fontWeight:600,padding:'4px 0 4px 2px',letterSpacing:0.5}}>{t.icon} {t.label}</div>
+                        {bks.map(b=>{
+                          const exp=!!manualPickExpanded[b.id];
+                          const qs=bankQsCache[b.id]||null;
+                          const selInBank=qSelected.filter(id=>(qs||[]).some(q=>q.id===id)).length;
+                          return (
+                            <div key={b.id} style={{marginBottom:3,border:`1px solid ${exp?'rgba(59,130,246,0.3)':'var(--border)'}`,borderRadius:7,overflow:'hidden'}}>
+                              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 10px',cursor:'pointer',background:exp?'rgba(59,130,246,0.08)':'rgba(13,17,23,0.5)'}}
+                                onClick={async()=>{
+                                  if(!exp&&qs===null){
+                                    const d=await apiJson(`/api/admin/questions/all?bank_id=${b.id}`,{headers:hdrs()}).catch(()=>null);
+                                    setBankQsCache(prev=>({...prev,[b.id]:Array.isArray(d)?d:[]}));
+                                  }
+                                  setManualPickExpanded(prev=>({...prev,[b.id]:!exp}));
+                                }}>
+                                <span style={{fontSize:11,color:'var(--text)',flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{b.name}</span>
+                                <span style={{fontSize:10,color:'var(--muted)',flexShrink:0,marginLeft:8}}>
+                                  {selInBank>0&&<span style={{color:'#60a5fa',fontWeight:700,marginRight:4}}>已选{selInBank}</span>}
+                                  {b.q_count||0}题 {exp?'▲':'▼'}
+                                </span>
+                              </div>
+                              {exp&&qs!==null&&(
+                                <div style={{maxHeight:240,overflowY:'auto',background:'rgba(8,10,14,0.6)'}}>
+                                  {qs.length===0
+                                    ? <div style={{fontSize:11,color:'var(--muted)',padding:'8px 12px'}}>暂无题目</div>
+                                    : qs.map(q=>{
+                                        const sel=qSelected.includes(q.id);
+                                        return (
+                                          <div key={q.id} onClick={()=>{
+                                            if(sel){setQSelected(s=>s.filter(x=>x!==q.id));}
+                                            else{setQSelected(s=>[...s,q.id]);}
+                                          }} style={{display:'flex',alignItems:'flex-start',gap:8,padding:'7px 10px',borderBottom:'1px solid rgba(27,50,85,0.3)',cursor:'pointer',background:sel?'rgba(59,130,246,0.07)':'none'}}>
+                                            <div style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel?'var(--blue)':'#334155'}`,background:sel?'var(--blue)':'none',flexShrink:0,marginTop:2,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                                              {sel&&<span style={{color:'white',fontSize:9,lineHeight:1}}>✓</span>}
+                                            </div>
+                                            <div style={{flex:1,fontSize:11,color:sel?'var(--text)':'var(--muted)',lineHeight:1.5}}>{q.text}</div>
+                                          </div>
+                                        );
+                                      })
+                                  }
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 出几题（手动模式） */}
+                {qSelected.length > 0 && (
+                  <div style={{marginBottom:12}}>
+                    <div style={{fontSize:11,color:'var(--muted)',fontWeight:600,marginBottom:6}}>
+                      ② 每人随机答几题
+                      {qSelected.length > 1 && <span style={{fontWeight:400,color:'rgba(148,163,184,0.6)',marginLeft:4}}>（从已选 {qSelected.length} 题中随机）</span>}
+                    </div>
+                    <div style={{display:'flex',gap:6}}>
+                      {Array.from({length:Math.min(qSelected.length,5)},(_,i)=>i+1).map(n=>(
+                        <button key={n} onClick={()=>setPinCount(n)}
+                          style={{flex:1,padding:'10px 0',borderRadius:7,border:`2px solid ${pinCount===n?'var(--blue)':'var(--border)'}`,background:pinCount===n?'rgba(59,130,246,0.18)':'rgba(13,17,23,0.4)',color:pinCount===n?'#60a5fa':'var(--muted)',cursor:'pointer',fontSize:16,fontWeight:700}}>
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                    {qSelected.length > pinCount && (
+                      <div style={{marginTop:5,fontSize:10,color:'var(--amber)'}}>
+                        每人从 {qSelected.length} 题中随机抽 {pinCount} 题，不同人顺序不同
+                      </div>
+                    )}
+                    {qSelected.length === pinCount && (
+                      <div style={{marginTop:5,fontSize:10,color:'var(--muted)'}}>
+                        所有人答相同的 {pinCount} 题
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                </>}
+
+                {/* 生效范围（共用） */}
                 <div style={{marginBottom:12,display:'flex',alignItems:'center',gap:8,fontSize:11}}>
-                  <span style={{color:'var(--muted)',flexShrink:0}}>生效范围：</span>
+                  <span style={{color:'var(--muted)',flexShrink:0}}>{pinMode==='manual'?'② 生效范围：':'生效范围：'}</span>
                   {[['shift','本套班'],['today','今天']].map(([s,label])=>(
                     <button key={s} onClick={()=>setPinScope(s)}
                       style={{padding:'5px 12px',borderRadius:6,border:`1px solid ${pinScope===s?'var(--blue)':'var(--border)'}`,background:pinScope===s?'rgba(59,130,246,0.15)':'none',color:pinScope===s?'#60a5fa':'var(--muted)',fontSize:11,cursor:'pointer'}}>
@@ -2563,8 +2693,10 @@ function AdminScreen({ onBack }) {
                 <button disabled={!canSave} onClick={()=>setPinSaveModal(true)}
                   style={{width:'100%',padding:'12px',borderRadius:8,border:'none',background:canSave?'linear-gradient(135deg,#1e3a5f,#3b82f6)':'var(--border)',color:canSave?'white':'var(--muted)',fontSize:13,fontWeight:600,cursor:canSave?'pointer':'not-allowed',fontFamily:'inherit'}}>
                   {canSave
-                    ? `发布 · ${pinCount}题 · ${BANK_TYPE_MAP[quizCat]?.icon} ${quizBankId?banks.find(b=>String(b.id)===quizBankId)?.name:quizCat==='emergency'?'应急/风险':'全类随机'}`
-                    : '请先选择题库来源'}
+                    ? pinMode==='manual'
+                      ? `发布 · 选${qSelected.length}题答${Math.min(pinCount,qSelected.length)}题 · 手动选题`
+                      : `发布 · ${pinCount}题 · ${BANK_TYPE_MAP[quizCat]?.icon} ${quizBankId?banks.find(b=>String(b.id)===quizBankId)?.name:quizCat==='emergency'?'应急/风险':'全类随机'}`
+                    : pinMode==='manual' ? '请先从题库中选择题目' : '请先选择题库来源'}
                 </button>
 
                 {/* 保存确认弹窗 */}
@@ -2573,7 +2705,10 @@ function AdminScreen({ onBack }) {
                     <div onClick={e=>e.stopPropagation()} style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:320,border:'1px solid rgba(59,130,246,0.3)'}}>
                       <div style={{fontWeight:700,color:'var(--text)',fontSize:15,marginBottom:8}}>📣 发布抽问</div>
                       <div style={{fontSize:13,color:'var(--muted)',marginBottom:6,lineHeight:1.6}}>
-                        将设置 <span style={{color:'#60a5fa',fontWeight:600}}>{pinCount}题 · {BANK_TYPE_MAP[quizCat]?.icon} {quizBankId?banks.find(b=>String(b.id)===quizBankId)?.name:quizCat==='emergency'?'应急/风险':BANK_TYPE_MAP[quizCat]?.label+'全类'} · {pinScope==='today'?'今天生效':'本套班生效'}</span>
+                        {pinMode==='manual'
+                          ? <>将发布手动选题：从 <span style={{color:'#60a5fa',fontWeight:600}}>{qSelected.length} 道题</span>中随机抽 <span style={{color:'#60a5fa',fontWeight:600}}>{Math.min(pinCount,qSelected.length)} 题</span>，{pinScope==='today'?'今天':'本套班'}生效</>
+                          : <>将设置 <span style={{color:'#60a5fa',fontWeight:600}}>{pinCount}题 · {BANK_TYPE_MAP[quizCat]?.icon} {quizBankId?banks.find(b=>String(b.id)===quizBankId)?.name:quizCat==='emergency'?'应急/风险':BANK_TYPE_MAP[quizCat]?.label+'全类'} · {pinScope==='today'?'今天生效':'本套班生效'}</span></>
+                        }
                       </div>
                       <div style={{fontSize:12,color:'var(--amber)',marginBottom:16}}>⚠️ 同时将在钉钉群内发出答题提醒通知</div>
                       <div style={{display:'flex',gap:8}}>

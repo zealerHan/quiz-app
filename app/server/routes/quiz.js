@@ -5,6 +5,10 @@ const { getSetting, getCurrentCycle, calcPoints, backfillQuestionTypes, getTrain
 
 const router = express.Router();
 
+// 服务端评分缓存：key = `${questionId}:${answerText前200字}`，20分钟TTL
+const scoreCache = new Map();
+const SCORE_CACHE_TTL = 20 * 60 * 1000;
+
 // ─── Questions API ─────────────────────────────────────────────────────────
 router.get('/api/questions', (req, res) => {
   const bankId = req.query.bank_id;
@@ -47,7 +51,10 @@ router.get('/api/questions', (req, res) => {
           } else if (mode === 'manual') {
             if (pinned.ids?.length > 0) {
               const placeholders = pinned.ids.map(() => '?').join(',');
-              qs = db.prepare(`SELECT * FROM questions WHERE id IN (${placeholders}) AND active=1`).all(...pinned.ids);
+              const pool = db.prepare(`SELECT * FROM questions WHERE id IN (${placeholders}) AND active=1`).all(...pinned.ids);
+              // 题池 > count 时随机抽取，确保每人顺序不同
+              for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+              qs = pool.slice(0, count);
             }
           }
 
@@ -251,6 +258,39 @@ function buildScoringPrompt(question, reference, answer, category) {
   const isIncident = category && (category.includes('安全') || category.includes('事件') || category.includes('事故') || category.includes('分析'));
   const ansText = answer || '（未作答）';
 
+  // 模式3：得分点格式（参考答案包含【得分点】标记，优先匹配）
+  if (reference && reference.includes('【得分点')) {
+    const allRequired = reference.includes('均需答出');
+    const threshMatch = reference.match(/答出(\d+)[点类]/);
+    const threshold = threshMatch ? parseInt(threshMatch[1]) : null;
+    const thresholdNote = allRequired
+      ? '所有得分点均需覆盖方可满分'
+      : threshold
+        ? `答出 ${threshold} 个及以上得分点即可得满分，未达到按比例给分`
+        : '尽量覆盖更多得分点，按覆盖比例给分';
+
+    return `你是武汉地铁乘务培训考核专家，评估乘务员的口述答题。只返回JSON，不含任何其他内容。
+
+【题目】${question}
+
+【参考得分点】
+${reference}
+
+【乘务员口述】（来自语音识别，可能含口语化、停顿词、同音字错误）
+${ansText}
+
+【评分说明】
+- ${thresholdNote}
+- 无顺序要求，覆盖即得分
+- "嗯""然后""就是""那个"等停顿词忽略不计
+- 同音字/近音字按语义理解（如"扣一个月工资"≈"扣发1个月绩效"，"撤职降级"≈"撤职降4级"）
+- 意思相近表达视为正确
+- 涉及具体数字的得分点（限速数值、扣发月数、降级档数等），数字必须正确才算覆盖该点
+
+只返回如下JSON，不要加任何解释或markdown：
+{"score":0-100,"level":"优秀|合格|需加强","summary":"一句话总体评价","correct_points":["已覆盖的得分点"],"missing_points":["未覆盖的得分点（仅列核心缺失，不超过3条）"],"order_errors":[],"suggestion":"具体改进建议","encouragement":"鼓励语"}`;
+  }
+
   if (isIncident) {
     return `你是武汉地铁乘务安全培训考核专家，评估乘务员对安全事件的复述掌握情况。只返回JSON，不含任何其他内容。
 
@@ -299,16 +339,16 @@ ${ansText}
 }
 
 async function scoreWithQwen(question, reference, answer, category) {
-  const KEY = process.env.DASHSCOPE_API_KEY;
+  const KEY = process.env.DEEPSEEK_API_KEY;
   if (!KEY || !answer?.trim()) return null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20000);
   try {
-    const resp = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+    const resp = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${KEY}` },
       body: JSON.stringify({
-        model: 'qwen-plus',
+        model: 'deepseek-chat',
         messages: [{ role: 'user', content: buildScoringPrompt(question, reference, answer, category) }],
         max_tokens: 800,
         temperature: 0.1
@@ -352,13 +392,42 @@ router.post('/api/score', async (req, res) => {
   if (!result) result = scoreKeyword(q.reference, q.keywords, answer);
   else result.score_method = 'ai';
   result.transcript = answer || "";
+
+  // 缓存评分结果，供 /session/:id/answer 使用（防止客户端篡改分数）
+  const cacheKey = `${questionId}:${(answer || '').slice(0, 200)}`;
+  scoreCache.set(cacheKey, { ...result, cachedAt: Date.now() });
+
   res.json(result);
 });
 
 router.post('/api/session/:id/answer', (req, res) => {
-  const { staffId, staffName, questionId, questionText, category, answerText, score, level, summary, correctPoints, missingPoints, suggestion, scoreMethod } = req.body;
+  const { staffId, staffName, questionId, questionText, category, answerText } = req.body;
+
+  // 从服务端缓存取评分，不信任客户端上传的 score 等字段
+  const cacheKey = `${questionId}:${(answerText || '').slice(0, 200)}`;
+  const cached = scoreCache.get(cacheKey);
+  let r;
+  if (cached && Date.now() - cached.cachedAt < SCORE_CACHE_TTL) {
+    r = cached;
+  } else {
+    // 缓存未命中（正常流程不应发生）→ keyword 兜底
+    const q = db.prepare('SELECT reference, keywords FROM questions WHERE id=?').get(questionId);
+    r = scoreKeyword(q?.reference || '', q?.keywords, answerText);
+  }
+
+  // 定期清理过期缓存（约10%概率触发）
+  if (Math.random() < 0.1) {
+    const now = Date.now();
+    for (const [k, v] of scoreCache.entries()) {
+      if (now - v.cachedAt > SCORE_CACHE_TTL) scoreCache.delete(k);
+    }
+  }
+
   db.prepare(`INSERT INTO answers (session_id,staff_id,staff_name,question_id,question_text,category,answer_text,score,level,summary,correct_points,missing_points,suggestion,score_method) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(req.params.id, staffId, staffName, questionId, questionText, category, answerText, score, level, summary, JSON.stringify(correctPoints||[]), JSON.stringify(missingPoints||[]), suggestion, scoreMethod||'keyword');
+    .run(req.params.id, staffId, staffName, questionId, questionText, category, answerText,
+      r.score, r.level, r.summary,
+      JSON.stringify(r.correct_points || []), JSON.stringify(r.missing_points || []),
+      r.suggestion, r.score_method || 'keyword');
   res.json({ ok: true });
 });
 
@@ -370,9 +439,12 @@ router.post('/api/session/:id/finish', (req, res) => {
       db.prepare("UPDATE sessions SET staff_name = CASE WHEN staff_name NOT LIKE '%(测试)' THEN staff_name || '(测试)' ELSE staff_name END WHERE id=?").run(req.params.id);
     }
   }
-  const { totalScore, tabSwitchCount } = req.body;
+  const { tabSwitchCount } = req.body;
   const cnt = db.prepare('SELECT COUNT(*) as c FROM answers WHERE session_id=?').get(req.params.id);
   const tabSwitch = parseInt(tabSwitchCount) || 0;
+  // 从已存储的 answers 重新计算总分，不信任客户端上传的 totalScore
+  const scoreRow = db.prepare('SELECT ROUND(AVG(score), 1) as avg FROM answers WHERE session_id=?').get(req.params.id);
+  const totalScore = scoreRow?.avg ?? 0;
 
   if (sess?.is_practice) {
     // 练习模式：不计入常规积分，每完成1次给1分奖励（每月最多3次）

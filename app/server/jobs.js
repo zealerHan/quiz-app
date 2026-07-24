@@ -1,5 +1,5 @@
 const { db } = require('./db');
-const { getSetting, getCurrentCycle, getTrainingPlanForDate } = require('./helpers');
+const { getSetting, getCurrentCycle, calcPoints, getTrainingPlanForDate } = require('./helpers');
 const { sendGroupPush, fmtDate } = require('./push');
 
 // ─── 早班定时推送：12:30 和 16:30 推送教员确认情况 ────────────────────────────
@@ -90,10 +90,41 @@ async function checkAndRemindNoQuiz(triggerTime) {
   await sendGroupPush(lines.join('\n'));
 }
 
+// 自动补完中断 session：答了 ≥3 题但超过 10 分钟没有 finish 的
+function autoCompleteAbandonedSessions() {
+  const rows = db.prepare(`
+    SELECT s.id, s.staff_id, COUNT(a.id) as q_count,
+           ROUND(AVG(a.score), 1) as total_score,
+           MAX(a.created_at) as last_answer_at
+    FROM sessions s
+    JOIN answers a ON a.session_id = s.id
+    WHERE s.completed = 0
+      AND COALESCE(s.is_practice, 0) = 0
+      AND COALESCE(s.is_deleted, 0) = 0
+    GROUP BY s.id
+    HAVING q_count >= 3
+      AND (strftime('%s','now','localtime') - strftime('%s', last_answer_at)) > 600
+  `).all();
+
+  for (const row of rows) {
+    const pts = calcPoints(row.total_score, row.q_count);
+    const hasPracticed = db.prepare(
+      `SELECT COUNT(*) as c FROM sessions WHERE staff_id=? AND is_practice=1 AND completed=1 AND strftime('%Y-%m',created_at)=strftime('%Y-%m',?)`
+    ).get(row.staff_id, row.last_answer_at);
+    if (hasPracticed.c > 0) { pts.bonus = 1; pts.total += 1; }
+    db.prepare(
+      'UPDATE sessions SET total_score=?,q_count=?,base_points=?,bonus_points=?,total_points=?,completed=1 WHERE id=? AND completed=0'
+    ).run(row.total_score, row.q_count, pts.base, pts.bonus, pts.total, row.id);
+    console.log(`[autoComplete] session ${row.id} (${row.q_count}题, ${row.total_score}分) 已自动补完`);
+  }
+}
+
 // 每分钟检查一次时间，在 12:30 和 16:30 各推送培训进度；11:00 和 17:30 检查抽问设置；18:00 月末兜底检查
 let lastEvalPushDate = { '12:30': '', '16:30': '' };
 let lastNoQuizReminderDate = { '11:00': '', '17:30': '' };
 let lastMonthEndCheckDate = '';
+// 每5分钟自动补完遗漏的 finish
+setInterval(() => { autoCompleteAbandonedSessions(); }, 5 * 60 * 1000);
 setInterval(() => {
   const now = new Date();
   const cst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));

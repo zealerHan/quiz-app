@@ -446,11 +446,11 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
     try { await api(`/api/session/${sessionId}/answer`,{method:"POST",body:JSON.stringify({staffId:user.staffId,staffName:user.name,questionId:q.id,questionText:q.text,category:q.category,answerText:finalTranscript||transcript,score:result.score,level:result.level,summary:result.summary,correctPoints:result.correct_points,missingPoints:result.missing_points,suggestion:result.suggestion,scoreMethod:result.score_method})}); } catch {}
     const nr = [...results,{...result,questionText:q.text,category:q.category,qNum:qi+1}];
     setResults(nr);
-    // 最后一题答完后立即在后台 finish，防止用户不点"查看总结"被判中断
+    // 最后一题答完后立即在后台 finish，keepalive 确保关闭 APP 后请求仍能发出
     if (qi+1 >= questions.length && sessionId) {
       localStorage.removeItem('quiz_inprogress');
       const avg = Math.round(nr.reduce((s,r)=>s+r.score,0)/nr.length);
-      finishPromiseRef.current = apiJson(`/api/session/${sessionId}/finish`,{method:"POST",body:JSON.stringify({totalScore:avg,tabSwitchCount:tabSwitchRef.current})})
+      finishPromiseRef.current = apiJson(`/api/session/${sessionId}/finish`,{method:"POST",keepalive:true,body:JSON.stringify({totalScore:avg,tabSwitchCount:tabSwitchRef.current})})
         .then(pts=>{ finishResultRef.current = pts?.points ?? null; return pts; })
         .catch(()=>{ finishResultRef.current = null; return null; });
     }
