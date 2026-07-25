@@ -250,7 +250,7 @@ function getTopDeductions(sessionId) {
   // 计算每题对总分的实际扣分：(100 - 单题分) / 题数
   const deductions = rows
     .map(r => ({ cat: (r.category || '题目').replace(/[（(].*/g, '').trim().slice(0, 6), deduct: Math.round((100 - r.score) / n) }))
-    .filter(r => r.deduct >= 5) // 扣分不足5分忽略
+    .filter(r => r.deduct >= 8) // 扣分不足8分忽略
     .sort((a, b) => b.deduct - a.deduct)
     .slice(0, 2); // 最多展示2条
   if (!deductions.length) return '';
