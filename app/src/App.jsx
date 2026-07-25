@@ -149,8 +149,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
   const [aiRes,setAiRes]=useState(null);
   const [isRecognizing,setIsRecognizing]=useState(false);
   const [recogError,setRecogError]=useState(null); // 识别失败/超时提示
-  const [countdown,setCountdown]=useState(null);
-  const countdownRef=useRef(null);
+  const questionStartRef=useRef(null); // 当前题目开始作答时间戳（ms），用于记录答题时长
   const [results,setResults]=useState([]);
   const [displayText,setDisplayText]=useState("");
   const [isSpeaking,setIsSpeaking]=useState(false);
@@ -285,21 +284,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
     setTimeout(() => {
       typeText(q.text, () => {
         setPhase("ready");
-        // 启动60秒倒计时
-        setCountdown(120);
-        countdownRef.current = setInterval(() => {
-          setCountdown(prev => {
-            if(prev<=1){
-              clearInterval(countdownRef.current);
-              countdownRef.current=null;
-              setCountdown(null);
-              // 超时自动跳题
-              setQi(i=>i+1); setTranscript(""); setTranscriptItems([]); setEditingIdx(-1); setAiRes(null); setPhase("intro"); setDisplayText(""); setEditMode(false); scoreCacheRef.current=null;
-              return null;
-            }
-            return prev-1;
-          });
-        }, 1000);
+        questionStartRef.current = Date.now();
       });
       speak(introText, () => {});
     }, 400);
@@ -308,7 +293,6 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
   const startRec = async () => {
     navigator.vibrate?.(50);
     setRecogError(null);
-    if(countdownRef.current){clearInterval(countdownRef.current);countdownRef.current=null;setCountdown(null);}
     try {
       const stream = (audioStreamRef.current?.active)
         ? audioStreamRef.current
@@ -463,6 +447,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
     const finalTranscript = transcript || window._streamingTranscript;
     window._streamingTranscript = null;
     if (!finalTranscript.trim() || finalTranscript.includes('录音完成')) return;
+    const durationSeconds = questionStartRef.current ? Math.round((Date.now() - questionStartRef.current) / 1000) : null;
     setPhase("processing");
     let result;
     const cache = scoreCacheRef.current;
@@ -478,7 +463,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
     if (!result) result={score:0,level:"需加强",summary:"评分服务异常",correct_points:[],missing_points:[],suggestion:"请重试",encouragement:"继续加油！",score_method:"error"};
     result.transcript = finalTranscript || result.transcript || transcript;
     setAiRes(result);
-    try { await api(`/api/session/${sessionId}/answer`,{method:"POST",body:JSON.stringify({staffId:user.staffId,staffName:user.name,questionId:q.id,questionText:q.text,category:q.category,answerText:finalTranscript||transcript,score:result.score,level:result.level,summary:result.summary,correctPoints:result.correct_points,missingPoints:result.missing_points,suggestion:result.suggestion,scoreMethod:result.score_method})}); } catch {}
+    try { await api(`/api/session/${sessionId}/answer`,{method:"POST",body:JSON.stringify({staffId:user.staffId,staffName:user.name,questionId:q.id,questionText:q.text,category:q.category,answerText:finalTranscript||transcript,score:result.score,level:result.level,summary:result.summary,correctPoints:result.correct_points,missingPoints:result.missing_points,suggestion:result.suggestion,scoreMethod:result.score_method,durationSeconds})}); } catch {}
     const nr = [...results,{...result,questionText:q.text,category:q.category,qNum:qi+1}];
     setResults(nr);
     // 最后一题答完后立即在后台 finish，keepalive 确保关闭 APP 后请求仍能发出
@@ -508,7 +493,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
         try { const r = await apiJson(`/api/session/${sessionId}/finish`,{method:"POST",body:JSON.stringify({totalScore:avg,tabSwitchCount:tabSwitchRef.current})}); pts = r?.points ?? null; } catch {}
       }
       onDone(results, pts, mode);
-    } else { if(countdownRef.current){clearInterval(countdownRef.current);countdownRef.current=null;} setCountdown(null); setQi(i=>i+1); setTranscript(""); setTranscriptItems([]); setEditingIdx(-1); setAiRes(null); setPhase("intro"); setDisplayText(""); setEditMode(false); scoreCacheRef.current=null; }
+    } else { setQi(i=>i+1); setTranscript(""); setTranscriptItems([]); setEditingIdx(-1); setAiRes(null); setPhase("intro"); setDisplayText(""); setEditMode(false); scoreCacheRef.current=null; }
   };
 
   const goBack = async () => {
@@ -585,7 +570,6 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             {tabSwitchCount>0&&<span style={{fontSize:10,fontWeight:700,color:"var(--red)",background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:8,padding:"1px 6px",letterSpacing:0.5}}>切屏×{tabSwitchCount}</span>}
-            {countdown!==null && <span style={{fontSize:13,fontWeight:700,color:countdown<=10?"var(--red)":"var(--amber)",letterSpacing:1}}>{countdown}s</span>}
             <button onClick={()=>setMuted(m=>!m)} title={muted?"点击开启朗读":"点击静音"}
               style={{background:muted?"rgba(255,255,255,0.08)":"rgba(200,57,75,0.2)",border:`1px solid ${muted?"rgba(255,255,255,0.15)":"rgba(200,57,75,0.5)"}`,borderRadius:20,padding:"4px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:5,color:muted?"rgba(255,255,255,0.45)":"#c8394b",fontSize:11,fontWeight:600,transition:"all 0.2s"}}>
               <span style={{fontSize:14}}>{muted?"🔇":"🔊"}</span>

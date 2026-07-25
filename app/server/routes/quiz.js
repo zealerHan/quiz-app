@@ -419,7 +419,7 @@ router.post('/api/score', async (req, res) => {
 });
 
 router.post('/api/session/:id/answer', (req, res) => {
-  const { staffId, staffName, questionId, questionText, category, answerText } = req.body;
+  const { staffId, staffName, questionId, questionText, category, answerText, durationSeconds } = req.body;
 
   // 从服务端缓存取评分，不信任客户端上传的 score 等字段
   const cacheKey = `${questionId}:${(answerText || '').slice(0, 200)}`;
@@ -441,11 +441,11 @@ router.post('/api/session/:id/answer', (req, res) => {
     }
   }
 
-  db.prepare(`INSERT INTO answers (session_id,staff_id,staff_name,question_id,question_text,category,answer_text,score,level,summary,correct_points,missing_points,suggestion,score_method) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+  db.prepare(`INSERT INTO answers (session_id,staff_id,staff_name,question_id,question_text,category,answer_text,score,level,summary,correct_points,missing_points,suggestion,score_method,duration_seconds) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(req.params.id, staffId, staffName, questionId, questionText, category, answerText,
       r.score, r.level, r.summary,
       JSON.stringify(r.correct_points || []), JSON.stringify(r.missing_points || []),
-      r.suggestion, r.score_method || 'keyword');
+      r.suggestion, r.score_method || 'keyword', durationSeconds ?? null);
   res.json({ ok: true });
 });
 
