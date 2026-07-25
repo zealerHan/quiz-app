@@ -238,22 +238,23 @@ router.get('/api/monitor/push', (req, res) => {
   });
 });
 
-// ─── 扣分点展示：取得分最低的题目 category + 分数 ────────────────────────
+// ─── 扣分点展示：按对总分的实际扣分量排列 ──────────────────────────────
 function getTopDeductions(sessionId) {
   const rows = db.prepare(`
     SELECT score, category FROM answers
     WHERE session_id=? AND score IS NOT NULL
-    ORDER BY score ASC LIMIT 2
+    ORDER BY score ASC
   `).all(sessionId);
-  // 只列低于 80 分的题目
-  const weak = rows.filter(r => r.score < 80);
-  if (!weak.length) return '';
-  // category 过长时截取前4字（如"行车组织规则"→"行车规则"在4字内已含义清晰）
-  const parts = weak.map(r => {
-    const cat = (r.category || '题目').replace(/[（(].*/g, '').trim().slice(0, 6);
-    return `${cat}${Math.round(r.score)}`;
-  });
-  return `（${parts.join('·')}）`;
+  if (!rows.length) return '';
+  const n = rows.length; // 总题数，用于折算扣分
+  // 计算每题对总分的实际扣分：(100 - 单题分) / 题数
+  const deductions = rows
+    .map(r => ({ cat: (r.category || '题目').replace(/[（(].*/g, '').trim().slice(0, 6), deduct: Math.round((100 - r.score) / n) }))
+    .filter(r => r.deduct >= 5) // 扣分不足5分忽略
+    .sort((a, b) => b.deduct - a.deduct)
+    .slice(0, 2); // 最多展示2条
+  if (!deductions.length) return '';
+  return `（${deductions.map(r => `${r.cat}-${r.deduct}`).join('·')}）`;
 }
 
 // ─── DingTalk Push ─────────────────────────────────────────────────────────
