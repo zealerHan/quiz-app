@@ -308,48 +308,65 @@ router.post('/api/admin/dingtalk/push', adminAuth, async (req, res) => {
   lines.push(`📋 ${dateStr}${shiftLabel} 答题完成情况（${count}/${total}人）`);
   lines.push('');
 
+  // 预先收集不合格人员（用于分段展示）
+  const failedRows = [];
+  for (const r of completed) {
+    if (r.is_exempt || r.is_leader) continue;
+    const ses = db.prepare(`SELECT id, total_score, tab_switch_count FROM sessions WHERE staff_id=? AND cycle_id=? AND completed=1 AND COALESCE(is_practice,0)=0 AND COALESCE(is_deleted,0)=0 AND COALESCE(is_remediation,0)=0 ORDER BY id ASC LIMIT 1`).get(r.staff_id, cycleId);
+    if (!ses || ses.total_score >= 60) continue;
+    const remRec = db.prepare(`SELECT result, remediation_score FROM remediation_records WHERE staff_id=? AND cycle_id=?`).get(r.staff_id, cycleId);
+    failedRows.push({ staffId: r.staff_id, name: r.name, sesId: ses.id, score: Math.round(ses.total_score), tab: ses.tab_switch_count, remRec });
+  }
+  // 复查授权后原 session 被标 is_deleted=1，此类人出现在 pendingRows 但实际已完成首次答题
+  for (const r of pendingRows) {
+    const remRec = db.prepare(`SELECT result, remediation_score FROM remediation_records WHERE staff_id=? AND cycle_id=?`).get(r.id, cycleId);
+    if (!remRec) continue;
+    const ses = db.prepare(`SELECT id, total_score, tab_switch_count FROM sessions WHERE staff_id=? AND cycle_id=? AND completed=1 AND COALESCE(is_practice,0)=0 AND COALESCE(is_remediation,0)=0 ORDER BY id ASC LIMIT 1`).get(r.id, cycleId);
+    if (!ses || ses.total_score >= 60) continue;
+    failedRows.push({ staffId: r.id, name: r.name, sesId: ses.id, score: Math.round(ses.total_score), tab: ses.tab_switch_count, remRec });
+  }
+  const failedIds = new Set(failedRows.map(f => f.staffId));
+
+  // ✅ 已完成（只列合格人员）
   if (count === 0) {
     lines.push('✅ 已完成（0人）');
   } else {
-    lines.push(`✅ 已完成（${count}人）`);
-    for (const r of completed) {
-      const ses = db.prepare(`SELECT id, total_points, total_score, tab_switch_count FROM sessions WHERE staff_id=? AND cycle_id=? AND completed=1 AND COALESCE(is_practice,0)=0 AND q_count>=3 ORDER BY id ASC LIMIT 1`).get(r.staff_id, cycleId);
+    const passRows = completed.filter(r => !failedIds.has(r.staff_id));
+    lines.push(`✅ 已完成（${passRows.filter(r=>!r.is_exempt&&!r.is_leader).length}人）`);
+    for (const r of passRows) {
+      const ses = db.prepare(`SELECT id, total_score, tab_switch_count FROM sessions WHERE staff_id=? AND cycle_id=? AND completed=1 AND COALESCE(is_practice,0)=0 AND q_count>=3 ORDER BY id ASC LIMIT 1`).get(r.staff_id, cycleId);
       if (!ses) continue;
       const sw = ses.tab_switch_count > 0 ? ` 切屏×${ses.tab_switch_count}` : '';
       const mk = getTopDeductions(ses.id);
       lines.push(`• ${r.name} ${Math.round(ses.total_score)}分${sw}${mk}`);
     }
   }
-  lines.push('');
-  lines.push(`❌ 未完成（${pendingRows.length}人）`);
-  if (pendingRows.length === 0) {
-    lines.push('• 全员完成！');
-  } else {
-    lines.push(pendingRows.map(r => r.name).join('、'));
-  }
 
-  // 不合格人员（已完成但分数 < 60，排除复查通过者）
-  const failedRows = [];
-  for (const r of completed) {
-    if (r.is_exempt || r.is_leader) continue;
-    const ses = db.prepare(`SELECT id, total_score FROM sessions WHERE staff_id=? AND cycle_id=? AND completed=1 AND COALESCE(is_practice,0)=0 AND COALESCE(is_deleted,0)=0 AND COALESCE(is_remediation,0)=0 ORDER BY id ASC LIMIT 1`).get(r.staff_id, cycleId);
-    if (!ses || ses.total_score >= 60) continue;
-    // 检查复查结果
-    const remRec = db.prepare(`SELECT result, remediation_score FROM remediation_records WHERE staff_id=? AND cycle_id=?`).get(r.staff_id, cycleId);
-    failedRows.push({ name: r.name, score: Math.round(ses.total_score), remRec });
-  }
+  // ⚠️ 首次未合格（紧接在 ✅ 后）
   if (failedRows.length > 0) {
     lines.push('');
-    lines.push(`⚠️ 不合格需复查（${failedRows.filter(f=>!f.remRec||f.remRec.result==='pending').length}人）`);
+    lines.push(`⚠️ 首次未合格（${failedRows.length}人）`);
     for (const f of failedRows) {
+      const mk = getTopDeductions(f.sesId);
+      const sw = f.tab > 0 ? ` 切屏×${f.tab}` : '';
       if (f.remRec?.result === 'pass') {
-        lines.push(`• ${f.name} 初试${f.score}分 → 复查${Math.round(f.remRec.remediation_score)}分✅`);
+        lines.push(`• ${f.name} ${f.score}分${sw}${mk} → 复查${Math.round(f.remRec.remediation_score)}分✅`);
       } else if (f.remRec?.result === 'fail') {
-        lines.push(`• ${f.name} 初试${f.score}分 → 复查${Math.round(f.remRec.remediation_score)}分❌`);
+        lines.push(`• ${f.name} ${f.score}分${sw}${mk} → 复查${Math.round(f.remRec.remediation_score)}分❌`);
       } else {
-        lines.push(`• ${f.name} ${f.score}分（待复查）`);
+        lines.push(`• ${f.name} ${f.score}分${sw}${mk}`);
       }
     }
+  }
+
+  // ❌ 未完成：排除已在 ⚠️ 展示的复查授权人员
+  const realPendingRows = pendingRows.filter(r => !failedIds.has(r.id));
+  lines.push('');
+  lines.push(`❌ 未完成（${realPendingRows.length}人）`);
+  if (realPendingRows.length === 0) {
+    lines.push('• 全员完成！');
+  } else {
+    lines.push(realPendingRows.map(r => r.name).join('、'));
   }
 
   const msgText = lines.join('\n');
