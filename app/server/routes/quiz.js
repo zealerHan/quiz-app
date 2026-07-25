@@ -209,9 +209,18 @@ router.post('/api/session/start', (req, res) => {
   const cycle = getCurrentCycle();
   const cycleId = cycle?.id || 'default';
 
+  let isRemediation = false;
+
   // 非练习模式校验
   if (!isPractice) {
-    // 1. 早班截止：早班日 09:30 后不允许开始正式答题（有补答授权则豁免）
+    // 检查是否有有效复查授权（影响后续所有截止判断）
+    const remGrant = db.prepare(`
+      SELECT expires_at FROM remediation_grants
+      WHERE staff_id=? AND cycle_id=? AND datetime(expires_at) > datetime('now','localtime')
+    `).get(staffId, cycleId);
+    if (remGrant) isRemediation = true;
+
+    // 1. 早班截止：早班日 09:30 后不允许开始正式答题（有补答授权或复查授权则豁免）
     const shiftInfo = getShiftInfo(new Date());
     if (shiftInfo.phase === 2) { // 2 = 早班
       const now = new Date();
@@ -219,13 +228,14 @@ router.post('/api/session/start', (req, res) => {
       const bjHour = parseInt(bjNow.toISOString().slice(11,13));
       const bjMin  = parseInt(bjNow.toISOString().slice(14,16));
       if (bjHour > 9 || (bjHour === 9 && bjMin >= 30)) {
-        // 检查是否有有效补答授权
-        const grant = db.prepare(`
-          SELECT expires_at FROM makeup_grants
-          WHERE staff_id=? AND cycle_id=? AND datetime(expires_at) > datetime('now','localtime')
-        `).get(staffId, cycleId);
-        if (!grant) {
-          return res.status(400).json({ error: '早班答题已截止（09:30）', shiftDeadline: true });
+        if (!isRemediation) {
+          const grant = db.prepare(`
+            SELECT expires_at FROM makeup_grants
+            WHERE staff_id=? AND cycle_id=? AND datetime(expires_at) > datetime('now','localtime')
+          `).get(staffId, cycleId);
+          if (!grant) {
+            return res.status(400).json({ error: '早班答题已截止（09:30）', shiftDeadline: true });
+          }
         }
       }
     }
@@ -238,19 +248,19 @@ router.post('/api/session/start', (req, res) => {
     `).get(staffId, cycleId);
     if (interrupted) return res.status(400).json({ error: '答题已中断，请联系管理员重置后再作答', isInterrupted: true });
 
-    // 3. 本轮已完成过正式答题（不限 q_count，避免残次 session 被绕过）
+    // 3. 本轮已完成过正式答题（复查授权时允许重答）
     const done = db.prepare(`
       SELECT id FROM sessions
       WHERE staff_id=? AND cycle_id=? AND completed=1
         AND COALESCE(is_practice,0)=0 AND COALESCE(is_deleted,0)=0
       LIMIT 1
     `).get(staffId, cycleId);
-    if (done) return res.status(400).json({ error: '本轮已完成答题，无需重复作答', alreadyDone: true });
+    if (done && !isRemediation) return res.status(400).json({ error: '本轮已完成答题，无需重复作答', alreadyDone: true });
   }
 
-  const r = db.prepare('INSERT INTO sessions (staff_id,staff_name,cycle_id,is_practice) VALUES (?,?,?,?)')
-    .run(staffId, staffName, cycleId, isPractice ? 1 : 0);
-  res.json({ sessionId: r.lastInsertRowid, cycleId: cycle?.id });
+  const r = db.prepare('INSERT INTO sessions (staff_id,staff_name,cycle_id,is_practice,is_remediation) VALUES (?,?,?,?,?)')
+    .run(staffId, staffName, cycleId, isPractice ? 1 : 0, isRemediation ? 1 : 0);
+  res.json({ sessionId: r.lastInsertRowid, cycleId: cycle?.id, isRemediation });
 });
 
 // AI scoring (DashScope Qwen or keyword fallback)
@@ -432,7 +442,7 @@ router.post('/api/session/:id/answer', (req, res) => {
 });
 
 router.post('/api/session/:id/finish', (req, res) => {
-  const sess = db.prepare('SELECT staff_id, is_practice FROM sessions WHERE id=?').get(req.params.id);
+  const sess = db.prepare('SELECT staff_id, is_practice, cycle_id, COALESCE(is_remediation,0) as is_remediation FROM sessions WHERE id=?').get(req.params.id);
   if (sess) {
     const staffRow = db.prepare('SELECT is_tester FROM staff WHERE id=?').get(sess.staff_id);
     if (staffRow?.is_tester) {
@@ -458,6 +468,22 @@ router.post('/api/session/:id/finish', (req, res) => {
     db.prepare('UPDATE sessions SET total_score=?,q_count=?,base_points=0,bonus_points=0,total_points=?,practice_bonus=?,tab_switch_count=?,completed=1 WHERE id=?')
       .run(totalScore, cnt.c, bonus, bonus, tabSwitch, req.params.id);
     return res.json({ points: { base: 0, bonus: 0, total: bonus, isPractice: true, practiceBonus: bonus, practiceUsed: usedThisMonth.c + bonus, practiceMax: 3 } });
+  }
+
+  // 复查 session：不计入常规积分，直接更新 remediation_records
+  if (sess.is_remediation) {
+    db.prepare('UPDATE sessions SET total_score=?,q_count=?,base_points=0,bonus_points=0,total_points=0,tab_switch_count=?,completed=1 WHERE id=?')
+      .run(totalScore, cnt.c, tabSwitch, req.params.id);
+    // 更新复查台账
+    const result = totalScore >= 60 ? 'pass' : 'fail';
+    db.prepare(`
+      UPDATE remediation_records
+      SET remediation_session_id=?, remediation_score=?, result=?
+      WHERE staff_id=? AND cycle_id=? AND result='pending'
+    `).run(req.params.id, totalScore, result, sess.staff_id, sess.cycle_id || 'default');
+    // 删除已用完的复查授权
+    db.prepare('DELETE FROM remediation_grants WHERE staff_id=? AND cycle_id=?').run(sess.staff_id, sess.cycle_id || 'default');
+    return res.json({ points: { base: 0, bonus: 0, total: 0, isRemediation: true, remediationResult: result } });
   }
 
   const pts = calcPoints(totalScore, cnt.c);
@@ -652,13 +678,15 @@ router.get('/api/me/:staffId', (req, res) => {
     SELECT ROUND(total_score,0) as score, created_at FROM sessions WHERE staff_id=? AND completed=1 ORDER BY created_at DESC LIMIT 12
   `).all(sid).reverse();
 
-  // Recent sessions detail
+  // Recent sessions detail (exclude deleted sessions)
   const recent = db.prepare(`
     SELECT s.id, s.total_score, s.total_points, s.q_count, s.created_at,
+           COALESCE(s.is_remediation,0) as is_remediation,
            GROUP_CONCAT(a.category) as cats
     FROM sessions s
     LEFT JOIN answers a ON a.session_id=s.id
     WHERE s.staff_id=? AND s.completed=1 AND COALESCE(s.is_practice,0)=0
+      AND COALESCE(s.is_deleted,0)=0
     GROUP BY s.id ORDER BY s.created_at DESC LIMIT 10
   `).all(sid);
 
@@ -691,7 +719,22 @@ router.get('/api/me/:staffId', (req, res) => {
   `).get(sid, cycleId);
   const isInterrupted = !!interruptedSession;
 
-  res.json({ staff, streak, catScores, weakCats, trend, recent, stats, cycleRank, isInterrupted });
+  // 当前轮次最早完成的有效正式 session（含复查）
+  const cycleCompletedSession = cycleId ? db.prepare(`
+    SELECT id, total_score, COALESCE(is_remediation,0) as is_remediation
+    FROM sessions
+    WHERE staff_id=? AND cycle_id=? AND completed=1
+      AND COALESCE(is_practice,0)=0 AND COALESCE(is_deleted,0)=0
+    ORDER BY created_at ASC LIMIT 1
+  `).get(sid, cycleId) : null;
+
+  // 复查记录（当前轮次）
+  const remRecord = cycleId ? db.prepare(`
+    SELECT result, original_score, remediation_score, authorized_at
+    FROM remediation_records WHERE staff_id=? AND cycle_id=?
+  `).get(sid, cycleId) : null;
+
+  res.json({ staff, streak, catScores, weakCats, trend, recent, stats, cycleRank, isInterrupted, cycleCompletedSession, remRecord });
 });
 
 // ─── Admin Analytics ───────────────────────────────────────────────────────
@@ -774,6 +817,13 @@ router.get('/api/admin/overview', adminAuth, (req, res) => {
     const t = new Date(ts.replace(' ', 'T')).getTime();
     return !isNaN(t) && (Date.now() - t) < ANSWERING_GAP_MS;
   };
+  // 复查记录（当前轮次）
+  const remRecords = cycleId ? db.prepare(`
+    SELECT staff_id, result, original_score, remediation_score FROM remediation_records WHERE cycle_id=?
+  `).all(cycleId) : [];
+  const remMap = {};
+  for (const r of remRecords) remMap[r.staff_id] = r;
+
   const allStaff = staffRows.map(r => {
     let status;
     if (r.completed_today) status = 'done';
@@ -783,7 +833,14 @@ router.get('/api/admin/overview', adminAuth, (req, res) => {
     else status = 'none';
     // 早班截止后未完成 → 标记逾期
     const overdue = isAfterMorningDeadline && status === 'none';
-    return { staff_id: r.staff_id, name: r.name, is_tester: r.is_tester, status, overdue, score: r.score, points: r.points, completed_at: r.completed_at, last_active_at: r.last_active_at };
+    const remRec = remMap[r.staff_id];
+    return {
+      staff_id: r.staff_id, name: r.name, is_tester: r.is_tester,
+      status, overdue, score: r.score, points: r.points, completed_at: r.completed_at, last_active_at: r.last_active_at,
+      has_remediation: !!remRec,
+      remediation_result: remRec?.result || null,
+      original_score: remRec?.original_score || null,
+    };
   });
   res.json({ todayComplete, totalStaff, catAvg, topWeak, cycle, cycleStats, incompleteList, allStaff });
 });
@@ -825,6 +882,17 @@ router.get('/api/makeup/status/:staffId', (req, res) => {
   const cycleId = cycle?.id || 'default';
   const grant = db.prepare(`
     SELECT expires_at FROM makeup_grants
+    WHERE staff_id=? AND cycle_id=? AND datetime(expires_at) > datetime('now','localtime')
+  `).get(req.params.staffId, cycleId);
+  res.json({ granted: !!grant, expiresAt: grant?.expires_at || null });
+});
+
+// 用户端查询复查授权状态
+router.get('/api/remediation/status/:staffId', (req, res) => {
+  const cycle = getCurrentCycle();
+  const cycleId = cycle?.id || 'default';
+  const grant = db.prepare(`
+    SELECT expires_at FROM remediation_grants
     WHERE staff_id=? AND cycle_id=? AND datetime(expires_at) > datetime('now','localtime')
   `).get(req.params.staffId, cycleId);
   res.json({ granted: !!grant, expiresAt: grant?.expires_at || null });

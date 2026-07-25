@@ -238,6 +238,57 @@ router.get('/api/monitor/push', (req, res) => {
   });
 });
 
+// ─── 扣分点关键词提取 ──────────────────────────────────────────────────────
+// 返回 {topic, type}，type 说明问题性质
+function extractMissingKeyword(pt) {
+  if (pt.includes('扣发') || pt.includes('处分') || pt.includes('开除'))
+    return { topic: '处罚标准', type: '' };
+  // 规章条款类 "6.15.1总体措施原则"
+  const secM = pt.match(/^\d[\d.]*\s*(.{2,10}?)(?:[（(]|$)/);
+  if (secM) return { topic: secM[1].replace(/的.*$/, '').trim().slice(0, 6), type: '漏项' };
+  // 确定问题类型（前缀即类型）
+  let type = '漏提';
+  if (/^未明确/.test(pt)) type = '欠清';
+  // "的[concept]" 模式 → 最精准（最多6字）
+  const deM = pt.match(/的([^的"""''，。；：（(/]{2,6})(?:["""''，。；：（(/]|$)/);
+  if (deM) return { topic: deM[1].replace(/^["""''\s]/, '').trim(), type };
+  // 末尾5字提取（末尾通常是核心概念，≤6字时保留全部）
+  const GENERIC = ['情况', '内容', '要求', '事项', '方面', '程度', '环节', '要点'];
+  const stripped = pt.replace(/^未[提说涉明确及到]{0,4}/, '').replace(/["""''（(/].*/g, '').trim();
+  let tail = stripped.length <= 6 ? stripped : stripped.slice(-5);
+  // 若末尾4字是泛化词，往前移4字
+  if (stripped.length > 6 && GENERIC.some(e => tail.slice(-2) === e))
+    tail = stripped.slice(0, -2).slice(-5);
+  // 去掉非汉字开头（弯引号残留）
+  tail = tail.replace(/^[^一-鿿]/, '');
+  return { topic: tail, type };
+}
+
+function getMissingKeywords(sessionId, maxKeywords = 2) {
+  const rows = db.prepare('SELECT missing_points, score_method FROM answers WHERE session_id=?').all(sessionId);
+  const allPts = [];
+  for (const row of rows) {
+    try {
+      const pts = JSON.parse(row.missing_points || '[]');
+      // score_method=2 为顺序题，有扣分点则标记顺序错
+      const forceType = (row.score_method === 2 && pts.length > 0) ? '步骤乱' : null;
+      pts.forEach(pt => allPts.push({ pt, forceType }));
+    } catch {}
+  }
+  if (!allPts.length) return '';
+  const seen = new Set();
+  const keywords = [];
+  for (const { pt, forceType } of allPts) {
+    if (keywords.length >= maxKeywords) break;
+    const { topic, type } = extractMissingKeyword(pt);
+    if (!topic || topic.length < 2) continue;
+    const finalType = forceType || type;
+    const kw = finalType ? `${topic}·${finalType}` : topic;
+    if (!seen.has(topic)) { seen.add(topic); keywords.push(kw); }
+  }
+  return keywords.length ? `（${keywords.join('、')}）` : '';
+}
+
 // ─── DingTalk Push ─────────────────────────────────────────────────────────
 router.post('/api/admin/dingtalk/push', adminAuth, async (req, res) => {
   const webhook = process.env.DINGTALK_WEBHOOK;
@@ -290,7 +341,8 @@ router.post('/api/admin/dingtalk/push', adminAuth, async (req, res) => {
       const ses = db.prepare(`SELECT id, total_points, total_score, tab_switch_count FROM sessions WHERE staff_id=? AND cycle_id=? AND completed=1 AND COALESCE(is_practice,0)=0 AND q_count>=3 ORDER BY id ASC LIMIT 1`).get(r.staff_id, cycleId);
       if (!ses) continue;
       const sw = ses.tab_switch_count > 0 ? ` 切屏×${ses.tab_switch_count}` : '';
-      lines.push(`• ${r.name} ${Math.round(ses.total_score)}分${sw}`);
+      const mk = getMissingKeywords(ses.id);
+      lines.push(`• ${r.name} ${Math.round(ses.total_score)}分${sw}${mk}`);
     }
   }
   lines.push('');
@@ -299,6 +351,30 @@ router.post('/api/admin/dingtalk/push', adminAuth, async (req, res) => {
     lines.push('• 全员完成！');
   } else {
     lines.push(pendingRows.map(r => r.name).join('、'));
+  }
+
+  // 不合格人员（已完成但分数 < 60，排除复查通过者）
+  const failedRows = [];
+  for (const r of completed) {
+    if (r.is_exempt || r.is_leader) continue;
+    const ses = db.prepare(`SELECT id, total_score FROM sessions WHERE staff_id=? AND cycle_id=? AND completed=1 AND COALESCE(is_practice,0)=0 AND COALESCE(is_deleted,0)=0 AND COALESCE(is_remediation,0)=0 ORDER BY id ASC LIMIT 1`).get(r.staff_id, cycleId);
+    if (!ses || ses.total_score >= 60) continue;
+    // 检查复查结果
+    const remRec = db.prepare(`SELECT result, remediation_score FROM remediation_records WHERE staff_id=? AND cycle_id=?`).get(r.staff_id, cycleId);
+    failedRows.push({ name: r.name, score: Math.round(ses.total_score), remRec });
+  }
+  if (failedRows.length > 0) {
+    lines.push('');
+    lines.push(`⚠️ 不合格需复查（${failedRows.filter(f=>!f.remRec||f.remRec.result==='pending').length}人）`);
+    for (const f of failedRows) {
+      if (f.remRec?.result === 'pass') {
+        lines.push(`• ${f.name} 初试${f.score}分 → 复查${Math.round(f.remRec.remediation_score)}分✅`);
+      } else if (f.remRec?.result === 'fail') {
+        lines.push(`• ${f.name} 初试${f.score}分 → 复查${Math.round(f.remRec.remediation_score)}分❌`);
+      } else {
+        lines.push(`• ${f.name} ${f.score}分（待复查）`);
+      }
+    }
   }
 
   const msgText = lines.join('\n');
@@ -323,6 +399,65 @@ router.post('/api/admin/dingtalk/push', adminAuth, async (req, res) => {
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
+});
+
+// ─── 复查授权 ──────────────────────────────────────────────────────────────
+router.post('/api/admin/remediation/grant', adminAuth, (req, res) => {
+  const { staffId } = req.body;
+  if (!staffId) return res.status(400).json({ error: '缺少 staffId' });
+  const cycle = getCurrentCycle();
+  const cycleId = cycle?.id || 'default';
+  const staff = db.prepare('SELECT COALESCE(real_name,name) as name FROM staff WHERE id=?').get(staffId);
+
+  // 查找本轮第一次非复查的已完成 session（原始不合格记录）
+  const originalSess = db.prepare(`
+    SELECT id, total_score FROM sessions
+    WHERE staff_id=? AND cycle_id=? AND completed=1
+      AND COALESCE(is_practice,0)=0 AND COALESCE(is_deleted,0)=0 AND COALESCE(is_remediation,0)=0
+    ORDER BY id ASC LIMIT 1
+  `).get(staffId, cycleId);
+  if (!originalSess) return res.status(400).json({ error: '未找到本轮已完成的答题记录' });
+  if (originalSess.total_score >= 60) return res.status(400).json({ error: '该人员本轮成绩已合格，无需复查' });
+
+  const nowAt = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).replace('T', ' ');
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
+    .toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).replace('T', ' ');
+
+  // 写入复查台账（已有则更新）
+  const existing = db.prepare('SELECT id FROM remediation_records WHERE staff_id=? AND cycle_id=?').get(staffId, cycleId);
+  if (existing) {
+    db.prepare(`UPDATE remediation_records SET original_session_id=?, original_score=?, authorized_by=?, authorized_at=?, remediation_session_id=NULL, remediation_score=NULL, result='pending' WHERE id=?`)
+      .run(originalSess.id, originalSess.total_score, req.adminName, nowAt, existing.id);
+  } else {
+    db.prepare(`INSERT INTO remediation_records (staff_id,cycle_id,original_session_id,original_score,authorized_by,authorized_at) VALUES (?,?,?,?,?,?)`)
+      .run(staffId, cycleId, originalSess.id, originalSess.total_score, req.adminName, nowAt);
+  }
+
+  // 重置本轮 session（原始记录置 is_deleted=1）
+  db.prepare(`UPDATE sessions SET is_deleted=1 WHERE staff_id=? AND cycle_id=? AND COALESCE(is_deleted,0)=0 AND COALESCE(is_practice,0)=0 AND COALESCE(is_remediation,0)=0`)
+    .run(staffId, cycleId);
+
+  // 写入复查授权（60分钟有效）
+  db.prepare(`INSERT OR REPLACE INTO remediation_grants (staff_id,cycle_id,granted_by,expires_at) VALUES (?,?,?,?)`)
+    .run(staffId, cycleId, req.adminName, expiresAt);
+
+  logAdmin('复查授权', `${staff?.name||staffId}(${staffId}) 原始分=${originalSess.total_score} 有效至 ${expiresAt}`, req.adminName);
+  res.json({ ok: true, staffId, originalScore: originalSess.total_score, expiresAt });
+});
+
+// ─── 复查台账查询 ──────────────────────────────────────────────────────────
+router.get('/api/admin/remediation/records', adminAuth, (req, res) => {
+  const month = req.query.month || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(0, 7);
+  const rows = db.prepare(`
+    SELECT rr.id, rr.staff_id, COALESCE(s.real_name,s.name) as name,
+           rr.cycle_id, rr.original_score, rr.authorized_by, rr.authorized_at,
+           rr.remediation_score, rr.result, rr.created_at
+    FROM remediation_records rr
+    LEFT JOIN staff s ON s.id=rr.staff_id
+    WHERE strftime('%Y-%m', rr.created_at)=?
+    ORDER BY rr.created_at DESC
+  `).all(month);
+  res.json(rows);
 });
 
 // ─── DingTalk: 抽问开始通知 ────────────────────────────────────────────────

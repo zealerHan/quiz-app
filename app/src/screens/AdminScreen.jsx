@@ -1567,6 +1567,8 @@ function AdminScreen({ onBack }) {
   const [staffListCollapsed,setStaffListCollapsed]=useState(true);
   const [resetModal,setResetModal]=useState(null); // null or {staff_id, name}
   const [makeupModal,setMakeupModal]=useState(null); // null or {staff_id, name}
+  const [remediationModal,setRemediationModal]=useState(null); // null or {staff_id, name, score, original_score, remediation_result}
+  const [remRecords,setRemRecords]=useState([]); // 复查台账
   const [adminDrillModal,setAdminDrillModal]=useState(null); // {staffId,staffName,mode,loading,sessions,cycles,expandedCycleId}
   const [dingtalkLoading,setDingtalkLoading]=useState(false);
   const [allCorrectExpanded,setAllCorrectExpanded]=useState(false);
@@ -1630,7 +1632,7 @@ function AdminScreen({ onBack }) {
 
   useEffect(()=>{
     if(!authed)return;
-    if(tab==='overview'){apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});apiJson('/api/admin/leaderboard/alltime',{headers:hdrs()}).then(d=>setLbSessionsAlltime(Array.isArray(d)?d:(d.rows||[]))).catch(()=>{});apiJson('/api/admin/weak-questions',{headers:hdrs()}).then(setWeakQuestions).catch(()=>{});apiJson('/api/export/months',{headers:hdrs()}).then(setExportMonths).catch(()=>{});apiJson('/api/admin/month-plan-completion',{headers:hdrs()}).then(setMonthPlanCompletion).catch(()=>{});apiJson('/api/admin/month-member-completion',{headers:hdrs()}).then(setMonthMemberCompletion).catch(()=>{});}
+    if(tab==='overview'){apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});apiJson('/api/admin/leaderboard/alltime',{headers:hdrs()}).then(d=>setLbSessionsAlltime(Array.isArray(d)?d:(d.rows||[]))).catch(()=>{});apiJson('/api/admin/weak-questions',{headers:hdrs()}).then(setWeakQuestions).catch(()=>{});apiJson('/api/export/months',{headers:hdrs()}).then(setExportMonths).catch(()=>{});apiJson('/api/admin/month-plan-completion',{headers:hdrs()}).then(setMonthPlanCompletion).catch(()=>{});apiJson('/api/admin/month-member-completion',{headers:hdrs()}).then(setMonthMemberCompletion).catch(()=>{});apiJson('/api/admin/remediation/records',{headers:hdrs()}).then(setRemRecords).catch(()=>{});}
     if(tab==='members')apiJson('/api/admin/members',{headers:hdrs()}).then(setMembers).catch(()=>{});
     if(tab==='banks'){apiJson('/api/banks',{headers:hdrs()}).then(d=>{setBanks(d);if(d.length>0){setAiBankId(String(d[0].id));setPinFallback(String(d[0].id));}const manualBank=d.find(b=>b.name==='人工提问');if(manualBank)setAddQ(q=>({...q,bank_id:String(manualBank.id)}));}).catch(()=>{});apiJson('/api/settings',{headers:hdrs()}).then(setSettings).catch(()=>{});apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(d=>{setQPinned(d);setQSelected(d.ids||[]);setPinScope(d.scope==='none'?'shift':d.scope);setPinFallback(d.bank_fallback_id?String(d.bank_fallback_id):'');setPinCount(d.count||3);setPinMode(d.bank_ids?.length>0?'manual':d.mode||'emergency');setPinRandomBankId(d.bank_id||null);setCheckedBankIds(d.bank_ids||[]);}).catch(()=>{});}
     if(tab==='qr')apiJson('/api/qrcode').then(setQr).catch(()=>{});
@@ -1717,22 +1719,27 @@ function AdminScreen({ onBack }) {
                       const isInt=p.status==='interrupted';
                       const isBrowse=p.status==='browsed';
                       const isOverdue=p.overdue&&p.status==='none';
-                      const nameCol=isDone?'var(--green)':isAnswering?'var(--blue)':isInt||isBrowse?'var(--amber)':isOverdue?'#f97316':'var(--red)';
-                      const bg=isDone?'rgba(34,197,94,0.06)':isAnswering?'rgba(59,130,246,0.08)':isInt||isBrowse?'rgba(245,158,11,0.06)':isOverdue?'rgba(249,115,22,0.07)':'rgba(239,68,68,0.05)';
-                      const border=isDone?'rgba(34,197,94,0.18)':isAnswering?'rgba(59,130,246,0.35)':isInt||isBrowse?'rgba(245,158,11,0.2)':isOverdue?'rgba(249,115,22,0.25)':'rgba(239,68,68,0.12)';
+                      // 已完成但不合格（需复查）：分数<60且无已通过的复查
+                      const needsRemediation=isDone&&(p.score??100)<60&&p.remediation_result!=='pass';
+                      const hasRemediationPending=needsRemediation&&p.remediation_result==='pending'; // 已授权未完成
+                      const hasRemediationFail=isDone&&p.remediation_result==='fail';
+                      const hasRemediationPass=isDone&&p.remediation_result==='pass';
+                      const nameCol=needsRemediation&&!hasRemediationPending?'#dc2626':hasRemediationPending?'#a855f7':hasRemediationFail?'#dc2626':hasRemediationPass?'var(--green)':isDone?'var(--green)':isAnswering?'var(--blue)':isInt||isBrowse?'var(--amber)':isOverdue?'#f97316':'var(--red)';
+                      const bg=needsRemediation&&!hasRemediationPending?'rgba(220,38,38,0.08)':hasRemediationPending?'rgba(168,85,247,0.08)':hasRemediationFail?'rgba(220,38,38,0.08)':isDone?'rgba(34,197,94,0.06)':isAnswering?'rgba(59,130,246,0.08)':isInt||isBrowse?'rgba(245,158,11,0.06)':isOverdue?'rgba(249,115,22,0.07)':'rgba(239,68,68,0.05)';
+                      const border=needsRemediation&&!hasRemediationPending?'rgba(220,38,38,0.3)':hasRemediationPending?'rgba(168,85,247,0.35)':hasRemediationFail?'rgba(220,38,38,0.3)':isDone?'rgba(34,197,94,0.18)':isAnswering?'rgba(59,130,246,0.35)':isInt||isBrowse?'rgba(245,158,11,0.2)':isOverdue?'rgba(249,115,22,0.25)':'rgba(239,68,68,0.12)';
                       const clickable=isDone||isAnswering||isInt||isBrowse||isOverdue;
+                      const subLabel=needsRemediation&&!hasRemediationPending?`${p.score??'—'}分 需复查 ›`:hasRemediationPending?`${p.original_score??'—'}分 复查中 ›`:hasRemediationFail?`复查${Math.round(p.score??0)}分❌ ›`:hasRemediationPass?`复查${Math.round(p.score??0)}分✅ ›`:isDone?`${p.score??'—'}分 ›`:isAnswering?'答题中 ›':isInt?'中断 ›':isBrowse?'浏览 ›':isOverdue?'逾期 ›':'未答';
                       return(
                         <div key={ni} onClick={()=>{
-                          if(isDone) setResetModal({staff_id:p.staff_id,name:p.name,score:p.score,completed_at:p.completed_at,isDone:true});
+                          if(isDone&&needsRemediation&&!hasRemediationPending) setRemediationModal({staff_id:p.staff_id,name:p.name,score:p.score,original_score:p.original_score,remediation_result:p.remediation_result});
+                          else if(isDone) setResetModal({staff_id:p.staff_id,name:p.name,score:p.score,completed_at:p.completed_at,isDone:true});
                           else if(isAnswering) setResetModal({staff_id:p.staff_id,name:p.name,isAnswering:true,last_active_at:p.last_active_at});
                           else if(isInt||isBrowse) setResetModal({staff_id:p.staff_id,name:p.name});
                           else if(isOverdue) setMakeupModal({staff_id:p.staff_id,name:p.name});
                         }}
                           style={{display:'flex',flexDirection:'column',gap:1,padding:'5px 7px',background:bg,border:`1px solid ${border}`,borderRadius:6,minWidth:0,cursor:clickable?'pointer':'default'}}>
                           <div style={{fontSize:11,color:nameCol,fontWeight:700,lineHeight:1.3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
-                          <div style={{fontSize:8,color:'var(--muted)',lineHeight:1.2}}>
-                            {isDone?`${p.score??'—'}分 ›`:isAnswering?'答题中 ›':isInt?'中断 ›':isBrowse?'浏览 ›':isOverdue?'逾期 ›':'未答'}
-                          </div>
+                          <div style={{fontSize:8,color:'var(--muted)',lineHeight:1.2}}>{subLabel}</div>
                         </div>
                       );
                     })}
@@ -1743,6 +1750,8 @@ function AdminScreen({ onBack }) {
                     <span style={{color:'var(--amber)'}}>● 中断/浏览（可点击重置）</span>
                     <span style={{color:'var(--red)'}}>● 未答题</span>
                     <span style={{color:'#f97316'}}>● 逾期（可点击补答）</span>
+                    <span style={{color:'#dc2626'}}>● 不合格（可点击授权复查）</span>
+                    <span style={{color:'#a855f7'}}>● 复查进行中</span>
                   </div>
                   {sorted.length>12&&(
                     <div onClick={()=>setStaffListCollapsed(c=>!c)} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,marginTop:8,padding:'7px 0',cursor:'pointer',borderTop:'1px solid rgba(27,50,85,0.4)',color:'#60a5fa',fontSize:12,fontWeight:600}}>
@@ -1791,6 +1800,51 @@ function AdminScreen({ onBack }) {
               }}
             ]}
           />}
+
+          {/* ── 授权复查弹窗 ── */}
+          {remediationModal&&<AppModal
+            icon="⚠️"
+            title={`授权复查：${remediationModal.name}`}
+            body={`本轮得分：${remediationModal.score??'—'}分（不合格）\n\n授权后该人员可在 1 小时内完成本套班复查。\n复查结果将记入复查台账，作为考核依据。`}
+            buttons={[
+              {label:'取消',onClick:()=>setRemediationModal(null)},
+              {label:'确认授权复查',danger:true,onClick:async()=>{
+                const r=await apiJson('/api/admin/remediation/grant',{method:'POST',headers:hdrs(),body:JSON.stringify({staffId:remediationModal.staff_id})}).catch(()=>null);
+                setRemediationModal(null);
+                if(r?.ok){
+                  alert(`已授权 ${remediationModal.name} 复查，有效至 ${r.expiresAt.slice(11,16)}`);
+                  apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});
+                  apiJson('/api/admin/remediation/records',{headers:hdrs()}).then(setRemRecords).catch(()=>{});
+                } else alert('授权失败，请重试');
+              }}
+            ]}
+          />}
+
+          {/* ── 复查台账 ── */}
+          {remRecords.length>0&&(
+            <div style={{background:'var(--card)',borderRadius:10,padding:'12px 14px',marginBottom:14,border:'1px solid rgba(168,85,247,0.2)'}}>
+              <div style={{fontSize:12,fontWeight:700,color:'#a855f7',marginBottom:10}}>⚠️ 复查台账（本月）</div>
+              {remRecords.map((r,i)=>(
+                <div key={i} style={{padding:'8px 0',borderTop:i>0?'1px solid var(--border)':undefined}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}}>
+                    <span style={{fontSize:12,fontWeight:700,color:'var(--text)'}}>{r.name}</span>
+                    <span style={{fontSize:10,color:'var(--muted)'}}>{r.authorized_at?.slice(5,16)}</span>
+                  </div>
+                  <div style={{fontSize:10,color:'var(--muted)',marginTop:3,lineHeight:1.6}}>
+                    初试 <span style={{color:'#f87171',fontWeight:600}}>{Math.round(r.original_score)}分</span>
+                    {' → '}
+                    {r.result==='pending'
+                      ? <span style={{color:'#a855f7'}}>待复查</span>
+                      : r.result==='pass'
+                      ? <span style={{color:'var(--green)',fontWeight:600}}>复查{Math.round(r.remediation_score)}分 ✅合格</span>
+                      : <span style={{color:'#f87171',fontWeight:600}}>复查{Math.round(r.remediation_score)}分 ❌不合格</span>
+                    }
+                    {' · 授权：'}{r.authorized_by||'—'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* ── 本期高错误率题目 ── */}
           {weakQuestions.length>0&&(()=>{

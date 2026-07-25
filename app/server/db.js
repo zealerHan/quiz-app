@@ -146,6 +146,32 @@ db.exec(`CREATE TABLE IF NOT EXISTS makeup_grants (
   PRIMARY KEY (staff_id, cycle_id)
 )`);
 
+// ─── Remediation Tables（复查机制）──────────────────────────────────────────
+try { db.exec('ALTER TABLE sessions ADD COLUMN is_remediation INTEGER DEFAULT 0'); } catch(e) {}
+
+db.exec(`CREATE TABLE IF NOT EXISTS remediation_grants (
+  staff_id TEXT NOT NULL,
+  cycle_id TEXT NOT NULL,
+  granted_by TEXT,
+  granted_at TEXT DEFAULT (datetime('now','localtime')),
+  expires_at TEXT NOT NULL,
+  PRIMARY KEY (staff_id, cycle_id)
+)`);
+
+db.exec(`CREATE TABLE IF NOT EXISTS remediation_records (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  staff_id TEXT NOT NULL,
+  cycle_id TEXT NOT NULL,
+  original_session_id INTEGER,
+  original_score REAL,
+  authorized_by TEXT,
+  authorized_at TEXT DEFAULT (datetime('now','localtime')),
+  remediation_session_id INTEGER,
+  remediation_score REAL,
+  result TEXT DEFAULT 'pending',
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+
 // ─── Training Tables（车间任务模块）──────────────────────────────────────────
 try { db.exec('ALTER TABLE staff ADD COLUMN is_instructor INTEGER DEFAULT 0'); } catch(e) {}
 try { db.exec('ALTER TABLE staff ADD COLUMN is_leader INTEGER DEFAULT 0'); } catch(e) {}

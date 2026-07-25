@@ -160,6 +160,9 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
   const [tabSwitchCount,setTabSwitchCount]=useState(0);
   const [showTabWarn,setShowTabWarn]=useState(false);
   const tabSwitchRef=useRef(0);
+  const isRecRef=useRef(false);       // 录音状态 ref，供 visibilitychange 跨闭包访问
+  const hiddenWhileRecRef=useRef(false); // 录音期间是否发生过息屏
+  const noSleepAudioRef=useRef(null); // iOS 息屏兜底静音音频
   const recRef=useRef(),typeRef=useRef(),pendingSubmitRef=useRef(false),submitRef=useRef(null),scoreCacheRef=useRef(null),audioStreamRef=useRef(null),recognizeTimeoutRef=useRef(null);
   const finishPromiseRef=useRef(null),finishResultRef=useRef(null);
 
@@ -195,10 +198,26 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
   useEffect(()=>{
     const handler=()=>{
       if(document.hidden){
-        tabSwitchRef.current+=1;
-        setTabSwitchCount(tabSwitchRef.current);
-      } else if(tabSwitchRef.current>0){
-        setShowTabWarn(true);
+        if(isRecRef.current){
+          // 录音中息屏：不计切屏，标记需要恢复提示
+          hiddenWhileRecRef.current=true;
+        } else {
+          tabSwitchRef.current+=1;
+          setTabSwitchCount(tabSwitchRef.current);
+        }
+      } else {
+        if(hiddenWhileRecRef.current){
+          // 录音被息屏打断，恢复屏幕后停止录音并提示重录
+          hiddenWhileRecRef.current=false;
+          if(isRecRef.current){
+            try{ recRef.current?.stop?.(); }catch(_){}
+            setIsRec(false);
+            setIsRecognizing(false);
+            setRecogError('屏幕息屏导致录音中断，请重新录音');
+          }
+        } else if(tabSwitchRef.current>0){
+          setShowTabWarn(true);
+        }
       }
     };
     document.addEventListener('visibilitychange',handler);
@@ -302,6 +321,17 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
 
       // 拿到麦克风权限后立即变红，不等 WebSocket 握手
       setIsRec(true);
+      isRecRef.current=true;
+      // iOS 息屏兜底：播放静音音频循环，阻止系统在录音期间息屏
+      try{
+        if(!noSleepAudioRef.current){
+          // 最短合法 WAV：44字节，0.001秒静音
+          const au=new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+          au.loop=true; au.volume=0.001;
+          noSleepAudioRef.current=au;
+        }
+        noSleepAudioRef.current.play().catch(()=>{});
+      }catch(_){}
 
       // 建立WebSocket连接到后端代理
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -366,6 +396,8 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
       ws.onerror = () => {
         clearRecognizeTimeout();
         setIsRec(false);
+        isRecRef.current=false;
+        try{ noSleepAudioRef.current?.pause(); }catch(_){}
         setIsRecognizing(false);
         setRecogError('识别服务连接失败，请重新录音或切换手动输入');
       };
@@ -381,6 +413,9 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
           if (stream !== audioStreamRef.current) stream.getTracks().forEach(t=>t.stop());
           audioCtx.close();
           setIsRec(false);
+          isRecRef.current=false;
+          // 停止 iOS 息屏兜底音频
+          try{ noSleepAudioRef.current?.pause(); }catch(_){}
           setIsRecognizing(true);
           if(ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({type:'stop'}));
@@ -964,6 +999,9 @@ function HomeScreen({ user, nav }) {
   const [isInterrupted, setIsInterrupted] = useState(false);
   const [makeupGrant, setMakeupGrant] = useState(null); // null or {expiresAt}
   const [makeupPrompted, setMakeupPrompted] = useState(false);
+  const [remRecord, setRemRecord] = useState(null); // null or {result, original_score, remediation_score}
+  const [remediationGrant, setRemediationGrant] = useState(null); // null or {expiresAt}
+  const [remediationPrompted, setRemediationPrompted] = useState(false);
   const [workshopStatus, setWorkshopStatus] = useState(null); // [{plan_id, shift_date, plan_type, relevant, checked_in, instructor_confirmed}]
   const [yearPlanItems, setYearPlanItems] = useState(null); // [{item, trainType}] 本月年度计划项点
 
@@ -987,10 +1025,14 @@ function HomeScreen({ user, nav }) {
         setQuizInProgress(null);
         setIsInterrupted(true);
       }
+      setRemRecord(d.remRecord || null);
       if (!exempt && !isTester) {
         const today2 = new Date().toISOString().slice(0, 10);
-        const doneToday = (d.recent || []).some(r => r.created_at && r.created_at.slice(0, 10) === today2);
-        setTaskDone(doneToday);
+        // 用 cycleCompletedSession 判断是否完成，避免被 is_deleted 的 session 干扰
+        const cycSess = d.cycleCompletedSession;
+        const doneToday = !!cycSess || (d.recent || []).some(r => r.created_at && r.created_at.slice(0, 10) === today2);
+        // 如果有待完成的复查授权，不标记为 done（用户需要去做复查）
+        setTaskDone(doneToday && !(d.remRecord?.result === 'pending'));
       }
     }).catch(() => {});
 
@@ -1054,7 +1096,17 @@ function HomeScreen({ user, nav }) {
     };
     checkMakeup();
     const makeupTimer = setInterval(checkMakeup, 30000);
-    return () => clearInterval(makeupTimer);
+
+    // 复查授权查询（每30秒轮询一次）
+    const checkRemediation = () => {
+      apiJson(`/api/remediation/status/${user.staffId}`).then(d => {
+        setRemediationGrant(d.granted ? d : null);
+      }).catch(() => {});
+    };
+    checkRemediation();
+    const remTimer = setInterval(checkRemediation, 30000);
+
+    return () => { clearInterval(makeupTimer); clearInterval(remTimer); };
   }, [user.staffId]);
 
   const getShiftDeadline = () => {
@@ -1234,8 +1286,26 @@ function HomeScreen({ user, nav }) {
                 {label:'立即补答',primary:true,onClick:()=>{ setMakeupPrompted(false); nav('quiz'); }}
               ]}
             />}
+            {remediationGrant&&!remediationPrompted&&(()=>{ setTimeout(()=>setRemediationPrompted(true),0); return null; })()}
+            {remediationGrant&&remediationPrompted&&<AppModal
+              icon="⚠️"
+              title="复查通知"
+              body={`班组长已授权本次复查\n请在 ${remediationGrant.expiresAt?.slice(11,16)} 前完成\n本次复查结果将记录在案`}
+              buttons={[
+                {label:'稍后再答',onClick:()=>setRemediationPrompted(false)},
+                {label:'开始复查',primary:true,onClick:()=>{ setRemediationPrompted(false); nav('quiz'); }}
+              ]}
+            />}
             {isInterrupted
               ? <button disabled style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid rgba(239,68,68,0.25)', cursor:'not-allowed', background:'rgba(239,68,68,0.06)', color:'rgba(239,68,68,0.55)', fontSize:11, fontWeight:700, fontFamily:'var(--font)', letterSpacing:'0.3px' }}>答题已中断，请联系管理员重置</button>
+              : remRecord?.result === 'pending' && remediationGrant
+              ? <button onClick={() => nav('quiz')} style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#7c3aed,#a855f7)', color:'#fff', fontSize:12, fontWeight:800, fontFamily:'var(--font)', letterSpacing:'1px' }}>⚠️ 开始复查（限时）</button>
+              : remRecord?.result === 'pending' && !remediationGrant
+              ? <button disabled style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid rgba(239,68,68,0.3)', cursor:'not-allowed', background:'rgba(239,68,68,0.06)', color:'rgba(239,68,68,0.7)', fontSize:11, fontWeight:700, fontFamily:'var(--font)', letterSpacing:'0.3px' }}>答题不合格（{remRecord.original_score}分），等待班组长授权复查</button>
+              : remRecord?.result === 'fail'
+              ? <button disabled style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid rgba(239,68,68,0.3)', cursor:'not-allowed', background:'rgba(239,68,68,0.06)', color:'rgba(239,68,68,0.7)', fontSize:11, fontWeight:700, fontFamily:'var(--font)', letterSpacing:'0.3px' }}>复查不合格（{Math.round(remRecord.remediation_score)}分）</button>
+              : remRecord?.result === 'pass'
+              ? <button disabled style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid rgba(34,197,94,.4)', background:'rgba(34,197,94,.08)', color:'var(--green)', fontSize:11, fontWeight:700, fontFamily:'var(--font)' }}>复查合格 {Math.round(remRecord.remediation_score)}分</button>
               : taskDone
               ? <button className="btn-done" style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid rgba(34,197,94,.4)', background:'rgba(34,197,94,.08)', color:'var(--green)', fontSize:11, fontWeight:700, fontFamily:'var(--font)' }}>✓ 今日已完成</button>
               : makeupGrant

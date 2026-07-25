@@ -402,12 +402,22 @@ router.post('/api/admin/training-plan/member-swap', workshopEditAuth, (req, res)
   const now2 = new Date().toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit'});
   const membersA = getPlanMemberNames(plan_id_a).join('、');
   const membersB = getPlanMemberNames(plan_id_b).join('、');
+  // nb 为空时从 overrides 里补查（防止名字丢失）
+  let nbDisplay = nb;
+  if (!nbDisplay) {
+    const addedToA = db.prepare(
+      `SELECT COALESCE(s.real_name,s.name) as n FROM training_plan_member_overrides o
+       JOIN staff s ON s.id=o.staff_id
+       WHERE o.plan_id=? AND o.action='add' AND o.created_at=?`
+    ).get(plan_id_a, now);
+    nbDisplay = addedToA?.n || '（另一成员）';
+  }
   const lines2 = [
     `${now2}  教员 ${opName}`,
-    `将 ${na}调整到${fmtDate(dateB)}培训，${nb}调整到${fmtDate(dateA)}培训`,
+    `🔄 ${na} ↔ ${nbDisplay}（${fmtDate(dateA)} ↔ ${fmtDate(dateB)} 换培训日）`,
     ``,
-    `调整后${fmtDate(dateA)}培训人员为：${membersA}`,
-    `调整后${fmtDate(dateB)}培训人员为：${membersB}`,
+    `${fmtDate(dateA)}：${membersA}`,
+    `${fmtDate(dateB)}：${membersB}`,
   ];
   sendGroupPush(lines2.join('\n'));
 });
@@ -442,9 +452,9 @@ router.post('/api/admin/training-plan/member-postpone', workshopEditAuth, (req, 
   const membersTo = getPlanMemberNames(to_plan_id).join('、');
   const lines3 = [
     `${now3}  教员 ${opName2}`,
-    `将 ${n} 从${fmtDate(dateFrom)}调整到${fmtDate(dateTo)}培训`,
+    `📅 ${n}  ${fmtDate(dateFrom)} → ${fmtDate(dateTo)}`,
     ``,
-    `调整后${fmtDate(dateTo)}培训人员为：${membersTo}`,
+    `${fmtDate(dateTo)}：${membersTo}`,
   ];
   sendGroupPush(lines3.join('\n'));
 });

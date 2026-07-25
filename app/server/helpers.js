@@ -174,12 +174,16 @@ function getTrainingPlanForDate(dateStr) {
       for (const rid of removedIds) {
         const rs = db.prepare('SELECT real_name, name FROM staff WHERE id=?').get(rid);
         if (!rs) continue;
-        const dest = db.prepare(`
+        // 用 created_at 精确匹配：remove 和 add 在同一事务里用同一时间戳写入
+        const removeSrc = db.prepare(
+          'SELECT created_at FROM training_plan_member_overrides WHERE plan_id=? AND staff_id=? AND action=\'remove\''
+        ).get(plan.id, rid);
+        const dest = removeSrc ? db.prepare(`
           SELECT mtp.shift_date FROM training_plan_member_overrides o
           JOIN monthly_training_plans mtp ON mtp.id = o.plan_id
-          WHERE o.staff_id=? AND o.action='add' AND mtp.id != ?
-          ORDER BY mtp.shift_date LIMIT 1
-        `).get(rid, plan.id);
+          WHERE o.staff_id=? AND o.action='add' AND mtp.id != ? AND o.created_at=?
+          LIMIT 1
+        `).get(rid, plan.id, removeSrc.created_at) : null;
         adjustNotes.push({ name: rs.real_name || rs.name, date: dest?.shift_date || null });
       }
       plan.adjustNotes = adjustNotes;
