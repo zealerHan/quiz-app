@@ -2859,7 +2859,7 @@ function AdminScreen({ onBack }) {
                             <button type="button" onClick={e=>{e.stopPropagation();setRenamingBank(null);}} style={{fontSize:11,padding:'3px 8px',borderRadius:4,border:'1px solid #334155',background:'none',color:'var(--muted)',cursor:'pointer'}}>取消</button>
                           </form>
                         ) : (
-                          <><span>{b.name}</span><button onClick={e=>{e.stopPropagation();setRenamingBank({id:b.id,name:b.name});}} style={{flexShrink:0,background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:12,padding:'0 2px',lineHeight:1}} title="改名">✏️</button></>
+                          <><span>{b.name}</span><button onClick={e=>{e.stopPropagation();setRenamingBank({id:b.id,name:b.name});}} style={{flexShrink:0,background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:12,padding:'0 2px',lineHeight:1}} title="改名">✏️</button>{(b.q_count||0)===0&&<button onClick={async e=>{e.stopPropagation();if(!confirm(`确认删除题库「${b.name}」？此操作不可恢复。`))return;const r=await apiJson(`/api/banks/${b.id}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);if(r?.ok){setBanks(prev=>prev.filter(x=>x.id!==b.id));}else{alert('删除失败');}}} style={{flexShrink:0,background:'none',border:'none',color:'var(--red)',cursor:'pointer',fontSize:12,padding:'0 2px',lineHeight:1,opacity:0.7}} title="删除空题库">🗑️</button>}</>
                         )}
                         {b.bank_type_summary && b.bank_type_summary !== 'empty' && (() => {
                           const map = { choice:{label:'选择',color:'#60a5fa'}, fill:{label:'填空',color:'var(--amber)'}, short:{label:'简答',color:'var(--green)'}, mixed:{label:'混合',color:'#a78bfa'} };

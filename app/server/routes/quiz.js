@@ -155,6 +155,17 @@ router.put('/api/banks/:id', adminAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+router.delete('/api/banks/:id', adminAuth, (req, res) => {
+  const bank = db.prepare('SELECT name FROM question_banks WHERE id=?').get(req.params.id);
+  if (!bank) return res.status(404).json({ error: '题库不存在' });
+  const { c } = db.prepare('SELECT COUNT(*) as c FROM questions WHERE bank_id=? AND active=1').get(req.params.id);
+  if (c > 0) return res.status(400).json({ error: `题库中还有 ${c} 道题目，请先删除后再删除题库` });
+  db.prepare('DELETE FROM questions WHERE bank_id=? AND active=0').run(req.params.id);
+  db.prepare('DELETE FROM question_banks WHERE id=?').run(req.params.id);
+  logAdmin('删除题库', bank.name, req.adminName);
+  res.json({ ok: true });
+});
+
 router.put('/api/banks/:id/activate', adminAuth, (req, res) => {
   db.prepare('UPDATE question_banks SET is_active=0').run();
   db.prepare('UPDATE question_banks SET is_active=1 WHERE id=?').run(req.params.id);
