@@ -239,6 +239,14 @@ router.get('/api/monitor/push', (req, res) => {
 });
 
 // ─── 扣分点展示：按对总分的实际扣分量排列 ──────────────────────────────
+const CAT_ABBR = {
+  '行车组织规则': '行规',
+  '行车组织': '行规',
+};
+function abbrCat(cat) {
+  const c = (cat || '题目').replace(/[（(].*/g, '').trim();
+  return CAT_ABBR[c] || c.slice(0, 6);
+}
 function getTopDeductions(sessionId) {
   const rows = db.prepare(`
     SELECT score, category FROM answers
@@ -246,13 +254,12 @@ function getTopDeductions(sessionId) {
     ORDER BY score ASC
   `).all(sessionId);
   if (!rows.length) return '';
-  const n = rows.length; // 总题数，用于折算扣分
-  // 计算每题对总分的实际扣分：(100 - 单题分) / 题数
+  const n = rows.length;
   const deductions = rows
-    .map(r => ({ cat: (r.category || '题目').replace(/[（(].*/g, '').trim().slice(0, 6), deduct: Math.round((100 - r.score) / n) }))
-    .filter(r => r.deduct >= 8) // 扣分不足8分忽略
+    .map(r => ({ cat: abbrCat(r.category), deduct: Math.round((100 - r.score) / n) }))
+    .filter(r => r.deduct >= 8)
     .sort((a, b) => b.deduct - a.deduct)
-    .slice(0, 2); // 最多展示2条
+    .slice(0, 2);
   if (!deductions.length) return '';
   return `（${deductions.map(r => `${r.cat}-${r.deduct}`).join('·')}）`;
 }
