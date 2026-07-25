@@ -442,10 +442,13 @@ router.get('/api/admin/remediation/records', adminAuth, (req, res) => {
   const month = req.query.month || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(0, 7);
   const rows = db.prepare(`
     SELECT rr.id, rr.staff_id, COALESCE(s.real_name,s.name) as name,
-           rr.cycle_id, rr.original_score, rr.authorized_by, rr.authorized_at,
+           rr.cycle_id,
+           COALESCE(sess.total_score, rr.original_score) as original_score,
+           rr.authorized_by, rr.authorized_at,
            rr.remediation_score, rr.result, rr.created_at
     FROM remediation_records rr
     LEFT JOIN staff s ON s.id=rr.staff_id
+    LEFT JOIN sessions sess ON sess.id=rr.original_session_id
     WHERE strftime('%Y-%m', rr.created_at)=?
     ORDER BY rr.created_at DESC
   `).all(month);
@@ -462,10 +465,13 @@ router.get('/api/admin/remediation/export', adminAuth, async (req, res) => {
   const placeholders = months.map(() => '?').join(',');
   const rows = db.prepare(`
     SELECT rr.staff_id, COALESCE(s.real_name,s.name) as name,
-           rr.cycle_id, rr.original_score, rr.authorized_by, rr.authorized_at,
+           rr.cycle_id,
+           COALESCE(sess.total_score, rr.original_score) as original_score,
+           rr.authorized_by, rr.authorized_at,
            rr.remediation_score, rr.result, rr.created_at
     FROM remediation_records rr
     LEFT JOIN staff s ON s.id=rr.staff_id
+    LEFT JOIN sessions sess ON sess.id=rr.original_session_id
     WHERE strftime('%Y-%m', rr.created_at) IN (${placeholders})
     ORDER BY rr.created_at ASC
   `).all(...months);
