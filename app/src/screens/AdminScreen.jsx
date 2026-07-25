@@ -1569,6 +1569,7 @@ function AdminScreen({ onBack }) {
   const [makeupModal,setMakeupModal]=useState(null); // null or {staff_id, name}
   const [remediationModal,setRemediationModal]=useState(null); // null or {staff_id, name, score, original_score, remediation_result}
   const [remRecords,setRemRecords]=useState([]); // 复查台账
+  const [remMonth,setRemMonth]=useState(()=>new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'}).slice(0,7));
   const [adminDrillModal,setAdminDrillModal]=useState(null); // {staffId,staffName,mode,loading,sessions,cycles,expandedCycleId}
   const [dingtalkLoading,setDingtalkLoading]=useState(false);
   const [allCorrectExpanded,setAllCorrectExpanded]=useState(false);
@@ -1638,6 +1639,10 @@ function AdminScreen({ onBack }) {
     if(tab==='qr')apiJson('/api/qrcode').then(setQr).catch(()=>{});
     if(tab==='logs')apiJson('/api/admin/logs',{headers:hdrs()}).then(setLogs).catch(()=>{});
   },[tab,authed]);
+  useEffect(()=>{
+    if(!authed||tab!=='overview')return;
+    apiJson(`/api/admin/remediation/records?month=${remMonth}`,{headers:hdrs()}).then(setRemRecords).catch(()=>{});
+  },[remMonth,authed,tab]);
 
   const pushDingtalk=async()=>{
     setDingtalkLoading(true);
@@ -1822,12 +1827,6 @@ function AdminScreen({ onBack }) {
 
           {/* ── 复查台账 ── */}
           {(()=>{
-            const curMonth=new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'}).slice(0,7);
-            const [remMonth,setRemMonth]=React.useState(curMonth);
-            // 切换月份时重新拉取
-            React.useEffect(()=>{
-              apiJson(`/api/admin/remediation/records?month=${remMonth}`,{headers:hdrs()}).then(setRemRecords).catch(()=>{});
-            },[remMonth]);
             const doExport=()=>{
               const url=`/api/admin/remediation/export?months=${remMonth}&password=${encodeURIComponent(pwd)}`;
               const a=document.createElement('a'); a.href=url; a.download=''; a.click();
