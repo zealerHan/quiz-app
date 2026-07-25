@@ -358,16 +358,24 @@ async function scoreWithQwen(question, reference, answer, category) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${KEY}` },
       body: JSON.stringify({
-        model: 'deepseek-chat',
+        model: 'deepseek-v4-flash',
         messages: [{ role: 'user', content: buildScoringPrompt(question, reference, answer, category) }],
-        max_tokens: 800,
+        max_tokens: 2000,
         temperature: 0.1
       }),
       signal: controller.signal
     });
     const data = await resp.json();
-    const raw = (data.choices?.[0]?.message?.content || '{}').replace(/```json|```/g, '').trim();
-    return JSON.parse(raw);
+    const msg = data.choices?.[0]?.message;
+    if (!msg) return null; // API 返回错误体，触发 keyword 兜底
+    // deepseek-v4-flash 推理模式下 content 可能为空，从 reasoning_content 提取 JSON
+    const src = msg.content || msg.reasoning_content || '';
+    const jsonMatch = src.match(/\{[\s\S]*"score"[\s\S]*\}/);
+    const raw = jsonMatch ? jsonMatch[0] : '';
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (typeof parsed.score !== 'number') return null; // score 字段非法，触发 keyword 兜底
+    return parsed;
   } catch(e) { return null; } finally { clearTimeout(timer); }
 }
 
