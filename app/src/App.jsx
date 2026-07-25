@@ -573,7 +573,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
       <div style={{position:"absolute",inset:0,background:"linear-gradient(180deg,rgba(0,0,0,0.6) 0%,rgba(0,0,0,0.1) 40%,rgba(0,0,0,0.55) 75%,rgba(0,0,0,0.92) 100%)",pointerEvents:"none"}}/>
 
       {/* 内容 */}
-      <div style={{position:"relative",zIndex:10,flex:1,display:"flex",flexDirection:"column",maxWidth:440,margin:"0 auto",width:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+      <div style={{position:"relative",zIndex:10,flex:1,display:"flex",flexDirection:"column",maxWidth:440,margin:"0 auto",width:"100%",overflowY:"auto",overscrollBehavior:"contain"}}>
 
         {/* 顶部状态栏 */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 20px 6px"}}>
