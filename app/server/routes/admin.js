@@ -530,6 +530,74 @@ router.get('/api/admin/remediation/export', adminAuth, async (req, res) => {
   await wb.xlsx.write(res); res.end();
 });
 
+// ─── DingTalk: 复查结果推送 ────────────────────────────────────────────────
+router.post('/api/admin/dingtalk/notify-remediation', adminAuth, async (req, res) => {
+  const webhook = process.env.DINGTALK_WEBHOOK;
+  const secret = process.env.DINGTALK_SECRET;
+  if (!webhook || !secret) return res.status(500).json({ error: '未配置钉钉Webhook' });
+
+  const cycle = getCurrentCycle();
+  const cycleId = cycle?.id || null;
+  if (!cycleId) return res.status(400).json({ error: '未找到当前轮次' });
+
+  const records = db.prepare(`
+    SELECT rr.staff_id, COALESCE(s.real_name, s.name) as name,
+           rr.original_score, rr.remediation_score, rr.result, rr.authorized_by
+    FROM remediation_records rr
+    LEFT JOIN staff s ON s.id = rr.staff_id
+    WHERE rr.cycle_id = ? AND rr.result != 'pending'
+    ORDER BY rr.authorized_at ASC
+  `).all(cycleId);
+
+  if (!records.length) return res.status(400).json({ error: '本轮暂无已完成的复查记录' });
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric' });
+  const todayShift = getTodayShift();
+  const shiftLabel = todayShift ? ` · ${todayShift}` : '';
+
+  const passCount = records.filter(r => r.result === 'pass').length;
+  const failCount = records.filter(r => r.result === 'fail').length;
+
+  const lines = [`📋 ${dateStr}${shiftLabel} 复查结果通报（${records.length}人）`, ''];
+  for (const r of records) {
+    const orig = Math.round(r.original_score);
+    const rem = Math.round(r.remediation_score);
+    if (r.result === 'pass') {
+      lines.push(`✅ ${r.name}  初试${orig}分 → 复查${rem}分  合格`);
+    } else {
+      lines.push(`❌ ${r.name}  初试${orig}分 → 复查${rem}分  不合格`);
+    }
+  }
+  if (failCount > 0) {
+    lines.push('');
+    lines.push(`共 ${failCount} 人复查仍不合格，请依规处理。`);
+  }
+  if (passCount > 0 && failCount === 0) {
+    lines.push('');
+    lines.push('所有复查人员已通过，本轮抽问结束。');
+  }
+
+  const msgText = lines.join('\n');
+  const timestamp = Date.now();
+  const sign = crypto.createHmac('sha256', secret).update(`${timestamp}\n${secret}`).digest('base64');
+  const url = `${webhook}&timestamp=${timestamp}&sign=${encodeURIComponent(sign)}`;
+
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ msgtype: 'text', text: { content: msgText } })
+    });
+    const data = await resp.json();
+    if (data.errcode !== 0) return res.status(500).json({ ok: false, error: data.errmsg });
+    logAdmin('复查结果推送', `推送${records.length}人复查结果`, req.adminName);
+    res.json({ ok: true, count: records.length, passCount, failCount, preview: msgText });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // ─── DingTalk: 抽问开始通知 ────────────────────────────────────────────────
 router.post('/api/admin/dingtalk/notify-start', adminAuth, async (req, res) => {
   const webhook = process.env.DINGTALK_WEBHOOK;

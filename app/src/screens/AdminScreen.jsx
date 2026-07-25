@@ -1832,6 +1832,14 @@ function AdminScreen({ onBack }) {
               const url=`/api/admin/remediation/export?months=${remMonth}&password=${encodeURIComponent(pwd)}`;
               const a=document.createElement('a'); a.href=url; a.download=''; a.click();
             };
+            const doPushRemediation=async()=>{
+              const hasCompleted=remRecords.some(r=>r.result!=='pending');
+              if(!hasCompleted){alert('本轮暂无已完成的复查记录，无需推送');return;}
+              if(!window.confirm('推送本轮复查结果到钉钉群？'))return;
+              const r=await apiJson('/api/admin/dingtalk/notify-remediation',{method:'POST',headers:hdrs()}).catch(()=>null);
+              if(r?.ok) alert(`已推送复查结果（${r.passCount}人合格 / ${r.failCount}人不合格）`);
+              else alert('推送失败：'+(r?.error||'网络错误'));
+            };
             return(
               <div style={{background:'var(--card)',borderRadius:10,padding:'12px 14px',marginBottom:14,border:'1px solid rgba(168,85,247,0.2)'}}>
                 <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
@@ -1839,6 +1847,9 @@ function AdminScreen({ onBack }) {
                   <div style={{display:'flex',gap:6,alignItems:'center'}}>
                     <input type="month" value={remMonth} onChange={e=>setRemMonth(e.target.value)}
                       style={{background:'var(--card-deep)',border:'1px solid var(--border)',borderRadius:5,color:'var(--text)',fontSize:10,padding:'2px 6px',fontFamily:'inherit'}}/>
+                    {remRecords.some(r=>r.result!=='pending')&&(
+                      <button onClick={doPushRemediation} style={{padding:'3px 10px',borderRadius:5,border:'1px solid rgba(34,197,94,0.4)',background:'rgba(34,197,94,0.08)',color:'var(--green)',cursor:'pointer',fontSize:10,fontWeight:600,fontFamily:'inherit'}}>📣 推送结果</button>
+                    )}
                     <button onClick={doExport} style={{padding:'3px 10px',borderRadius:5,border:'1px solid rgba(168,85,247,0.4)',background:'rgba(168,85,247,0.1)',color:'#a855f7',cursor:'pointer',fontSize:10,fontWeight:600,fontFamily:'inherit'}}>↓ 导出</button>
                   </div>
                 </div>
