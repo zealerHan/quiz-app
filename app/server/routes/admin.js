@@ -238,55 +238,22 @@ router.get('/api/monitor/push', (req, res) => {
   });
 });
 
-// ─── 扣分点关键词提取 ──────────────────────────────────────────────────────
-// 返回 {topic, type}，type 说明问题性质
-function extractMissingKeyword(pt) {
-  if (pt.includes('扣发') || pt.includes('处分') || pt.includes('开除'))
-    return { topic: '处罚标准', type: '' };
-  // 规章条款类 "6.15.1总体措施原则"
-  const secM = pt.match(/^\d[\d.]*\s*(.{2,10}?)(?:[（(]|$)/);
-  if (secM) return { topic: secM[1].replace(/的.*$/, '').trim().slice(0, 6), type: '漏项' };
-  // 确定问题类型（前缀即类型）
-  let type = '漏提';
-  if (/^未明确/.test(pt)) type = '欠清';
-  // "的[concept]" 模式 → 最精准（最多6字）
-  const deM = pt.match(/的([^的"""''，。；：（(/]{2,6})(?:["""''，。；：（(/]|$)/);
-  if (deM) return { topic: deM[1].replace(/^["""''\s]/, '').trim(), type };
-  // 末尾5字提取（末尾通常是核心概念，≤6字时保留全部）
-  const GENERIC = ['情况', '内容', '要求', '事项', '方面', '程度', '环节', '要点'];
-  const stripped = pt.replace(/^未[提说涉明确及到]{0,4}/, '').replace(/["""''（(/].*/g, '').trim();
-  let tail = stripped.length <= 6 ? stripped : stripped.slice(-5);
-  // 若末尾4字是泛化词，往前移4字
-  if (stripped.length > 6 && GENERIC.some(e => tail.slice(-2) === e))
-    tail = stripped.slice(0, -2).slice(-5);
-  // 去掉非汉字开头（弯引号残留）
-  tail = tail.replace(/^[^一-鿿]/, '');
-  return { topic: tail, type };
-}
-
-function getMissingKeywords(sessionId, maxKeywords = 2) {
-  const rows = db.prepare('SELECT missing_points, score_method FROM answers WHERE session_id=?').all(sessionId);
-  const allPts = [];
-  for (const row of rows) {
-    try {
-      const pts = JSON.parse(row.missing_points || '[]');
-      // score_method=2 为顺序题，有扣分点则标记顺序错
-      const forceType = (row.score_method === 2 && pts.length > 0) ? '步骤乱' : null;
-      pts.forEach(pt => allPts.push({ pt, forceType }));
-    } catch {}
-  }
-  if (!allPts.length) return '';
-  const seen = new Set();
-  const keywords = [];
-  for (const { pt, forceType } of allPts) {
-    if (keywords.length >= maxKeywords) break;
-    const { topic, type } = extractMissingKeyword(pt);
-    if (!topic || topic.length < 2) continue;
-    const finalType = forceType || type;
-    const kw = finalType ? `${topic}·${finalType}` : topic;
-    if (!seen.has(topic)) { seen.add(topic); keywords.push(kw); }
-  }
-  return keywords.length ? `（${keywords.join('、')}）` : '';
+// ─── 扣分点展示：取得分最低的题目 category + 分数 ────────────────────────
+function getTopDeductions(sessionId) {
+  const rows = db.prepare(`
+    SELECT score, category FROM answers
+    WHERE session_id=? AND score IS NOT NULL
+    ORDER BY score ASC LIMIT 2
+  `).all(sessionId);
+  // 只列低于 80 分的题目
+  const weak = rows.filter(r => r.score < 80);
+  if (!weak.length) return '';
+  // category 过长时截取前4字（如"行车组织规则"→"行车规则"在4字内已含义清晰）
+  const parts = weak.map(r => {
+    const cat = (r.category || '题目').replace(/[（(].*/g, '').trim().slice(0, 6);
+    return `${cat}${Math.round(r.score)}`;
+  });
+  return `（${parts.join('·')}）`;
 }
 
 // ─── DingTalk Push ─────────────────────────────────────────────────────────
@@ -341,7 +308,7 @@ router.post('/api/admin/dingtalk/push', adminAuth, async (req, res) => {
       const ses = db.prepare(`SELECT id, total_points, total_score, tab_switch_count FROM sessions WHERE staff_id=? AND cycle_id=? AND completed=1 AND COALESCE(is_practice,0)=0 AND q_count>=3 ORDER BY id ASC LIMIT 1`).get(r.staff_id, cycleId);
       if (!ses) continue;
       const sw = ses.tab_switch_count > 0 ? ` 切屏×${ses.tab_switch_count}` : '';
-      const mk = getMissingKeywords(ses.id);
+      const mk = getTopDeductions(ses.id);
       lines.push(`• ${r.name} ${Math.round(ses.total_score)}分${sw}${mk}`);
     }
   }
