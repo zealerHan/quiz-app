@@ -460,6 +460,76 @@ router.get('/api/admin/remediation/records', adminAuth, (req, res) => {
   res.json(rows);
 });
 
+// ─── 复查台账导出 Excel ────────────────────────────────────────────────────
+router.get('/api/admin/remediation/export', adminAuth, async (req, res) => {
+  const months = req.query.months ? req.query.months.split(',').filter(Boolean) : [];
+  if (!months.length) {
+    months.push(new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(0, 7));
+  }
+
+  const placeholders = months.map(() => '?').join(',');
+  const rows = db.prepare(`
+    SELECT rr.staff_id, COALESCE(s.real_name,s.name) as name,
+           rr.cycle_id, rr.original_score, rr.authorized_by, rr.authorized_at,
+           rr.remediation_score, rr.result, rr.created_at
+    FROM remediation_records rr
+    LEFT JOIN staff s ON s.id=rr.staff_id
+    WHERE strftime('%Y-%m', rr.created_at) IN (${placeholders})
+    ORDER BY rr.created_at ASC
+  `).all(...months);
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = '武汉地铁5号线乘务工班组';
+  const hStyle = {
+    fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B3A6E' } },
+    font: { color: { argb: 'FFFFFFFF' }, bold: true, size: 11 },
+    alignment: { vertical: 'middle', horizontal: 'center', wrapText: true }
+  };
+
+  const ws = wb.addWorksheet('复查台账', { views: [{ state: 'frozen', ySplit: 1 }] });
+  ws.columns = [
+    { header: '工号',     key: 'staff_id',        width: 10 },
+    { header: '姓名',     key: 'name',             width: 8  },
+    { header: '套班轮次', key: 'cycle_id',         width: 14 },
+    { header: '初试时间', key: 'created_at',       width: 18 },
+    { header: '初试分',   key: 'original_score',   width: 8  },
+    { header: '授权人',   key: 'authorized_by',    width: 10 },
+    { header: '授权时间', key: 'authorized_at',    width: 18 },
+    { header: '复查分',   key: 'remediation_score',width: 8  },
+    { header: '结果',     key: 'result_label',     width: 10 },
+  ];
+  ws.getRow(1).eachCell(c => Object.assign(c, hStyle));
+  ws.getRow(1).height = 26;
+
+  const resultLabel = r => r === 'pass' ? '合格' : r === 'fail' ? '不合格' : '待复查';
+  const resultColor = r => r === 'pass' ? 'FFD4EDDA' : r === 'fail' ? 'FFF8D7DA' : 'FFFFF3CD';
+
+  for (const row of rows) {
+    const r = ws.addRow({
+      ...row,
+      original_score: row.original_score != null ? Math.round(row.original_score) : '—',
+      remediation_score: row.remediation_score != null ? Math.round(row.remediation_score) : '—',
+      result_label: resultLabel(row.result),
+    });
+    r.height = 24;
+    r.eachCell(c => { c.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }; });
+    // 初试分：红色背景
+    const scoreCell = r.getCell('original_score');
+    scoreCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8D7DA' } };
+    scoreCell.font = { bold: true, color: { argb: 'FF9B1C1C' } };
+    // 结果：颜色区分
+    const resCell = r.getCell('result_label');
+    resCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: resultColor(row.result) } };
+    resCell.font = { bold: true };
+  }
+
+  const label = months.length === 1 ? months[0] : `${months[0]}至${months[months.length - 1]}`;
+  const encodedLabel = encodeURIComponent(`复查台账_${label}`);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedLabel}.xlsx`);
+  await wb.xlsx.write(res); res.end();
+});
+
 // ─── DingTalk: 抽问开始通知 ────────────────────────────────────────────────
 router.post('/api/admin/dingtalk/notify-start', adminAuth, async (req, res) => {
   const webhook = process.env.DINGTALK_WEBHOOK;

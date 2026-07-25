@@ -1821,30 +1821,52 @@ function AdminScreen({ onBack }) {
           />}
 
           {/* ── 复查台账 ── */}
-          {remRecords.length>0&&(
-            <div style={{background:'var(--card)',borderRadius:10,padding:'12px 14px',marginBottom:14,border:'1px solid rgba(168,85,247,0.2)'}}>
-              <div style={{fontSize:12,fontWeight:700,color:'#a855f7',marginBottom:10}}>⚠️ 复查台账（本月）</div>
-              {remRecords.map((r,i)=>(
-                <div key={i} style={{padding:'8px 0',borderTop:i>0?'1px solid var(--border)':undefined}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}}>
-                    <span style={{fontSize:12,fontWeight:700,color:'var(--text)'}}>{r.name}</span>
-                    <span style={{fontSize:10,color:'var(--muted)'}}>{r.authorized_at?.slice(5,16)}</span>
-                  </div>
-                  <div style={{fontSize:10,color:'var(--muted)',marginTop:3,lineHeight:1.6}}>
-                    初试 <span style={{color:'#f87171',fontWeight:600}}>{Math.round(r.original_score)}分</span>
-                    {' → '}
-                    {r.result==='pending'
-                      ? <span style={{color:'#a855f7'}}>待复查</span>
-                      : r.result==='pass'
-                      ? <span style={{color:'var(--green)',fontWeight:600}}>复查{Math.round(r.remediation_score)}分 ✅合格</span>
-                      : <span style={{color:'#f87171',fontWeight:600}}>复查{Math.round(r.remediation_score)}分 ❌不合格</span>
-                    }
-                    {' · 授权：'}{r.authorized_by||'—'}
+          {(()=>{
+            const curMonth=new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'}).slice(0,7);
+            const [remMonth,setRemMonth]=React.useState(curMonth);
+            // 切换月份时重新拉取
+            React.useEffect(()=>{
+              apiJson(`/api/admin/remediation/records?month=${remMonth}`,{headers:hdrs()}).then(setRemRecords).catch(()=>{});
+            },[remMonth]);
+            const doExport=()=>{
+              const url=`/api/admin/remediation/export?months=${remMonth}&password=${encodeURIComponent(pwd)}`;
+              const a=document.createElement('a'); a.href=url; a.download=''; a.click();
+            };
+            return(
+              <div style={{background:'var(--card)',borderRadius:10,padding:'12px 14px',marginBottom:14,border:'1px solid rgba(168,85,247,0.2)'}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                  <span style={{fontSize:12,fontWeight:700,color:'#a855f7'}}>⚠️ 复查台账</span>
+                  <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                    <input type="month" value={remMonth} onChange={e=>setRemMonth(e.target.value)}
+                      style={{background:'var(--card-deep)',border:'1px solid var(--border)',borderRadius:5,color:'var(--text)',fontSize:10,padding:'2px 6px',fontFamily:'inherit'}}/>
+                    <button onClick={doExport} style={{padding:'3px 10px',borderRadius:5,border:'1px solid rgba(168,85,247,0.4)',background:'rgba(168,85,247,0.1)',color:'#a855f7',cursor:'pointer',fontSize:10,fontWeight:600,fontFamily:'inherit'}}>↓ 导出</button>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+                {remRecords.length===0
+                  ? <div style={{fontSize:11,color:'var(--muted)',textAlign:'center',padding:'8px 0'}}>{remMonth} 暂无复查记录</div>
+                  : remRecords.map((r,i)=>(
+                    <div key={i} style={{padding:'8px 0',borderTop:i>0?'1px solid var(--border)':undefined}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}}>
+                        <span style={{fontSize:12,fontWeight:700,color:'var(--text)'}}>{r.name}</span>
+                        <span style={{fontSize:10,color:'var(--muted)'}}>{r.authorized_at?.slice(5,16)}</span>
+                      </div>
+                      <div style={{fontSize:10,color:'var(--muted)',marginTop:3,lineHeight:1.6}}>
+                        初试 <span style={{color:'#f87171',fontWeight:600}}>{Math.round(r.original_score)}分</span>
+                        {' → '}
+                        {r.result==='pending'
+                          ? <span style={{color:'#a855f7'}}>待复查</span>
+                          : r.result==='pass'
+                          ? <span style={{color:'var(--green)',fontWeight:600}}>复查{Math.round(r.remediation_score)}分 ✅合格</span>
+                          : <span style={{color:'#f87171',fontWeight:600}}>复查{Math.round(r.remediation_score)}分 ❌不合格</span>
+                        }
+                        {' · 授权：'}{r.authorized_by||'—'}
+                      </div>
+                    </div>
+                  ))
+                }
+              </div>
+            );
+          })()}
 
           {/* ── 本期高错误率题目 ── */}
           {weakQuestions.length>0&&(()=>{
