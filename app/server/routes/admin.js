@@ -338,7 +338,10 @@ router.post('/api/admin/dingtalk/push', adminAuth, async (req, res) => {
       if (!ses) continue;
       const sw = ses.tab_switch_count > 0 ? ` 切屏×${ses.tab_switch_count}` : '';
       const mk = getTopDeductions(ses.id);
-      lines.push(`• ${r.name} ${Math.round(ses.total_score)}分${sw}${mk}`);
+      // 复查合格者：附加备注（避免被误认为首次答题即合格）
+      const remRec = db.prepare(`SELECT result, remediation_score FROM remediation_records WHERE staff_id=? AND cycle_id=?`).get(r.staff_id, cycleId);
+      const remNote = remRec?.result === 'pass' ? ` （复查合格：${Math.round(remRec.remediation_score)}分）` : '';
+      lines.push(`• ${r.name} ${Math.round(ses.total_score)}分${sw}${mk}${remNote}`);
     }
   }
 
@@ -434,6 +437,22 @@ router.post('/api/admin/remediation/grant', adminAuth, (req, res) => {
     .run(staffId, cycleId, req.adminName, expiresAt);
 
   logAdmin('复查授权', `${staff?.name||staffId}(${staffId}) 原始分=${originalSess.total_score} 有效至 ${expiresAt}`, req.adminName);
+
+  // 钉钉群通知：班组长对xxx进行授权复查
+  const groupWebhook = process.env.DINGTALK_WEBHOOK;
+  const groupSecret = process.env.DINGTALK_SECRET;
+  if (groupWebhook && groupSecret) {
+    const msgText = `📢 班组长 ${req.adminName} 对 ${staff?.name||staffId} 进行授权复查，请当事人在 12 小时内认真作答。`;
+    const timestamp = Date.now();
+    const sign = crypto.createHmac('sha256', groupSecret).update(`${timestamp}\n${groupSecret}`).digest('base64');
+    const url = `${groupWebhook}&timestamp=${timestamp}&sign=${encodeURIComponent(sign)}`;
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ msgtype: 'text', text: { content: msgText } })
+    }).catch(() => {});
+  }
+
   res.json({ ok: true, staffId, originalScore: originalSess.total_score, expiresAt });
 });
 

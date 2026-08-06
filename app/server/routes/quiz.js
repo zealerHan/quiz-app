@@ -393,13 +393,19 @@ async function scoreWithQwen(question, reference, answer, category) {
 function scoreKeyword(reference, keywords, answer) {
   if (!answer?.trim() || answer.trim().length < 3) return { score:0, level:'需加强', summary:'未检测到有效作答', correct_points:[], missing_points:['未作答'], suggestion:'请重新作答', encouragement:'相信你能做到！', score_method:'keyword' };
   const ans = answer.toLowerCase().replace(/\s/g,'');
-  const pts = reference.split(/[；;]/).map(s=>s.trim()).filter(Boolean);
+  // 按 分号/换行/句号 分隔要点；去掉【得分点】等说明前缀和首尾空白
+  const pts = reference
+    .split(/[；;\n。]/)
+    .map(s => s.replace(/^【[^】]*】\s*/, '').trim())
+    .filter(Boolean);
   const kws = keywords?.split(',').map(s=>s.trim()).filter(Boolean)||[];
   let hit=0; const correct=[], missing=[];
   pts.forEach(p => {
-    const words = p.replace(/[，。、]/g,' ').split(' ').filter(s=>s.length>=2);
-    if(words.some(w=>ans.includes(w))){ hit++; correct.push(p.slice(0,14)); }
-    else missing.push(p.slice(0,14));
+    // 去掉要点开头的序号前缀：阿拉伯数字(1.) 或 中文圈数字(①)
+    const cleanP = p.replace(/^\s*(?:\d+[\.、．:：]|[①②③④⑤⑥⑦⑧⑨⑩])\s*/, '');
+    const words = cleanP.replace(/[，。、]/g,' ').split(' ').filter(s=>s.length>=2);
+    if(words.some(w=>ans.includes(w))){ hit++; correct.push(cleanP.slice(0,14)); }
+    else missing.push(cleanP.slice(0,14));
   });
   const base = Math.round(hit/Math.max(pts.length,1)*100);
   const bonus = Math.min(8, Math.round(kws.filter(k=>ans.includes(k)).length/Math.max(kws.length,1)*8));
