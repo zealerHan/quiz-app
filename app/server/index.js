@@ -76,6 +76,7 @@ wss.on('connection', (clientWs) => {
           format: 'pcm',
           sample_rate: 16000,
           sentence_silence_duration: 800,
+          ...(process.env.DASHSCOPE_VOCABULARY_ID ? { vocabulary_id: process.env.DASHSCOPE_VOCABULARY_ID } : {}),
         },
         input: {},
       },
