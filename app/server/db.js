@@ -318,6 +318,52 @@ db.exec(`CREATE TABLE IF NOT EXISTS shift_calendar (
   }
 }
 
+// ─── 培训成员调整覆盖表（保证 UNIQUE(plan_id,staff_id) 存在，幂等自愈）───────
+// 历史原因：该表早期手工建、缺 UNIQUE 约束，导致 workshop.js 中
+// `ON CONFLICT(plan_id,staff_id) DO UPDATE` 报 "does not match any PRIMARY KEY
+// or UNIQUE constraint"，调组员/全员延后 100% 失败。此处启动时检测修复：
+// 表不存在 → 建带 UNIQUE；表存在但缺该约束 → 重建（先备份数据到临时表再换名）。
+{
+  const hasUpsertTarget = (() => {
+    try {
+      db.prepare(`INSERT INTO training_plan_member_overrides (plan_id,staff_id,action,note,created_at)
+        VALUES (?,?,?,?,?) ON CONFLICT(plan_id,staff_id) DO UPDATE SET action=excluded.action`)
+        .run(-1, '__probe__', 'remove', '__probe__', new Date().toISOString());
+      db.prepare('DELETE FROM training_plan_member_overrides WHERE staff_id=?').run('__probe__');
+      return true;
+    } catch (e) { return false; }
+  })();
+  if (!hasUpsertTarget) {
+    try {
+      db.exec('CREATE TABLE IF NOT EXISTS training_plan_member_overrides_new_tmp AS SELECT * FROM training_plan_member_overrides');
+    } catch (e) { /* 同构临时备份表已存在则跳过 */ }
+    try { db.exec('DROP TABLE IF EXISTS training_plan_member_overrides'); } catch (e) {}
+    db.exec(`CREATE TABLE IF NOT EXISTS training_plan_member_overrides (
+      id INTEGER PRIMARY KEY,
+      plan_id INTEGER NOT NULL,
+      staff_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      note TEXT,
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      UNIQUE(plan_id, staff_id)
+    )`);
+    // 从临时表回拷（去除可能因并发产生的重复，取各自最小 id）
+    try {
+      db.exec(`INSERT OR IGNORE INTO training_plan_member_overrides (id,plan_id,staff_id,action,note,created_at)
+        SELECT id,plan_id,staff_id,action,note,created_at FROM training_plan_member_overrides_new_tmp
+        ORDER BY id`);
+    } catch (e) {
+      // 若临时表结构异常（旧版列少），用最小集重试
+      try {
+        db.exec(`INSERT OR IGNORE INTO training_plan_member_overrides (plan_id,staff_id,action,note,created_at)
+          SELECT plan_id,staff_id,action,note,created_at FROM training_plan_member_overrides_new_tmp`);
+      } catch (e2) {}
+    }
+    db.exec('DROP TABLE IF EXISTS training_plan_member_overrides_new_tmp');
+    console.log('[Migration] training_plan_member_overrides 已重建并补齐 UNIQUE(plan_id,staff_id)');
+  }
+}
+
 // 获取今日班次
 function getTodayShift() {
   const today = new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai',

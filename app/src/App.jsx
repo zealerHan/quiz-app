@@ -552,7 +552,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
   const pct = (qi / questions.length) * 100;
 
   return (
-    <div onContextMenu={e=>e.preventDefault()} style={{position:"relative",width:"100%",height:"100vh",display:"flex",flexDirection:"column",overflow:"hidden",background:"#080a0c",height:"100svh"}}>
+    <div onContextMenu={e=>e.preventDefault()} className="quiz-shell" style={{position:"relative",width:"100%",display:"flex",flexDirection:"column",overflow:"hidden",background:"#080a0c"}}>
       {/* 背景：地下隧道 */}
       <div style={{position:"absolute",inset:0,backgroundImage:`url(${IMG_TUNNEL})`,backgroundSize:"cover",backgroundPosition:"center",filter:"brightness(0.32) saturate(0.65)",pointerEvents:"none"}}/>
       <div style={{position:"absolute",inset:0,background:"linear-gradient(180deg,rgba(0,0,0,0.6) 0%,rgba(0,0,0,0.1) 40%,rgba(0,0,0,0.55) 75%,rgba(0,0,0,0.92) 100%)",pointerEvents:"none"}}/>
@@ -1032,7 +1032,7 @@ function HomeScreen({ user, nav }) {
       setLbTotalFull(rows);
     }).catch(() => {});
 
-    fetch('/api/admin/members', { headers: { 'x-admin-password': 'admin888' } })
+    fetch('/api/admin/members', { headers: { 'x-admin-password': 'admin530' } })
       .then(r => r.json()).then(members => {
         const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
         const regular = members.filter(m => !m.is_exempt && !m.is_cp && !m.is_leader);
@@ -1049,7 +1049,7 @@ function HomeScreen({ user, nav }) {
       setActiveBank(banks.find(b => b.is_default) || banks.find(b => b.is_active) || banks[0]);
     }).catch(() => {});
 
-    fetch('/api/admin/pinned-questions', { headers: { 'x-admin-password': 'admin888' } })
+    fetch('/api/admin/pinned-questions', { headers: { 'x-admin-password': 'admin530' } })
       .then(r => r.json()).then(p => {
         const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
         const hasContent = (p.ids?.length > 0) || (p.mode === 'random' && (p.bank_id || p.bank_ids?.length > 0)) || p.mode === 'emergency';
@@ -1264,7 +1264,7 @@ function HomeScreen({ user, nav }) {
             {makeupGrant&&makeupPrompted&&<AppModal
               icon="⏰"
               title="补答提醒"
-              body={`管理员已授权补答\n请在 ${makeupGrant.expiresAt?.slice(11,16)} 前完成本套班答题`}
+              body={`管理员已授权补答\n请在 ${makeupGrant.expiresAt?.slice(0,16)} 前完成本套班答题`}
               buttons={[
                 {label:'稍后再答',onClick:()=>setMakeupPrompted(false)},
                 {label:'立即补答',primary:true,onClick:()=>{ setMakeupPrompted(false); nav('quiz'); }}
@@ -1274,7 +1274,7 @@ function HomeScreen({ user, nav }) {
             {remediationGrant&&remediationPrompted&&<AppModal
               icon="⚠️"
               title="复查通知"
-              body={`班组长已授权本次复查\n请在 ${remediationGrant.expiresAt?.slice(11,16)} 前完成\n本次复查结果将记录在案`}
+              body={`班组长已授权本次复查\n请在 ${remediationGrant.expiresAt?.slice(0,16)} 前完成\n本次复查结果将记录在案`}
               buttons={[
                 {label:'稍后再答',onClick:()=>setRemediationPrompted(false)},
                 {label:'开始复查',primary:true,onClick:()=>{ setRemediationPrompted(false); nav('quiz'); }}
@@ -2488,7 +2488,12 @@ const CSS=`
 :root[data-shift="休息"]{--task-start:#0d2d5a;--task-end:#1a4a8a;--shift-accent:#3b82f6;}
 body{font-family:var(--font);background:var(--bg);color:var(--text);-webkit-tap-highlight-color:transparent;}
 .app-frame{width:100%;max-width:440px;margin:0 auto;min-height:100vh;background:var(--bg);}
-.screen{min-height:100vh;display:flex;flex-direction:column;background:var(--bg);overflow-y:auto;}
+.screen{height:100vh;height:100svh;display:flex;flex-direction:column;background:var(--bg);overflow-y:auto;}
+.screen>*{flex-shrink:0;}   /* 子元素不被压缩，内容超高时由 .screen 自身滚动（修主页/后台滚动） */
+/* WorkshopScreen 根容器（月度任务）：vh 兜底兼容钉钉内置 webview（不认 svh 时落回 vh）*/
+.ws-screen{height:100vh;height:100svh;overflow-y:auto;}
+/* QuizScreen 答题外壳：全屏固定高，vh 兜底兼容钉钉内置 webview（不认 svh 时落回 vh）*/
+.quiz-shell{height:100vh;height:100svh;}
 .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;}
 /* Home */
 .home-header{padding:18px 16px 10px;display:flex;align-items:flex-start;justify-content:space-between;}

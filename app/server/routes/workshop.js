@@ -459,16 +459,16 @@ router.post('/api/admin/training-plan/member-postpone', workshopEditAuth, (req, 
   sendGroupPush(lines3.join('\n'));
 });
 
-// ─── 固定成员取消/恢复本次回段 ──────────────────────────────────────────────────
+// ─── 成员增/删/恢复本期培训（action: 'add'|'remove'|'restore'）────────────────────
 router.post('/api/admin/training-plan/member-remove', workshopEditAuth, (req, res) => {
-  const { plan_id, staff_id, action } = req.body; // action: 'remove'|'restore'
+  const { plan_id, staff_id, action } = req.body; // action: 'add'|'remove'|'restore'
   if (!plan_id || !staff_id) return res.status(400).json({ error: '参数不完整' });
   if (action === 'restore') {
     db.prepare('DELETE FROM training_plan_member_overrides WHERE plan_id=? AND staff_id=?').run(plan_id, staff_id);
   } else {
     db.prepare(`INSERT INTO training_plan_member_overrides (plan_id,staff_id,action,note,created_at)
       VALUES (?,?,?,?,?) ON CONFLICT(plan_id,staff_id) DO UPDATE SET action=excluded.action,note=excluded.note,created_at=excluded.created_at`)
-      .run(plan_id, staff_id, 'remove', null, new Date().toISOString());
+      .run(plan_id, staff_id, action === 'add' ? 'add' : 'remove', null, new Date().toISOString());
   }
   res.json({ ok: true });
 
@@ -480,13 +480,15 @@ router.post('/api/admin/training-plan/member-remove', workshopEditAuth, (req, re
   const opStaff = opId ? db.prepare('SELECT real_name,name FROM staff WHERE id=?').get(opId) : null;
   const opName = opStaff?.real_name || opStaff?.name || '管理员';
   const nowTime = new Date().toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
-  const isRemove = action !== 'restore';
+  const verb = action === 'add'
+    ? `${memberName} 加入 ${fmtDate(shiftDate)} 培训`
+    : action === 'restore'
+      ? `${memberName} 恢复 ${fmtDate(shiftDate)} 回段`
+      : `${memberName} 取消 ${fmtDate(shiftDate)} 回段`;
   const members = getPlanMemberNames(plan_id).join('、');
   const lines = [
     `${nowTime}  ${opName}`,
-    isRemove
-      ? `${memberName} 取消 ${fmtDate(shiftDate)} 回段`
-      : `${memberName} 恢复 ${fmtDate(shiftDate)} 回段`,
+    verb,
     members ? `\n当日培训人员：${members}` : '',
   ].filter(Boolean);
   sendGroupPush(lines.join('\n'));

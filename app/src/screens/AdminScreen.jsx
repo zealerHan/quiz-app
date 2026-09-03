@@ -1726,17 +1726,18 @@ function AdminScreen({ onBack }) {
                       const isOverdue=p.overdue&&p.status==='none';
                       // 已完成但不合格（需复查）：分数<60且无已通过的复查
                       const needsRemediation=isDone&&(p.score??100)<60&&p.remediation_result!=='pass';
-                      const hasRemediationPending=needsRemediation&&p.remediation_result==='pending'; // 已授权未完成
+                      const hasRemediationPending=p.remediation_result==='pending'&&p.has_remediation; // 已授权复查(进行中)，独立于是否已完成(原始session被删后仍可识别)
                       const hasRemediationFail=isDone&&p.remediation_result==='fail';
                       const hasRemediationPass=isDone&&p.remediation_result==='pass';
                       const nameCol=needsRemediation&&!hasRemediationPending?'#dc2626':hasRemediationPending?'#a855f7':hasRemediationFail?'#dc2626':hasRemediationPass?'var(--green)':isDone?'var(--green)':isAnswering?'var(--blue)':isInt||isBrowse?'var(--amber)':isOverdue?'#f97316':'var(--red)';
                       const bg=needsRemediation&&!hasRemediationPending?'rgba(220,38,38,0.08)':hasRemediationPending?'rgba(168,85,247,0.08)':hasRemediationFail?'rgba(220,38,38,0.08)':isDone?'rgba(34,197,94,0.06)':isAnswering?'rgba(59,130,246,0.08)':isInt||isBrowse?'rgba(245,158,11,0.06)':isOverdue?'rgba(249,115,22,0.07)':'rgba(239,68,68,0.05)';
                       const border=needsRemediation&&!hasRemediationPending?'rgba(220,38,38,0.3)':hasRemediationPending?'rgba(168,85,247,0.35)':hasRemediationFail?'rgba(220,38,38,0.3)':isDone?'rgba(34,197,94,0.18)':isAnswering?'rgba(59,130,246,0.35)':isInt||isBrowse?'rgba(245,158,11,0.2)':isOverdue?'rgba(249,115,22,0.25)':'rgba(239,68,68,0.12)';
-                      const clickable=isDone||isAnswering||isInt||isBrowse||isOverdue;
+                      const clickable=isDone||hasRemediationPending||isAnswering||isInt||isBrowse||isOverdue;
                       const subLabel=needsRemediation&&!hasRemediationPending?`${p.score??'—'}分 需复查 ›`:hasRemediationPending?`${p.original_score??'—'}分 复查中 ›`:hasRemediationFail?`复查${Math.round(p.score??0)}分❌ ›`:hasRemediationPass?`复查${Math.round(p.score??0)}分✅ ›`:isDone?`${p.score??'—'}分 ›`:isAnswering?'答题中 ›':isInt?'中断 ›':isBrowse?'浏览 ›':isOverdue?'逾期 ›':'未答';
                       return(
                         <div key={ni} onClick={()=>{
-                          if(isDone&&needsRemediation&&!hasRemediationPending) setRemediationModal({staff_id:p.staff_id,name:p.name,score:p.score,original_score:p.original_score,remediation_result:p.remediation_result});
+                          if(hasRemediationPending) setRemediationModal({staff_id:p.staff_id,name:p.name,score:p.original_score??p.score,original_score:p.original_score,remediation_result:p.remediation_result});
+                          else if(isDone&&needsRemediation&&!hasRemediationPending) setRemediationModal({staff_id:p.staff_id,name:p.name,score:p.score,original_score:p.original_score,remediation_result:p.remediation_result});
                           else if(isDone) setResetModal({staff_id:p.staff_id,name:p.name,score:p.score,completed_at:p.completed_at,isDone:true});
                           else if(isAnswering) setResetModal({staff_id:p.staff_id,name:p.name,isAnswering:true,last_active_at:p.last_active_at});
                           else if(isInt||isBrowse) setResetModal({staff_id:p.staff_id,name:p.name});
@@ -1800,7 +1801,7 @@ function AdminScreen({ onBack }) {
               {label:'授权补答',primary:true,onClick:async()=>{
                 const r=await apiJson('/api/admin/makeup/grant',{method:'POST',headers:hdrs(),body:JSON.stringify({staffId:makeupModal.staff_id})}).catch(()=>null);
                 setMakeupModal(null);
-                if(r?.ok){ alert(`已授权 ${makeupModal.name} 补答，有效至 ${r.expiresAt.slice(11,16)}`); }
+                if(r?.ok){ alert(`已授权 ${makeupModal.name} 补答，有效至 ${r.expiresAt.slice(0,16)}`); }
                 else alert('授权失败，请重试');
               }}
             ]}
@@ -1810,14 +1811,14 @@ function AdminScreen({ onBack }) {
           {remediationModal&&<AppModal
             icon="⚠️"
             title={`授权复查：${remediationModal.name}`}
-            body={`本轮得分：${remediationModal.score??'—'}分（不合格）\n\n授权后该人员可在 1 小时内完成本套班复查。\n复查结果将记入复查台账，作为考核依据。`}
+            body={`本轮得分：${remediationModal.score??'—'}分（不合格）\n\n授权后该人员可在 12 小时内完成本套班复查。\n复查结果将记入复查台账，作为考核依据。`}
             buttons={[
               {label:'取消',onClick:()=>setRemediationModal(null)},
               {label:'确认授权复查',danger:true,onClick:async()=>{
                 const r=await apiJson('/api/admin/remediation/grant',{method:'POST',headers:hdrs(),body:JSON.stringify({staffId:remediationModal.staff_id})}).catch(()=>null);
                 setRemediationModal(null);
                 if(r?.ok){
-                  alert(`已授权 ${remediationModal.name} 复查，有效至 ${r.expiresAt.slice(11,16)}`);
+                  alert(`已授权 ${remediationModal.name} 复查，有效至 ${r.expiresAt.slice(0,16)}`);
                   apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});
                   apiJson('/api/admin/remediation/records',{headers:hdrs()}).then(setRemRecords).catch(()=>{});
                 } else alert('授权失败，请重试');

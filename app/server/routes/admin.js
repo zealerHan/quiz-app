@@ -415,7 +415,7 @@ router.post('/api/admin/remediation/grant', adminAuth, (req, res) => {
   if (originalSess.total_score >= 60) return res.status(400).json({ error: '该人员本轮成绩已合格，无需复查' });
 
   const nowAt = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).replace('T', ' ');
-  const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
+  const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000)
     .toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).replace('T', ' ');
 
   // 写入复查台账（已有则更新）

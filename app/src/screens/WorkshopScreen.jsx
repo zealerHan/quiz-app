@@ -27,6 +27,8 @@ function WorkshopScreen({ user, onBack }) {
   // {planId, staffId, staffName, isAdded, step:'pick-date'|'pick-action'|'pick-member'|'zhxh_pick'|'zhxh_confirm', dates:[], target:null, swapCandidates:[]}
   // 整体对调弹窗
   const [swapPlanModal, setSwapPlanModal] = useState(null);
+  // 人员调整面板（方案B 双列表）
+  const [memberEditModal, setMemberEditModal] = useState(null); // {planId, shiftDate, groupName}
   // {planId, shiftDate, step:'pick'|'confirm', target:null|{id,shift_date,group_name}}
   // 全员延后弹窗
   const [bulkPostponeModal, setBulkPostponeModal] = useState(null);
@@ -312,7 +314,7 @@ function WorkshopScreen({ user, onBack }) {
             r = await resp.json();
           } finally { clearTimeout(timer); }
           if (r?.ok) {
-            setUploadQueue(q => q.map(x => x.id===qid ? {...x,status:'done'} : x));
+            setUploadQueue(q => q.map(x => x.id===qid ? {...x,status:'done', serverFilename:r.filename} : x));
             const photos = await apiJson('/api/workshop/photos').catch(()=>[]);
             setPhotoAlbum(prev => prev ? {...prev, photos: Array.isArray(photos)?photos:[]} : prev);
             setTimeout(() => setUploadQueue(q => q.filter(x => x.id!==qid)), 3000);
@@ -447,7 +449,7 @@ function WorkshopScreen({ user, onBack }) {
   const dateShort = (d) => { const x = new Date(d + 'T00:00:00'); return `${x.getMonth()+1}月${x.getDate()}日`; };
 
   return (
-    <div style={{minHeight:'100vh',background:'var(--bg)',fontFamily:'var(--font, system-ui)',color:'var(--text)',paddingBottom:50}}>
+    <div className="ws-screen" style={{background:'var(--bg)',fontFamily:'var(--font, system-ui)',color:'var(--text)',paddingBottom:50}}>
       {/* 顶栏 */}
       <div style={{display:'flex',alignItems:'center',gap:10,padding:'14px 16px',borderBottom:'1px solid var(--border)',position:'sticky',top:0,background:'var(--bg)',zIndex:10}}>
         <button onClick={onBack} style={{background:'none',border:'none',color:'var(--muted)',fontSize:22,cursor:'pointer',lineHeight:1,padding:'0 4px'}}>←</button>
@@ -1016,10 +1018,12 @@ function WorkshopScreen({ user, onBack }) {
                               {/* 组员方框行 */}
                               <div style={{display:'flex',alignItems:'center',gap:4,flexWrap:'wrap'}}>
                                 <span style={{fontSize:10,color:'#7c8fa6',flexShrink:0}}>组员</span>
+                                {canEdit && <button onClick={()=>setMemberEditModal({planId:p.id, shiftDate:p.shift_date, groupName:p.group?.name||p.plan_type||''})} style={{fontSize:9,padding:'1px 6px',borderRadius:4,border:'1px solid rgba(96,165,250,0.45)',background:'rgba(59,130,246,0.1)',color:'#60a5fa',cursor:'pointer',fontFamily:'inherit'}}>✎ 调组员</button>}
                                 <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
                                   {Array.from({length:SLOTS}).map((_,i)=>{
                                     const m = effectiveMembers[i];
                                     const isSwapped = m?.isAdded;
+                                    const confirmed = !!m && (p.confirmedIds||[]).includes(String(m.id));
                                     // 补录模式下，组员按钮走"确认/点评"流程（优先于"修改成员"，且不依赖编辑模式）
                                     const canRetro = retroMode && hasEditPerm && p.shift_date <= today2;
                                     return m ? (
@@ -1044,12 +1048,12 @@ function WorkshopScreen({ user, onBack }) {
                                         const otherDates = (plan.plans||[]).filter(x=>x.id!==p.id&&x.plan_type!=='轮空'&&x.plan_type!=='中旬会'&&x.group_id);
                                         setMemberModal({planId:p.id,staffId:m.id,staffName:m.real_name||m.name,isAdded:isSwapped,step:'pick-date',dates:otherDates,target:null,swapCandidates:[]});
                                       }} style={(() => {
-                                        const confirmed = (p.confirmedIds||[]).includes(String(m.id));
                                         if (canRetro) return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:'pointer',border:'1px solid rgba(251,191,36,0.5)',background:'rgba(251,191,36,0.08)',color:'#fbbf24',fontWeight:600};
                                         if (isSwapped) return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:canEdit?'pointer':'default',border:'1px solid #3b82f6',background:'rgba(59,130,246,0.15)',color:'#60a5fa',fontWeight:600};
-                                        return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:canEdit?'pointer':'default',border:`1px solid ${confirmed?'rgba(34,197,94,0.35)':'rgba(248,113,113,0.35)'}`,background:confirmed?'rgba(34,197,94,0.07)':'rgba(248,113,113,0.07)',color:confirmed?'var(--green)':'#f87171',fontWeight:400};
+                                        if (confirmed) return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:canEdit?'pointer':'default',border:'1px solid rgba(34,197,94,0.5)',background:'rgba(34,197,94,0.14)',color:'#4ade80',fontWeight:600};
+                                        return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:canEdit?'pointer':'default',border:'1px solid rgba(248,113,113,0.45)',background:'rgba(248,113,113,0.1)',color:'#fca5a5',fontWeight:400};
                                       })()}>
-                                        {m.real_name||m.name}
+                                        {confirmed ? '✓ ' : '○ '}{m.real_name||m.name}
                                         {canEdit && <span onClick={async e=>{
                                           e.stopPropagation();
                                           if(!confirm(`将 ${m.real_name||m.name} 本期移出？`)) return;
@@ -1091,6 +1095,14 @@ function WorkshopScreen({ user, onBack }) {
                                       {f.real_name||f.name}
                                     </button>
                                   ))}
+                                </div>
+                              )}
+                              {(effectiveMembers.some(m=>m)||activeFixedStaff.length>0) && (
+                                <div style={{fontSize:8.5,color:'#64748b',display:'flex',gap:9,flexWrap:'wrap',marginTop:3}}>
+                                  <span style={{color:'#4ade80'}}>✓ 已确认</span>
+                                  <span style={{color:'#fca5a5'}}>○ 未确认</span>
+                                  <span style={{color:'#60a5fa'}}>◆ 补入</span>
+                                  {activeFixedStaff.length>0 && <span style={{color:'#c4b5fd'}}>◆ 固定</span>}
                                 </div>
                               )}
                             </div>
@@ -1342,6 +1354,73 @@ function WorkshopScreen({ user, onBack }) {
           </div>
         </div>
       )}
+
+      {/* 人员调整面板（方案B 双列表：本期 / 全员可加入） */}
+      {memberEditModal && (() => {
+        const p = (plan.plans||[]).find(x => String(x.id) === String(memberEditModal.planId));
+        if (!p) return null;
+        const ov = p.memberOverrides || {added:[],removed:[]};
+        const removedIds = new Set((ov.removed||[]).map(r=>String(r.id||r.staff_id)));
+        const g = p.group;
+        const baseM = g ? (g.members||[]).filter(m=>String(m.id)!==String(g.instructor_id)) : [];
+        const baseList = baseM.filter(m=>!removedIds.has(String(m.id)));
+        const addedList = (ov.added||[]).map(a=>({id:String(a.id||a.staff_id), real_name:a.real_name||a.staff_name||a.name, isAdded:true}));
+        const fixedAll = plan.fixedStaff||[];
+        const fixedActive = fixedAll.filter(f=>!removedIds.has(String(f.staff_id)));
+        const current = [
+          ...baseList.map(m=>({id:String(m.id), real_name:m.real_name||m.name})),
+          ...addedList,
+          ...fixedActive.map(f=>({id:String(f.staff_id), real_name:f.real_name||f.name, isFixed:true})),
+        ];
+        const currentIds = new Set(current.map(c=>c.id));
+        const removedList = (ov.removed||[]).map(r=>({id:String(r.id||r.staff_id), real_name:r.real_name||r.staff_name||r.name}));
+        const pool = (plan.allStaff||[]).filter(s=>!currentIds.has(String(s.id)) && !removedIds.has(String(s.id)));
+        const doOp = async (staff_id, action) => {
+          const now2 = logNow();
+          const r = await apiJson('/api/admin/training-plan/member-remove',{method:'POST',headers:hdrs(),body:JSON.stringify({plan_id:p.id,staff_id,action,note:`${now2} 调组员`})}).catch(()=>null);
+          if (r?.ok){ flashCard(p.id); load(month); } else alert(r?.error||'操作失败');
+        };
+        return (
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:220,padding:16}} onClick={()=>setMemberEditModal(null)}>
+            <div onClick={e=>e.stopPropagation()} style={{background:'#0f2744',borderRadius:12,width:'100%',maxWidth:360,maxHeight:'88vh',display:'flex',flexDirection:'column'}}>
+              <div style={{padding:'14px 16px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:14,color:'var(--text)'}}>调整组员</div>
+                  <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{memberEditModal.shiftDate} · {memberEditModal.groupName}</div>
+                </div>
+                <button onClick={()=>setMemberEditModal(null)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:20,cursor:'pointer',lineHeight:1}}>×</button>
+              </div>
+              <div style={{flex:1,overflowY:'auto',padding:'12px 16px'}}>
+                <div style={{fontSize:11,color:'#60a5fa',fontWeight:700,marginBottom:6}}>本期人员（{current.length}）</div>
+                {current.length===0 && <div style={{fontSize:11,color:'var(--muted)',marginBottom:8}}>暂无人员</div>}
+                {current.map(c=>(
+                  <div key={'c'+c.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'7px 10px',borderRadius:7,background:'rgba(13,17,23,0.4)',border:'1px solid var(--border)',marginBottom:4}}>
+                    <span style={{fontSize:12,color:'var(--text)'}}>{c.real_name}{c.isAdded?<span style={{color:'#60a5fa',marginLeft:4,fontSize:10}}>换入</span>:c.isFixed?<span style={{color:'#c4b5fd',marginLeft:4,fontSize:10}}>固定</span>:null}</span>
+                    <button onClick={()=>doOp(c.id,'remove')} style={{fontSize:10,color:'#f87171',background:'none',border:'1px solid rgba(248,113,113,0.4)',borderRadius:5,padding:'2px 8px',cursor:'pointer',fontFamily:'inherit'}}>移除</button>
+                  </div>
+                ))}
+                {removedList.length>0 && (<>
+                  <div style={{fontSize:11,color:'#fbbf24',fontWeight:700,margin:'12px 0 6px'}}>已移除（{removedList.length}）</div>
+                  {removedList.map(c=>(
+                    <div key={'r'+c.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'7px 10px',borderRadius:7,background:'rgba(20,20,20,0.3)',border:'1px solid rgba(100,100,100,0.3)',marginBottom:4}}>
+                      <span style={{fontSize:12,color:'#6b7280',textDecoration:'line-through'}}>{c.real_name}</span>
+                      <button onClick={()=>doOp(c.id,'restore')} style={{fontSize:10,color:'var(--green)',background:'none',border:'1px solid rgba(34,197,94,0.4)',borderRadius:5,padding:'2px 8px',cursor:'pointer',fontFamily:'inherit'}}>恢复</button>
+                    </div>
+                  ))}
+                </>)}
+                <div style={{fontSize:11,color:'#22c55e',fontWeight:700,margin:'12px 0 6px'}}>可加入（全员）</div>
+                {pool.length===0 && <div style={{fontSize:11,color:'var(--muted)'}}>全体人员均已在本期</div>}
+                {pool.map(s=>(
+                  <div key={'p'+s.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'7px 10px',borderRadius:7,background:'rgba(13,17,23,0.4)',border:'1px solid var(--border)',marginBottom:4}}>
+                    <span style={{fontSize:12,color:'var(--text)'}}>{s.real_name||s.name}</span>
+                    <button onClick={()=>doOp(s.id,'add')} style={{fontSize:10,color:'#22c55e',background:'none',border:'1px solid rgba(34,197,94,0.4)',borderRadius:5,padding:'2px 8px',cursor:'pointer',fontFamily:'inherit'}}>＋ 加入</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 整体对调弹窗 */}
       {swapPlanModal && (
@@ -1852,17 +1931,15 @@ function WorkshopScreen({ user, onBack }) {
 
       {/* 照片相册弹窗 */}
       {photoAlbum && (() => {
-        // 按教员分组，教员内按 uploaded_at 排序，再按日期分隔
-        const sorted = [...photoAlbum.photos].sort((a,b)=>(a.uploaded_at||'').localeCompare(b.uploaded_at||''));
-        const instructorMap = {};
+        // 纯时间线降序（不按教员分组）：按日期分块，块内最新上传在前
+        const sorted = [...photoAlbum.photos].sort((a,b)=>(b.uploaded_at||'').localeCompare(a.uploaded_at||''));
+        const dateMap = {};
         sorted.forEach(ph => {
-          const inst = ph.instructor_name || '未分配教员';
-          if (!instructorMap[inst]) instructorMap[inst] = {};
           const dateKey = ph.plan_date || ph.uploaded_at?.slice(0,10) || '未知日期';
-          if (!instructorMap[inst][dateKey]) instructorMap[inst][dateKey] = [];
-          instructorMap[inst][dateKey].push(ph);
+          if (!dateMap[dateKey]) dateMap[dateKey] = [];
+          dateMap[dateKey].push(ph);
         });
-        const instructors = Object.keys(instructorMap).sort();
+        const dateKeys = Object.keys(dateMap).sort((a,b)=>b.localeCompare(a));
         const allPhotos = sorted;
         return (
           <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.92)',zIndex:250,display:'flex',flexDirection:'column'}} onClick={()=>setPhotoAlbum(null)}>
@@ -1910,23 +1987,11 @@ function WorkshopScreen({ user, onBack }) {
             </div>
             <div style={{flex:1,overflowY:'auto',padding:'10px 12px 24px'}} onClick={e=>e.stopPropagation()}>
               {photoAlbum.loading && <div style={{textAlign:'center',color:'var(--muted)',padding:'40px 0',fontSize:13}}>加载中…</div>}
-              {!photoAlbum.loading && instructors.length===0 && <div style={{textAlign:'center',color:'#334155',padding:'40px 0',fontSize:13}}>暂无现场照片</div>}
-              {instructors.map(inst => {
-                const dateMap = instructorMap[inst];
-                const dateKeys = Object.keys(dateMap).sort((a,b)=>b.localeCompare(a));
-                const instTotal = dateKeys.reduce((s,d)=>s+dateMap[d].length, 0);
+              {!photoAlbum.loading && dateKeys.length===0 && <div style={{textAlign:'center',color:'#334155',padding:'40px 0',fontSize:13}}>暂无现场照片</div>}
+              {dateKeys.map(dateKey => {
+                const photos = dateMap[dateKey];
                 return (
-                  <div key={inst} style={{marginBottom:20}}>
-                    {/* 教员标题 */}
-                    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,paddingBottom:6,borderBottom:'1px solid rgba(59,130,246,0.2)'}}>
-                      <span style={{fontSize:13,fontWeight:700,color:'#60a5fa'}}>👤 {inst}</span>
-                      <span style={{fontSize:10,color:'#334155',marginLeft:'auto'}}>{instTotal} 张</span>
-                    </div>
-                    {/* 按日期分块 */}
-                    {dateKeys.map(dateKey => {
-                      const photos = dateMap[dateKey];
-                      return (
-                        <div key={dateKey} style={{marginBottom:12}}>
+                  <div key={dateKey} style={{marginBottom:12}}>
                           <div style={{fontSize:11,color:'var(--muted)',marginBottom:5,display:'flex',alignItems:'center',gap:6}}>
                             <span style={{color:'var(--muted)',fontWeight:600}}>{dateKey}</span>
                             <span style={{color:'#334155'}}>· {photos[0]?.plan_type||''} {photos[0]?.group_name||''}</span>
@@ -1935,8 +2000,10 @@ function WorkshopScreen({ user, onBack }) {
                           <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:5}}>
                             {photos.map(ph => {
                               const globalIdx = allPhotos.indexOf(ph);
+                              const justUploaded = uploadQueue.some(u=>u.status==='done'&&u.serverFilename===ph.filename);
                               return (
-                                <div key={ph.photo_id} style={{position:'relative',aspectRatio:'1',borderRadius:7,overflow:'hidden',border:'1px solid var(--border)',background:'var(--input-bg)'}}>
+                                <div key={ph.photo_id} style={{position:'relative',aspectRatio:'1',borderRadius:7,overflow:'hidden',border:`1px solid ${justUploaded?'#22c55e':'var(--border)'}`,background:'var(--input-bg)'}}>
+                                  {justUploaded && <div style={{position:'absolute',top:2,left:2,background:'#22c55e',color:'#052e16',fontSize:9,fontWeight:700,borderRadius:4,padding:'1px 4px',zIndex:2}}>✓新</div>}
                                   <img src={ph.url} alt="" loading="lazy" onClick={()=>setLightbox({photos:allPhotos,index:globalIdx})} style={{width:'100%',height:'100%',objectFit:'cover',cursor:'pointer'}}/>
                                   <div style={{position:'absolute',bottom:0,left:0,right:0,fontSize:9,color:'var(--muted)',background:'rgba(0,0,0,0.3)',padding:'2px 4px',textAlign:'right',lineHeight:1.4}}>
                                     {ph.uploaded_at?.slice(11,16)}
@@ -1955,11 +2022,8 @@ function WorkshopScreen({ user, onBack }) {
                             })}
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           </div>
         );
