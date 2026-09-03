@@ -1,5 +1,6 @@
 node_modules/
 .env
+*.env.bak*
 app/data/
 app/quiz.db
 app/quiz.err
@@ -8,3 +9,9 @@ app/server/quiz.db
 app/logs/
 *.log
 .DS_Store
+# 保留的维护工具脚本与导出产物（本地运行用，不入库）
+/update_hotword.py
+/export_analyze.py
+/export_workshop_summary.py
+*.xlsx
+app/server/data/
