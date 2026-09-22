@@ -39,7 +39,7 @@ router.post('/api/login', (req, res) => {
 });
 
 router.get('/api/staff', adminAuth, (req, res) => {
-  res.json(db.prepare('SELECT id, real_name, phone_tail, is_exempt, is_tester, COALESCE(is_cp,0) as is_cp, COALESCE(is_leader,0) as is_leader, COALESCE(is_instructor,0) as is_instructor, created_at FROM staff ORDER BY created_at DESC').all());
+  res.json(db.prepare('SELECT id, real_name, phone_tail, is_exempt, is_tester, COALESCE(is_cp,0) as is_cp, COALESCE(is_leader,0) as is_leader, COALESCE(is_instructor,0) as is_instructor, rotation_order, COALESCE(on_leave,0) as on_leave, created_at FROM staff ORDER BY created_at DESC').all());
 });
 
 // 单条添加
@@ -917,29 +917,94 @@ router.post('/api/admin/questions/ai-generate', adminAuth, async (req, res) => {
 });
 
 // ─── 批量保存题目（智能出题预览确认后调用）────────────────────────────────
+// ─── 事件题库「同事件」识别（材料里重复出现的事件，不再建新库）───────────────
+// 材料常把同一事件写两条（一条带"（上月已通报）"、一条多写"2号线"），名称不完全相同，
+// 原先只在名称完全一致时复用题库 → 同一事件建出好几个库。这里按「同日期 + 车号相同/名称高度相似」判同事件。
+function eventNameCore(name) {
+  const s = String(name || '');
+  const dm = s.match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+  if (!dm) return null;
+  const date = `${+dm[1]}-${String(+dm[2]).padStart(2, '0')}-${String(+dm[3]).padStart(2, '0')}`;
+  const core = s
+    .replace(/[（(][^）)]*[）)]/g, '')                            // 去掉「（上月已通报）」这类补充说明
+    .replace(/\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日/g, '')    // 去日期
+    .replace(/\d+\s*号线/g, '')                                  // 去线路号（2号线 etc.）
+    .replace(/[\s，,、。．.；;·:：\-—]/g, '');
+  const codes = [...new Set((s.match(/[A-Z]{1,2}\d{2,3}/g) || []).map(x => x.toUpperCase()))]; // 车号 B08/A31/BG06
+  return { date, core, codes };
+}
+function bigrams(s) { const g = new Set(); for (let i = 0; i < s.length - 1; i++) g.add(s.slice(i, i + 2)); return g; }
+function coreSim(a, b) {
+  if (!a || !b) return 0;
+  if (a === b || a.includes(b) || b.includes(a)) return 1;
+  const A = bigrams(a), B = bigrams(b);
+  let inter = 0; A.forEach(x => { if (B.has(x)) inter++; });
+  return inter / (A.size + B.size - inter);
+}
+// 两个事件名是否指同一件事：日期必须相同；车号相同或核心高度相似
+function sameEventName(a, b) {
+  const A = eventNameCore(a), B = eventNameCore(b);
+  if (!A || !B || A.date !== B.date) return false;
+  const sim = coreSim(A.core, B.core);
+  if (sim >= 0.55) return true;
+  return A.codes.length > 0 && B.codes.length > 0 && A.codes.some(c => B.codes.includes(c)) && sim >= 0.3;
+}
+function findSameEventBank(name) {
+  const banks = db.prepare("SELECT id, name FROM question_banks WHERE bank_type='event'").all();
+  return banks.find(b => sameEventName(name, b.name)) || null;
+}
+const eventNameOf = (t) => { const m = String(t || '').match(/【(.+?)】/); return m ? m[1] : null; };
+
 router.post('/api/admin/questions/batch-save', adminAuth, (req, res) => {
   const { questions, bank_id, bank_name, bank_type } = req.body;
   if (!Array.isArray(questions) || questions.length === 0)
     return res.status(400).json({ error: '题目列表为空' });
-  const VALID_TYPES = new Set(['emergency','event','knowledge','compliance','theory']);
-  const safeType = VALID_TYPES.has(bank_type) ? bank_type : 'knowledge';
+  const VALID_TYPES = new Set(['emergency','essential','event','abnormal','compliance']);
+  const safeType = VALID_TYPES.has(bank_type) ? bank_type : 'essential';
   let targetBankId = parseInt(bank_id) || null;
+  let reusedBank = null;   // 复用的已有题库名（含同事件并入）
   if (bank_name?.trim()) {
-    const r = db.prepare('INSERT INTO question_banks (name, q_type, default_count, bank_type) VALUES (?,?,?,?)').run(bank_name.trim(), '简答', 3, safeType);
-    targetBankId = r.lastInsertRowid;
-    logAdmin('新建题库', `${bank_name.trim()} [${safeType}]`, req.adminName);
+    const nm = bank_name.trim();
+    const exist = db.prepare('SELECT id, name FROM question_banks WHERE name=?').get(nm);
+    // 名称不完全相同但属同一事件的（如同日同车号、带"（上月已通报）"后缀）→ 并入已有库
+    const sameEvent = exist ? null : (safeType === 'event' ? findSameEventBank(nm) : null);
+    const target = exist || sameEvent;
+    if (target) {
+      // 同名题库自动复用：反复上传同一份材料时不会建出一堆重名题库
+      targetBankId = target.id;
+      reusedBank = target.name;
+      logAdmin('复用题库', `${nm} [${safeType}]${exist ? '' : ` ←同事件并入「${target.name}」`}`, req.adminName);
+    } else {
+      const r = db.prepare('INSERT INTO question_banks (name, q_type, default_count, bank_type) VALUES (?,?,?,?)').run(nm, '简答', 3, safeType);
+      targetBankId = r.lastInsertRowid;
+      logAdmin('新建题库', `${nm} [${safeType}]`, req.adminName);
+    }
   }
   if (!targetBankId) return res.status(400).json({ error: '请指定题库' });
+  // 按目标题库的真实分类判断是否事件库（指定已有题库时 bank_type 未必随请求传来）
+  const bankRow = db.prepare('SELECT bank_type FROM question_banks WHERE id=?').get(targetBankId);
+  const isEventBank = (bankRow?.bank_type || safeType) === 'event';
+  // 事件库：同一事件已有在用的题 → 不重复录入（材料里重复出现的事件很常见）
+  let existingEventNames = [];
+  if (isEventBank) {
+    existingEventNames = db.prepare('SELECT text FROM questions WHERE bank_id=? AND active=1').all(targetBankId)
+      .map(r => eventNameOf(r.text)).filter(Boolean);
+  }
   const stmt = db.prepare('INSERT INTO questions (bank_id,text,reference,keywords,category) VALUES (?,?,?,?,?)');
-  const ids = [];
+  const ids = []; const skipped = [];
   db.transaction(() => {
     questions.forEach(q => {
+      if (isEventBank) {
+        const n = eventNameOf(q.text);
+        if (n && existingEventNames.some(e => sameEventName(n, e))) { skipped.push(n); return; }
+        if (n) existingEventNames.push(n);
+      }
       const r = stmt.run(targetBankId, q.text, q.reference, q.keywords || '', q.category || '业务知识');
       ids.push(r.lastInsertRowid);
     });
   })();
-  logAdmin('批量保存题目', `题库ID=${targetBankId} 保存${ids.length}题`, req.adminName);
-  res.json({ ok: true, count: ids.length, ids, bankId: targetBankId });
+  logAdmin('批量保存题目', `题库ID=${targetBankId} 保存${ids.length}题${skipped.length ? ` 跳过重复${skipped.length}题` : ''}`, req.adminName);
+  res.json({ ok: true, count: ids.length, ids, bankId: targetBankId, reusedBank, skippedEventNames: skipped });
 });
 
 // ─── 手动选题（管理员指定本次答题题目）───────────────────────────────────
@@ -1255,6 +1320,171 @@ function buildStructureExtractPrompt(text, maxCount = 8) {
 ${text.slice(0, 8000)}`;
 }
 
+// ─── 智能分块出题：先让 AI 看懂文档结构（有几个独立事件/条目），再逐条出题 ──────
+// 长材料（月度学习摘要、多事件通报）一次整篇丢给 AI，它只会挑其中一条出题；
+// 这里拆成两步：① AI 列出所有独立条目并给出原文定位锚点 ② 每个条目单独出题。
+function buildSplitOutlinePrompt(text) {
+  return `你是武汉地铁乘务培训专家。下面是一份培训/学习材料。请先分析文档结构，**逐个列出其中所有独立的知识条目**。
+
+【要求】
+- 材料里每个独立的安全事件、每条独立的故障案例、每项独立的要求/预警、每份传达文件，都要单独列一条
+- 不要合并（例如材料里有 3 个安全事件就必须列 3 条），不要遗漏
+- 每条输出：name、kind（event=安全事件或故障案例；knowledge=要求/预警/文件学习等）、cat（**归档分类，必须判断准确**）、starts_with（该条正文开头 15~25 个字符，必须与原文完全一致，用于定位）
+- **cat 归档分类的判断口径**：
+  · kind=event 时 cat 固定为 "event"
+  · kind=knowledge 时从下面三类中选一个：
+    - "essential"（应知必会）= 规章必会、基础业务、经常被检查抽问的知识：信号显示、行车组织规则、一次作业标准、设备操作要求、内部管控要求
+    - "abnormal"（非正常情况行车）= **车外环境或设施因素**导致的非正常行车处置：恶劣天气、防汛防台风、道岔故障、接触轨(网)失电、隧道积水、地震等
+    - "compliance"（违法乱纪）= **仅当内容主体本身就是处罚条例、纪律规定或法律法规条文**（如《违章违纪处罚办法》《劳动纪律规定》）
+      ⚠️ 判定从严：安全生产规定、作业风险提示、操作规范、风险管控要求一律归 "essential"
+  · **默认规则：拿不准时一律选 "essential"**（应知必会是兜底类）
+  · 归档示例（照此口径）：
+    「加强高压设备操作管控要求」→ essential
+    「强化行车瞭望、防范异物侵限预警」→ essential
+    「《国务院安委办…有限空间作业事故的风险提示》」→ essential（是作业安全要求，不是违纪处罚）
+    「《国家防总办…防汛防台风工作部署》」→ abnormal（外部天气因素）
+    「《违章违纪处罚条例》」→ compliance
+  · 判别总口径：车上设备故障、司机照处置方案自办的 = 应急类知识；车外因素、需多专业联动的 = 非正常情况行车
+- **event 类的 name 必须以事件发生日期开头**，格式「YYYY年M月D日+线路/地点+车号+事件类型」
+  （例：2026年8月3日2号线B08中南路列车自动收车事件）。原文只写月日时，用文档标题或正文中的年份补全；
+  原文完全没写日期时才省略日期，**绝不编造日期**。knowledge 类的 name 不带日期。
+- **event 类必须再判断「这段原文实际写了哪几部分」**，输出 parts 数组：按「经过」「问题」「整改」的先后顺序，
+  **只列原文确实写到的部分，没写的绝不列进去**：
+  · 三段齐全（事件经过 + 乘务员存在的问题 + 整改措施及反思）→ ["经过","问题","整改"]
+  · 只有经过和问题、原文没写整改 → ["经过","问题"]
+  · 只有经过和整改、原文没写问题 → ["经过","整改"]
+  · 原文**只客观通报了事件经过** → ["经过"]
+  ⚠️ 只写经过是很常见的情形：**正面事件**（乘务员处置得当、属设备或外部环境原因、或本就是他线/本专业以外的事）
+  材料只会客观写经过，**不要因为"事件类材料一般都有问题和整改"就硬把这两部分列上**。
+- knowledge 类不用返回 parts
+- 只返回 JSON 数组，不要解释
+
+格式：[{"name":"...","kind":"event","cat":"event","parts":["经过","问题","整改"],"starts_with":"原文开头..."}]
+（knowledge 类示例：[{"name":"...","kind":"knowledge","cat":"essential","starts_with":"原文开头..."}]）
+
+材料原文：
+${text.slice(0, 9000)}`;
+}
+
+// 事件类题目的「三问」定义：① 事件简要经过 ② 乘务员存在哪些问题 ③ 整改措施及反思
+const EVENT_ASK = { 经过: '事件简要经过', 问题: '乘务员存在哪些问题', 整改: '整改措施及反思' };
+// 归一化 AI 给的 parts：按固定顺序取交集；没给/给错时退回三段（保持旧行为）
+function normalizeEventParts(parts) {
+  const raw = Array.isArray(parts) ? parts.map(String) : [];
+  const hit = ['经过', '问题', '整改'].filter(k => raw.some(x => x.includes(k)));
+  return hit.length ? hit : ['经过', '问题', '整改'];
+}
+
+function buildSplitItemPrompt(item, seg) {
+  if (item.kind === 'event') {
+    const parts = normalizeEventParts(item.parts);
+    const idx = ['①', '②', '③'];
+    const askList = parts.map((k, i) => `${idx[i]} ${EVENT_ASK[k]}`).join('；');
+
+    // 只写到一问（通常是正向事件：材料只客观通报了经过）→ 出单问，别硬凑三问
+    if (parts.length === 1) {
+      const only = parts[0];
+      const stem = only === '经过' ? `请口述【${item.name}】的简要经过。`
+        : only === '问题' ? `请简述【${item.name}】中乘务员存在的问题。`
+        : `请简述【${item.name}】的整改措施及反思。`;
+      return `你是武汉地铁乘务安全培训助手。以下是材料中【${item.name}】这一条的原文。**这条材料只写到了「${EVENT_ASK[only]}」这一部分**（其余部分原文没有写，不要去问），请严格依据原文出 1 道考核题。
+
+【题目】原样使用下面这句（事件名称必须完整写在【】内）：
+${stem}
+
+【答案】严格用这个格式：
+【本题1问，按要点覆盖率计分】
+① ${EVENT_ASK[only]}：……
+- 只从原文摘取，不得补充编造；也**不要**去猜乘务员有什么问题、该有什么整改——原文没写的就不提
+- 要点之间用分号分隔${only === '经过' ? '；经过部分含日期+线路/地点+车号+一句话概要，不写人名、不写 HH:MM:SS' : ''}
+
+只返回 JSON 数组（1 个元素）：
+[{"text":"题目","reference":"按上面格式写好的完整答案","keywords":"词1,词2","category":"安全事件"}]
+
+原文：
+${seg}`;
+    }
+
+    // 两问或三问：题干与答案都只列原文实际写到的部分（不再用「原文未提及」占位）
+    const head = parts.length === 3
+      ? '这一道题要覆盖"经典三问"：事件简要经过、乘务员存在的问题、整改措施及反思——这三问密不可分，必须合并在同一道题里考。'
+      : `这条材料写到了其中的 ${parts.length} 个部分（${parts.map(k => EVENT_ASK[k]).join('、')}），其余部分原文没有写，不要问。`;
+    return `你是武汉地铁乘务安全培训助手。以下是材料中【${item.name}】这一条的原文，请严格依据这段原文出 1 道考核题。${head}
+
+【题目】原样套用下面的格式（事件名称必须完整写在【】内，${idx.slice(0, parts.length).join('')}的措辞不要改动）：
+请口述【${item.name}】的完整情况，包括：${askList}。
+
+【答案】必须按${parts.length}个部分分别作答，严格用这个格式：
+【本题${parts.length}问，按${parts.length}个部分分别给分；每部分按要点覆盖率计分】
+${parts.map((k, i) => `${idx[i]} ${EVENT_ASK[k]}：……`).join('\n')}
+- 只从原文摘取，不得补充编造；上面列出的每一部分原文都有内容，**必须写出实测内容，不允许出现「原文未提及」**
+- 要点之间用分号分隔；经过部分含日期+线路/地点+车号+一句话概要，不写人名、不写 HH:MM:SS
+
+只返回 JSON 数组（1 个元素）：
+[{"text":"题目","reference":"按上面格式写好的完整答案","keywords":"词1,词2","category":"安全事件"}]
+
+原文：
+${seg}`;
+  }
+  return `你是武汉地铁乘务培训专家。以下是材料中【${item.name}】这一条的原文，请依据原文出 1~2 道考核题，考查其中的核心要求/知识点。原文若没有实质可考核内容，返回空数组 []。
+
+【要求】答案只用原文内容，要点用分号分隔；关键词 2~4 个。
+
+只返回 JSON 数组：
+[{"text":"题目","reference":"要点1;要点2","keywords":"词1,词2","category":"业务知识"}]
+
+原文：
+${seg}`;
+}
+
+async function splitGenerateQuestions(KEY, text) {
+  const outlineRaw = await callQwenText(KEY, buildSplitOutlinePrompt(text), 2500);
+  let outline = [];
+  try { outline = JSON.parse((outlineRaw.match(/\[[\s\S]*\]/) || ['[]'])[0]); } catch (e) { outline = []; }
+  if (!Array.isArray(outline) || !outline.length) return [];
+
+  // 用 starts_with 定位每条在原文中的位置（忽略空白差异，再映射回原文本下标，保留原始排版）
+  const flatText = text.replace(/\s+/g, '');
+  const findPos = (s) => {
+    const key = String(s || '').replace(/\s+/g, '');
+    if (!key) return -1;
+    const target = flatText.indexOf(key.slice(0, 12));
+    if (target < 0) return -1;
+    let fi = 0, ti = 0;
+    for (; ti < text.length && fi < target; ti++) if (!/\s/.test(text[ti])) fi++;
+    return ti;
+  };
+  const positions = outline.map(o => findPos(o.starts_with));
+  const items = outline.map((o, i) => {
+    const start = positions[i] >= 0 ? positions[i] : 0;
+    const next = positions.slice(i + 1).find(p => p > start);
+    const end = next != null ? next : text.length;
+    return { ...o, seg: (positions[i] >= 0 ? text.slice(start, end) : text).slice(0, 3000) };
+  });
+
+  console.log(`[分块出题] 识别到 ${items.length} 个独立条目：` + items.map(x => x.name).join(' / '));
+
+  const questions = [];
+  const CONC = 3;
+  for (let i = 0; i < items.length; i += CONC) {
+    const batch = items.slice(i, i + CONC);
+    const results = await Promise.all(batch.map(async (o) => {
+      try {
+        const raw = await callQwenText(KEY, buildSplitItemPrompt(o, o.seg || text), 2500);
+        const arr = JSON.parse((raw.match(/\[[\s\S]*\]/) || ['[]'])[0]);
+        return Array.isArray(arr) ? arr : [];
+      } catch (e) { return []; }
+    }));
+    // 每道题带上所属条目名与类型，前端据此分组展示 / 自动归类
+    results.forEach((arr, j) => arr.forEach(q => questions.push({ ...q, group: batch[j].name, groupKind: batch[j].kind, groupCat: batch[j].cat })));
+  }
+  // 丢弃没有答案的题（原文里本就没有对应内容，如纯故障统计条目的"整改措施"）
+  const kept = questions.filter(q => q && q.text && String(q.reference || '').trim().length >= 5);
+  console.log(`[分块出题] 生成 ${questions.length} 题，过滤无答案后保留 ${kept.length} 题，分属 ${items.length} 个条目`);
+  kept._outline = items.map(x => ({ name: x.name, kind: x.kind, cat: x.cat, parts: x.kind === 'event' ? normalizeEventParts(x.parts) : undefined })); // 供前端显示识别摘要（非数组元素）
+  return kept;
+}
+
 // 安全事件固定3题模板
 const EVENT_TEMPLATES = ['请简要描述事件发生的经过', '本次事件中乘务员存在哪些问题？', '针对本次事件，整改措施有哪些？'];
 
@@ -1269,7 +1499,7 @@ function buildCustomQuestionsPrompt(text, questions, isIncident) {
 - 关键词从原文摘取 2~4 个核心词
 - category 字段：${isIncident ? '"安全事件"' : '根据题目内容选择 "安全事件" / "应急处置" / "业务知识" / "设备操作" / "规章制度" 之一'}
 ${isIncident ? `- text 字段必须把事件上下文补进题目，避免答题人看到光秃秃的题目不知道在问哪个事件。
-  从原文提炼事件简短名称（格式：日期+线路/地点+车号+事件类型，例如"2026年4月30日C05三金潭冒进信号事件"），改写题目时把这个名称嵌入题目主语位置。
+  从原文提炼事件简短名称（格式：**YYYY年M月D日**+线路/地点+车号+事件类型，例如"2026年4月30日C05三金潭冒进信号事件"），改写题目时把这个名称嵌入题目主语位置。原文只写月日时用文档/正文年份补全，绝不编造日期。
   例如：教员题目"请简要描述事件发生的经过" → text 改写为"请简要描述[事件名称]发生的经过"。
   教员题目"乘务员存在哪些问题" → text 改写为"在[事件名称]中，乘务员存在哪些问题"。
 - 涉及"事件经过"类问题，答案需包含：日期(年月日)+线路/地点+车号+一句话事件概要，不写人名，不写HH:MM:SS精确时间` : '- text 字段保持教员题目原文，不要改写'}
@@ -1285,7 +1515,6 @@ ${text.slice(0, 8000)}
 }
 
 router.post('/api/admin/banks/parse-doc', adminAuth, upload.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: '请上传文件' });
   const KEY = process.env.DASHSCOPE_API_KEY;
   if (!KEY) return res.status(503).json({ error: '未配置DASHSCOPE_API_KEY' });
 
@@ -1390,10 +1619,15 @@ print(''.join(page.get_text() for page in doc))
       return res.status(400).json({ error: '不支持的文件格式，请上传 Word(.docx)、PDF、或图片' });
     }
 
+    let preBuilt = null;
     if (!isImage) {
       if (!extractedText?.trim()) return res.status(400).json({ error: '文件内容为空或无法提取文本' });
       let prompt;
-      if (mode === 'custom') {
+      if (mode === 'split') {
+        // 智能分块：先让 AI 识别文档里有几个独立事件/条目，再逐条出题（适合月度材料、多事件通报）
+        preBuilt = await splitGenerateQuestions(KEY, extractedText);
+        if (!preBuilt.length) return res.status(500).json({ error: '没能从文件中识别出可出题的独立条目，请改用其他方式' });
+      } else if (mode === 'custom') {
         const isIncident = isIncidentReport(extractedText) || dest_cat === 'event';
         prompt = buildCustomQuestionsPrompt(extractedText, customList, isIncident);
       } else if (dest_cat === 'event') {
@@ -1401,12 +1635,15 @@ print(''.join(page.get_text() for page in doc))
       } else {
         prompt = buildStructureExtractPrompt(extractedText, Math.min(parseInt(count) || 8, 10));
       }
-      rawJson = await callQwenText(KEY, prompt);
+      if (!preBuilt) rawJson = await callQwenText(KEY, prompt);
     }
 
     let questions;
-    try { questions = JSON.parse(rawJson); }
-    catch { return res.status(500).json({ error: 'AI返回格式异常，请重试', raw: rawJson.slice(0, 200) }); }
+    if (preBuilt) questions = preBuilt;
+    else {
+      try { questions = JSON.parse(rawJson); }
+      catch { return res.status(500).json({ error: 'AI返回格式异常，请重试', raw: rawJson.slice(0, 200) }); }
+    }
 
     if (!Array.isArray(questions) || questions.length === 0)
       return res.status(500).json({ error: 'AI未生成有效题目' });
@@ -1450,7 +1687,7 @@ print(''.join(page.get_text() for page in doc))
       logAdmin('智能出题保存', `题库ID=${targetBankId} 生成${questions.length}题 docType=${docType}`, req.adminName);
     }
 
-    res.json({ ok: true, questions, docType, ids: savedIds, extractedText: (extractedText||'').slice(0, 3000) });
+    res.json({ ok: true, questions, docType, ids: savedIds, outline: preBuilt?._outline || null, extractedText: (extractedText||'').slice(0, 3000) });
   } catch (e) {
     res.status(500).json({ error: '处理失败: ' + e.message });
   }

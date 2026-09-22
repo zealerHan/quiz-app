@@ -15,3 +15,12 @@ app/logs/
 /export_workshop_summary.py
 *.xlsx
 app/server/data/
+app/recalc_cycle.js
+# 本地运行的一次性脚本与配置备份（不入库）
+app/merge_events.js
+app/proto_split.js
+app/test_asr_replay.js
+app/deploy_2300.sh
+deploy_2300.sh
+*.bak-*
+cf-*-backup-*.json

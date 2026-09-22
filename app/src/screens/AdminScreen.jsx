@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { api, apiJson, adminHeaders, AppModal, Badge, ScoreRing, MiniBar } from "../shared.jsx";
 
-// ─── 题库分类常量 ──────────────────────────────────────────────────────────────
+// ─── 题库分类常量（5分类体系 v2 · 用户定版 2026-09）──────────────────────────
+// 口径: emergency=车上设备故障（司机自办）/ abnormal=车外环境设施因素（多专业联动）
 const BANK_TYPES = [
-  { key: 'emergency',  icon: '🚨', label: '应急/风险',  color: '#f87171' },
-  { key: 'event',      icon: '📋', label: '安全事件',   color: '#fb923c' },
-  { key: 'knowledge',  icon: '📖', label: '规章业务',   color: '#60a5fa' },
-  { key: 'compliance', icon: '⚖️', label: '合规',       color: '#a78bfa' },
-  { key: 'theory',     icon: '📚', label: '理论题库',   color: '#34d399' },
+  { key: 'emergency',  icon: '🚨', label: '应急',           color: '#f87171' },
+  { key: 'essential',  icon: '📕', label: '应知必会',       color: '#60a5fa' },
+  { key: 'event',      icon: '📋', label: '安全事件',       color: '#fb923c' },
+  { key: 'abnormal',   icon: '⚠️', label: '非正常情况行车', color: '#fbbf24' },
+  { key: 'compliance', icon: '⚖️', label: '违法乱纪',       color: '#a78bfa' },
 ];
 const BANK_TYPE_MAP = Object.fromEntries(BANK_TYPES.map(t => [t.key, t]));
 // banks 数组按 bank_type 分组
@@ -15,7 +16,7 @@ const groupBanksByType = (banks) => {
   const groups = {};
   BANK_TYPES.forEach(t => { groups[t.key] = []; });
   banks.forEach(b => {
-    const k = b.bank_type || 'knowledge';
+    const k = b.bank_type || 'essential';
     if (k !== 'manual' && groups[k]) groups[k].push(b);
   });
   return groups;
@@ -27,7 +28,7 @@ function BankTypeSelect({ banks, bankId, setBankId, newBankName, setNewBankName,
   // 从当前 bankId / newBankType 推断初始分类
   const initCat = () => {
     if (bankId) { const b = banks.find(x => String(x.id) === String(bankId)); return b?.bank_type || null; }
-    if (newBankName?.trim()) return newBankType || 'knowledge';
+    if (newBankName?.trim()) return newBankType || 'essential';
     return null;
   };
   const [selCat, setSelCat] = useState(initCat);
@@ -110,6 +111,29 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
   const [editErr,setEditErr]=useState('');
   const [batchSelected,setBatchSelected]=useState(new Set());
   const [batchMode,setBatchMode]=useState(false);
+  // 班组长轮训弹窗
+  const [showRotation, setShowRotation] = useState(false);
+  const [rotList, setRotList] = useState([]);   // 编辑副本 [{id,name,on_leave}]
+  const openRotation = () => {
+    const ld = members.filter(m=>!!m.is_leader)
+      .sort((a,b)=>(a.rotation_order??999)-(b.rotation_order??999) || String(a.id).localeCompare(String(b.id)))
+      .map(m=>({ id:m.id, name:m.real_name||m.name, on_leave: !!m.on_leave }));
+    setRotList(ld); setShowRotation(true);
+  };
+  const rotMove = (i, dir) => { // dir: -1 上移 / +1 下移
+    setRotList(prev => {
+      const j = i + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const cp = [...prev]; const t = cp[i]; cp[i] = cp[j]; cp[j] = t; return cp;
+    });
+  };
+  const rotToggleLeave = (i) => setRotList(prev => prev.map((x,k)=> k===i?{...x,on_leave:!x.on_leave}:x));
+  const saveRotation = async () => {
+    const list = rotList.map((x,k)=>({ staff_id: x.id, rotation_order: k+1, on_leave: x.on_leave?1:0 }));
+    const r = await apiJson('/api/admin/rotation', { method:'PUT', headers: hdrs(), body: JSON.stringify({ list }) }).catch(()=>null);
+    if (r?.ok) { setShowRotation(false); onRefresh(); alert('轮训顺序已保存，下个早班起生效'); }
+    else alert(r?.error || '保存失败');
+  };
 
   const hdrs = (extra={}) => ({'x-admin-password': pwd, 'Content-Type':'application/json', ...extra});
 
@@ -176,17 +200,18 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
     <div>
       {/* 班组长固定行 */}
       {(()=>{
-        const leaders=members.filter(m=>!!m.is_leader).sort((a,b)=>String(a.id).localeCompare(String(b.id)));
+        const leaders=members.filter(m=>!!m.is_leader).sort((a,b)=>(a.rotation_order??999)-(b.rotation_order??999) || String(a.id).localeCompare(String(b.id)));
         if(!leaders.length) return null;
         return (
           <div style={{display:'flex',alignItems:'center',gap:6,padding:'8px 12px 6px',flexWrap:'wrap'}}>
             <span style={{fontSize:10,color:'var(--muted)',flexShrink:0,marginRight:2}}>班组长</span>
             {leaders.map(m=>(
-              <div key={m.id} onClick={()=>openEdit(m)} style={{display:'flex',flexDirection:'column',gap:1,padding:'5px 12px',background:'rgba(245,158,11,0.08)',border:'1px solid rgba(245,158,11,0.38)',borderRadius:6,cursor:'pointer',minWidth:56}}>
-                <div style={{fontSize:12,fontWeight:700,color:'#fbbf24',whiteSpace:'nowrap'}}>{m.real_name||'（未设）'}</div>
-                <div style={{fontSize:9,color:'#92724a'}}>班组长</div>
+              <div key={m.id} onClick={()=>openEdit(m)} style={{display:'flex',flexDirection:'column',gap:1,padding:'5px 12px',background:m.on_leave?'rgba(148,163,184,0.08)':'rgba(245,158,11,0.08)',border:`1px solid ${m.on_leave?'rgba(148,163,184,0.4)':'rgba(245,158,11,0.38)'}`,borderRadius:6,cursor:'pointer',minWidth:56,opacity:m.on_leave?0.75:1}}>
+                <div style={{fontSize:12,fontWeight:700,color:m.on_leave?'#94a3b8':'#fbbf24',whiteSpace:'nowrap'}}>{m.real_name||'（未设）'}</div>
+                <div style={{fontSize:9,color:m.on_leave?'#64748b':'#92724a'}}>{m.on_leave?'休假中':'班组长'}</div>
               </div>
             ))}
+            <button onClick={openRotation} style={{fontSize:10,padding:'4px 9px',borderRadius:6,border:'1px solid rgba(245,158,11,0.4)',background:'rgba(245,158,11,0.08)',color:'#fbbf24',cursor:'pointer',flexShrink:0}}>⚙ 轮训</button>
           </div>
         );
       })()}
@@ -246,6 +271,44 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
           );
         })}
       </div>
+      {/* 班组长轮训弹窗 */}
+      {showRotation && (() => {
+        if (rotList.length === 0) return null;
+        return (
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:230,padding:16}} onClick={()=>setShowRotation(false)}>
+            <div onClick={e=>e.stopPropagation()} style={{background:'#0f2744',borderRadius:12,width:'100%',maxWidth:340,maxHeight:'88vh',display:'flex',flexDirection:'column'}}>
+              <div style={{padding:'14px 16px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:14,color:'var(--text)'}}>班组长轮训</div>
+                  <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>调整先后/勾休假，下个早班起生效</div>
+                </div>
+                <button onClick={()=>setShowRotation(false)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:20,cursor:'pointer',lineHeight:1}}>×</button>
+              </div>
+              <div style={{flex:1,overflowY:'auto',padding:'12px 16px'}}>
+                {rotList.map((x,i)=>(
+                  <div key={x.id} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',borderRadius:7,background:x.on_leave?'rgba(148,163,184,0.08)':'rgba(13,17,23,0.4)',border:`1px solid ${x.on_leave?'rgba(148,163,184,0.3)':'var(--border)'}`,marginBottom:6}}>
+                    <span style={{fontSize:12,color:'var(--muted)',width:16,flexShrink:0}}>{['①','②','③','④'][i]||i+1}</span>
+                    <span style={{flex:1,fontSize:13,color:x.on_leave?'#94a3b8':'var(--text)',fontWeight:x.on_leave?400:600}}>{x.name}</span>
+                    <span onClick={()=>rotToggleLeave(i)} style={{display:'inline-flex',alignItems:'center',gap:4,cursor:'pointer',userSelect:'none'}}>
+                      <span style={{fontSize:11,color:x.on_leave?'#94a3b8':'var(--muted)'}}>休假</span>
+                      <span style={{width:30,height:16,borderRadius:8,background:x.on_leave?'#f59e0b':'rgba(71,85,105,0.5)',position:'relative',transition:'background .2s',flexShrink:0}}>
+                        <span style={{position:'absolute',top:2,width:12,height:12,borderRadius:6,background:'#fff',transition:'left .2s',left:x.on_leave?16:2}}/>
+                      </span>
+                    </span>
+                    <button onClick={()=>rotMove(i,-1)} disabled={i===0} style={{fontSize:12,color:i===0?'var(--muted)':'#60a5fa',background:'none',border:'none',cursor:i===0?'default':'pointer',padding:'0 3px'}}>↑</button>
+                    <button onClick={()=>rotMove(i,1)} disabled={i===rotList.length-1} style={{fontSize:12,color:i===rotList.length-1?'var(--muted)':'#60a5fa',background:'none',border:'none',cursor:i===rotList.length-1?'default':'pointer',padding:'0 3px'}}>↓</button>
+                  </div>
+                ))}
+                <div style={{fontSize:10,color:'var(--muted)',lineHeight:1.6,marginTop:8}}>提示：班组长休假时勾「休假」，剩余班组长自动轮流；休假结束取消勾选即自动回岗。</div>
+              </div>
+              <div style={{display:'flex',gap:8,padding:'12px 16px',borderTop:'1px solid var(--border)'}}>
+                <button onClick={()=>setShowRotation(false)} style={{flex:1,padding:'9px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
+                <button onClick={saveRotation} style={{flex:2,padding:'9px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#2563eb)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer'}}>保存</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {/* 编辑人员 Modal */}
       {editId&&(()=>{
         const m=members.find(x=>x.id===editId);
@@ -698,6 +761,8 @@ function AddQuestionPanel({ pwd, banks, hdrs, onDone }) {
   // Section 1: AI 辅助出题
   const [srcFile, setSrcFile] = useState(null);
   const [pasteText, setPasteText] = useState('');
+  const [splitMode, setSplitMode] = useState(true); // 智能分块出题（默认开：长材料一步到位，管理员无需理解问题模板）
+  const [aiOutline, setAiOutline] = useState(null); // 分块识别到的条目清单（用于结果摘要展示）
   const [tplSelected, setTplSelected] = useState([]);
   const [customTplText, setCustomTplText] = useState('');
   const [aiParsing, setAiParsing] = useState(false);
@@ -761,19 +826,30 @@ function AddQuestionPanel({ pwd, banks, hdrs, onDone }) {
   ];
 
   const doAiParse = async () => {
-    if (allQuestions.length === 0) { setAiMsg('❌ 请至少选择一个问题模板或输入自定义题目'); return; }
+    if (!splitMode && allQuestions.length === 0) { setAiMsg('❌ 请至少选择一个问题模板或输入自定义题目'); return; }
     if (!srcFile && !pasteText.trim()) { setAiMsg('❌ 请上传文件或粘贴内容'); return; }
-    setAiParsing(true); setAiMsg(''); setParsedQs([]); setCheckedQs([]);
+    setAiParsing(true); setAiMsg(''); setParsedQs([]); setCheckedQs([]); setAiOutline(null);
     const fd = new FormData();
-    fd.append('mode', 'custom');
-    fd.append('custom_questions', JSON.stringify(allQuestions));
+    if (splitMode) {
+      fd.append('mode', 'split');   // 智能分块：AI 先识别文档结构，再逐条出题
+    } else {
+      fd.append('mode', 'custom');
+      fd.append('custom_questions', JSON.stringify(allQuestions));
+    }
     if (srcFile) fd.append('file', srcFile);
     else fd.append('paste_text', pasteText.trim());
     try {
       const r = await fetch('/api/admin/banks/parse-doc', { method:'POST', headers:{'x-admin-password':pwd}, body:fd });
       const d = await r.json();
       if (!d.ok) { setAiMsg('❌ ' + (d.error||'解析失败')); }
-      else { setParsedQs(d.questions||[]); setCheckedQs((d.questions||[]).map((_,i)=>i)); }
+      else {
+        setParsedQs(d.questions||[]);
+        setCheckedQs((d.questions||[]).map((_,i)=>i));
+        setAiOutline(d.outline||null);
+        // 未选已有题库时，用材料文件名自动预填题库名，管理员不必自己想
+        const base = srcFile ? srcFile.name.replace(/\.[^.]+$/, '') : '';
+        if (!aiBank && !aiNewBank.trim() && base) setAiNewBank(base);
+      }
     } catch { setAiMsg('❌ 网络错误'); }
     setAiParsing(false);
   };
@@ -857,8 +933,20 @@ function AddQuestionPanel({ pwd, banks, hdrs, onDone }) {
         </div>
       </div>
 
-      {/* 问题模板 */}
-      <div style={{marginBottom:8}}>
+      {/* 智能分块开关 */}
+      <label style={{display:'flex',alignItems:'flex-start',gap:8,marginBottom:10,padding:'8px 10px',borderRadius:6,border:`1px solid ${splitMode?'var(--blue)':'var(--border)'}`,background:splitMode?'rgba(59,130,246,0.08)':'transparent',cursor:'pointer'}}>
+        <input type="checkbox" checked={splitMode} onChange={e=>setSplitMode(e.target.checked)} style={{marginTop:3,accentColor:'var(--blue)',flexShrink:0}}/>
+        <div style={{flex:1}}>
+          <div style={{fontSize:12,color:'var(--text)',fontWeight:600}}>🧩 智能分块出题（长材料 / 多事件）</div>
+          <div style={{fontSize:11,color:'var(--muted)',marginTop:3,lineHeight:1.45}}>
+            先让 AI 读懂文档里有几个独立事件/条目，再逐条出题（事件类自动出「经过 / 问题 / 整改」三题）。
+            适合月度学习材料、多起事件通报。打开后无需选择下面的问题模板。
+          </div>
+        </div>
+      </label>
+
+      {/* 问题模板（仅在关闭“智能分块”时需要，默认隐藏以减少困惑）*/}
+      {!splitMode && (<div style={{marginBottom:8}}>
         <div style={{fontSize:11,color:'var(--muted)',marginBottom:6}}>选择要提问的方向：</div>
         <div style={{display:'flex',flexDirection:'column',gap:5}}>
           {TEMPLATES.map((t,i)=>(
@@ -874,7 +962,7 @@ function AddQuestionPanel({ pwd, banks, hdrs, onDone }) {
         <textarea value={customTplText} onChange={e=>setCustomTplText(e.target.value)}
           placeholder="自定义题目（每行一个，AI 将从内容中提取对应答案）"
           rows={2} style={{...inp,marginTop:8,resize:'vertical'}}/>
-      </div>
+      </div>)}
 
       {/* AI 识别按钮 */}
       <button onClick={doAiParse} disabled={aiParsing}
@@ -892,11 +980,23 @@ function AddQuestionPanel({ pwd, banks, hdrs, onDone }) {
               <button onClick={()=>setCheckedQs([])} style={{fontSize:11,padding:'2px 7px',borderRadius:4,border:'1px solid var(--border)',background:'var(--input-bg)',color:'var(--muted)',cursor:'pointer'}}>取消</button>
             </div>
           </div>
+          {aiOutline && aiOutline.length>0 && (
+            <div style={{fontSize:11,color:'#60a5fa',marginBottom:8,lineHeight:1.5,padding:'6px 8px',borderRadius:5,background:'rgba(59,130,246,0.08)'}}>
+              🧩 已识别 {aiOutline.length} 个独立条目：{aiOutline.map(o=>o.name).join('、')}
+            </div>
+          )}
           <div style={{maxHeight:320,overflowY:'auto',marginBottom:8}}>
             {parsedQs.map((q,i)=>{
               const isExp = expandedQsIdx === i;
               const normCat = STANDARD_CATS.includes(q.category) ? q.category : '业务知识';
+              const showGroup = q.group && (i===0 || parsedQs[i-1].group !== q.group);
               return (
+                <>
+                {showGroup && (
+                  <div style={{fontSize:11,color:'#60a5fa',fontWeight:600,marginTop:i===0?0:10,marginBottom:4}}>
+                    📌 {q.group}{q.groupKind==='event'?'':' · 归入 '+(BANK_TYPE_MAP[q.groupCat]?.label||'应知必会')}
+                  </div>
+                )}
                 <div key={i} style={{marginBottom:5,borderRadius:6,border:`1px solid ${checkedQs.includes(i)?'var(--blue)':'var(--border)'}`,background:checkedQs.includes(i)?'rgba(59,130,246,0.08)':'transparent'}}>
                   <div style={{display:'flex',gap:8,alignItems:'flex-start',padding:'8px 10px',cursor:'pointer'}} onClick={()=>setCheckedQs(prev=>prev.includes(i)?prev.filter(x=>x!==i):[...prev,i])}>
                     <span style={{color:checkedQs.includes(i)?'var(--blue)':'var(--muted)',fontSize:14,flexShrink:0,marginTop:1}}>{checkedQs.includes(i)?'☑':'☐'}</span>
@@ -906,10 +1006,12 @@ function AddQuestionPanel({ pwd, banks, hdrs, onDone }) {
                     </div>
                     <button onClick={e=>{e.stopPropagation();setExpandedQsIdx(isExp?null:i);}} style={{flexShrink:0,background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:13,padding:'0 2px'}}>{isExp?'▲':'✏️'}</button>
                   </div>
-                  <div style={{paddingLeft:32,paddingRight:10,paddingBottom:isExp?2:8}} onClick={e=>e.stopPropagation()}>
+                  <div style={{display:'flex',alignItems:'center',gap:6,paddingLeft:32,paddingRight:10,paddingBottom:isExp?2:8}} onClick={e=>e.stopPropagation()}>
+                    <span style={{fontSize:10,color:'var(--muted)',flexShrink:0}}>评分方式</span>
                     <select value={normCat} onChange={e=>updateParsedQ(i,'category',e.target.value)} style={{fontSize:11,padding:'3px 8px',borderRadius:4,border:'1px solid var(--border)',background:'#0d1117',color:'#60a5fa',cursor:'pointer',minWidth:90}}>
                       {STANDARD_CATS.map(c=><option key={c} value={c}>{c}</option>)}
                     </select>
+                    <span style={{fontSize:9,color:'var(--muted)'}}>（与题库分类无关）</span>
                   </div>
                   {isExp&&(
                     <div style={{padding:'4px 10px 10px 10px',display:'flex',flexDirection:'column',gap:6}} onClick={e=>e.stopPropagation()}>
@@ -920,6 +1022,7 @@ function AddQuestionPanel({ pwd, banks, hdrs, onDone }) {
                     </div>
                   )}
                 </div>
+                </>
               );
             })}
           </div>
@@ -1007,9 +1110,10 @@ function DocParseCard({ pwd, banks, onImported }) {
   const [expandedIdx, setExpandedIdx] = useState(null);
   const [extractedText, setExtractedText] = useState(''); // AI识别出的原始文本
   const [showRawText, setShowRawText] = useState(false);  // 是否展开原文
-  const [destCat, setDestCat] = useState(''); // 'emergency'|'event'|'knowledge'|'compliance'|'theory'
+  const [destCat, setDestCat] = useState(''); // 'emergency'|'event'|'essential'|'compliance'|'theory'
   const [destBankId, setDestBankId] = useState(''); // 选已有题库
   const [destNewName, setDestNewName] = useState(''); // 新建题库名（event固定新建）
+  const [outline, setOutline] = useState(null); // 智能分块识别到的独立条目清单
   const fileRef = useRef();
 
   const hdrs = () => ({ 'x-admin-password': pwd });
@@ -1042,12 +1146,15 @@ function DocParseCard({ pwd, banks, onImported }) {
   const doParse = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
     e.target.value = '';
-    setStep('parsing'); setMsg(''); setQuestions([]); setChecked([]); setExtractedText(''); setShowRawText(false);
+    parseFile(file);
+  };
+
+  // 上传后自动识别：走智能分块（AI 自己判断文档里有几个独立事件/条目，逐个出题并归类）
+  const parseFile = async (file) => {
+    setStep('parsing'); setMsg(''); setQuestions([]); setChecked([]); setExtractedText(''); setShowRawText(false); setOutline(null);
     const fd = new FormData();
     fd.append('file', file);
-    fd.append('mode', 'auto');
-    fd.append('count', '8');
-    if (destCat) fd.append('dest_cat', destCat);
+    fd.append('mode', 'split');
     try {
       const r = await fetch('/api/admin/banks/parse-doc', { method:'POST', headers:hdrs(), body:fd });
       const d = await r.json();
@@ -1055,44 +1162,56 @@ function DocParseCard({ pwd, banks, onImported }) {
       const qs = d.questions || [];
       setQuestions(qs);
       setChecked(qs.map((_,i)=>i));
+      setOutline(d.outline || null);
       if (d.extractedText) setExtractedText(d.extractedText);
-      // 根据 AI 识别结果自动确认分类
-      if (d.docType === 'incident' || destCat === 'event') {
-        setDestCat('event');
-        if (!destNewName) setDestNewName(extractEventName(qs));
-      } else if (!destCat || destCat === '') {
-        setDestCat('knowledge');
-        const kbs = bankGroups.knowledge || [];
-        if (kbs.length > 0 && !destBankId) setDestBankId(String(kbs[0].id));
-      }
       setStep('preview');
     } catch { setMsg('❌ 网络错误'); setStep('idle'); }
   };
 
   const doSave = async () => {
     const toSave = questions.filter((_,i) => checked.includes(i));
-    if (toSave.length === 0) { setMsg('❌ 请至少选择一道题'); return; }
-    let bank_id, bank_name;
-    if (!destCat) { setMsg('❌ 请选择内容分类'); return; }
-    if (destCat === 'emergency') {
-      bank_id = bankGroups.emergency?.[0]?.id || 1;
-    } else if (destCat === 'event') {
-      bank_name = destNewName.trim();
-      if (!bank_name) { setMsg('❌ 请填写事件名称'); return; }
-    } else {
-      bank_id = parseInt(destBankId);
-      if (!bank_id) { setMsg('❌ 请选择题库'); return; }
+    if (toSave.length === 0) { setMsg('❌ 请至少勾选一道题'); return; }
+    setStep('saving'); setMsg('');
+    // 按识别出的条目自动归类：每个事件/条目归一个题库（同名题库自动复用，不重复新建）
+    const groups = {};
+    toSave.forEach(q => {
+      const key = q.group || '未归类题目';
+      (groups[key] = groups[key] || []).push(q);
+    });
+    let total = 0; const okNames = []; const failNames = []; const merged = []; let skipped = 0;
+    for (const [name, qs] of Object.entries(groups)) {
+      const isEvent = qs[0]?.groupKind === 'event';
+      // 归档分类：事件→event；知识类按 AI 判断的 cat（应知必会/非正常情况行车/违法乱纪），无效值回退应知必会
+      const ALLOWED_CATS = ['emergency','essential','event','abnormal','compliance'];
+      const gc = qs[0]?.groupCat;
+      const bankType = isEvent ? 'event' : (ALLOWED_CATS.includes(gc) ? gc : 'essential');
+      const payload = qs.map(({ group, groupKind, groupCat, ...rest }) => rest); // 分组字段不入库
+      try {
+        const r = await fetch('/api/admin/questions/batch-save', {
+          method:'POST', headers:{...hdrs(),'Content-Type':'application/json'},
+          body: JSON.stringify({ questions: payload, bank_name: name, bank_type: bankType })
+        });
+        const d = await r.json();
+        if (d.ok) {
+          total += d.count;
+          if (d.reusedBank && d.reusedBank !== name) merged.push(`${name} → 并入已有《${d.reusedBank}》`);
+          else okNames.push(name);
+          skipped += (d.skippedEventNames || []).length;
+        } else failNames.push(name);
+      } catch { failNames.push(name); }
     }
-    setStep('saving');
-    try {
-      const r = await fetch('/api/admin/questions/batch-save', {
-        method:'POST', headers:{...hdrs(),'Content-Type':'application/json'},
-        body: JSON.stringify({ questions: toSave, bank_id, bank_name, bank_type: destCat })
-      });
-      const d = await r.json();
-      if (d.ok) { setMsg(`✅ 已保存 ${d.count} 题`); setStep('idle'); onImported?.(); }
-      else { setMsg('❌ ' + (d.error||'保存失败')); setStep('preview'); }
-    } catch { setMsg('❌ 网络错误'); setStep('preview'); }
+    if (total > 0 || merged.length) {
+      const parts = [`✅ 已录入 ${total} 题`];
+      if (okNames.length) parts.push(`自动归入 ${okNames.length} 个题库`);
+      if (merged.length) parts.push(`同事件并入已有题库：${merged.join('；')}`);
+      if (skipped) parts.push(`跳过 ${skipped} 道重复事件题`);
+      if (failNames.length) parts.push(`（${failNames.length} 个失败：${failNames.join('、')}）`);
+      setMsg(parts.join('，'));
+      setStep('idle'); setQuestions([]); setChecked([]);
+      onImported?.();
+    } else {
+      setMsg('❌ 录入失败，请重试'); setStep('preview');
+    }
   };
 
   const toggleCheck = (i) => setChecked(prev => prev.includes(i) ? prev.filter(x=>x!==i) : [...prev,i]);
@@ -1101,47 +1220,22 @@ function DocParseCard({ pwd, banks, onImported }) {
   /* ── IDLE / PARSING ── */
   if (step === 'idle' || step === 'parsing') return (
     <div className="card" style={{border:'1px solid #1e3a5f',padding:14,background:'rgba(59,130,246,0.04)'}}>
-      {/* 1. 内容分类 */}
-      <div style={{fontSize:11,color:'var(--muted)',fontWeight:600,letterSpacing:0.5,marginBottom:7}}>① 内容类型</div>
-      <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:12}}>
-        {BANK_TYPES.map(t => {
-          const active = destCat === t.key;
-          return (
-            <button key={t.key} onClick={()=>selectCat(t.key)} disabled={step==='parsing'}
-              style={{flex:1,minWidth:60,padding:'8px 4px',borderRadius:7,border:`1px solid ${active?t.color:'var(--border)'}`,background:active?`${t.color}20`:'transparent',color:active?t.color:'var(--muted)',fontSize:12,fontWeight:active?700:400,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:4}}>
-              {t.icon} {t.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* 2. 分类提示 */}
-      {destCat && (
-        <div style={{marginBottom:10,padding:'7px 10px',borderRadius:7,border:'1px solid var(--border)',background:'rgba(13,17,23,0.5)',fontSize:11,color:'var(--muted)',lineHeight:1.5}}>
-          {destCat==='event'
-            ? '📋 将自动生成3道题：① 事件经过  ② 乘务员存在的问题  ③ 整改措施'
-            : destCat==='emergency'
-            ? '🚨 将提取文档内容存入应急题库，最多8道题'
-            : '📖 将提取文档标题/条款为题目，对应内容为答案，最多8道题'}
-        </div>
-      )}
-
-      {/* 3. 上传 */}
-      <div style={{fontSize:11,color:'var(--muted)',fontWeight:600,letterSpacing:0.5,marginBottom:7}}>② 上传文件</div>
-      <label style={{display:'block',textAlign:'center',padding:'16px',border:'1px dashed #1e3a5f',borderRadius:8,cursor:step==='parsing'?'default':'pointer',background:'rgba(15,23,42,0.4)'}}>
+      {/* 一步到位：上传 → 自动识别 → 自动归类 */}
+      <label style={{display:'block',textAlign:'center',padding:'18px 16px',border:`1px dashed ${step==='parsing'?'var(--blue)':'#1e3a5f'}`,borderRadius:8,cursor:step==='parsing'?'default':'pointer',background:'rgba(15,23,42,0.4)'}}>
         <input ref={fileRef} type="file" accept=".docx,.pdf,.jpg,.jpeg,.png,.gif,.webp" style={{display:'none'}} onChange={doParse} disabled={step==='parsing'}/>
-        <div style={{fontSize:22,marginBottom:4}}>{step==='parsing'?'🤖':'📄'}</div>
-        <div style={{fontSize:13,color:'var(--blue)',fontWeight:600}}>{step==='parsing'?'AI解析中，请稍候…':'点击上传（Word / PDF / 图片）'}</div>
+        <div style={{fontSize:24,marginBottom:5}}>{step==='parsing'?'🤖':'📄'}</div>
+        <div style={{fontSize:13,color:'var(--blue)',fontWeight:600}}>{step==='parsing'?'AI 分析中，请稍候…':'点击上传（Word / PDF / 图片）'}</div>
+        <div style={{fontSize:11,color:'var(--muted)',marginTop:7,lineHeight:1.55}}>
+          系统会自动读完材料，识别出里面有几个独立事件/知识点，逐个出题，<br/>
+          并按事件自动归类到题库。你只需在结果里勾选要录入的题（默认全选）。
+        </div>
       </label>
       {msg && <div style={{fontSize:12,marginTop:8,color:msg.startsWith('✅')?'var(--green)':'var(--red)'}}>{msg}</div>}
     </div>
   );
 
   /* ── PREVIEW ── */
-  const canSave = step!=='saving' && checked.length>0 && !!destCat && (
-    destCat==='emergency' ||
-    (destCat==='event' ? !!destNewName.trim() : !!destBankId)
-  );
+  const canSave = step!=='saving' && checked.length>0;
 
   return (
     <div className="card" style={{border:'1px solid #1e3a5f',padding:'16px'}}>
@@ -1166,6 +1260,13 @@ function DocParseCard({ pwd, banks, onImported }) {
         </div>
       )}
 
+      {/* 识别摘要：让操作人一眼看出系统读懂了什么 */}
+      {outline && outline.length>0 && (
+        <div style={{fontSize:11,color:'#60a5fa',marginBottom:10,lineHeight:1.6,padding:'7px 10px',borderRadius:6,background:'rgba(59,130,246,0.08)'}}>
+          🧩 已识别 <b>{outline.length}</b> 个独立条目：{outline.map(o=>o.name).join('、')}
+        </div>
+      )}
+
       {/* 题目列表 — 直接内联编辑 */}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
         <span style={{fontSize:11,color:'var(--muted)'}}>共 {questions.length} 道，已选 {checked.length} 道</span>
@@ -1178,15 +1279,23 @@ function DocParseCard({ pwd, banks, onImported }) {
         {questions.map((q,i) => {
           const normCat = STANDARD_CATS.includes(q.category) ? q.category : '业务知识';
           const sel = checked.includes(i);
+          const showGroup = q.group && (i===0 || questions[i-1].group !== q.group);
           return (
+            <>
+            {showGroup && (
+              <div style={{fontSize:11,color:'#60a5fa',fontWeight:700,marginTop:i===0?0:6,marginBottom:1}}>
+                📌 {q.group}{q.groupKind==='event'?'':' · 归入 '+(BANK_TYPE_MAP[q.groupCat]?.label||'应知必会')}
+              </div>
+            )}
             <div key={i} style={{borderRadius:8,border:`1px solid ${sel?'rgba(59,130,246,0.4)':'var(--border)'}`,background:sel?'rgba(59,130,246,0.06)':'rgba(13,17,23,0.4)',padding:'10px 12px'}}>
               {/* 勾选 + 序号 */}
               <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:6,cursor:'pointer'}} onClick={()=>toggleCheck(i)}>
                 <span style={{color:sel?'var(--blue)':'var(--muted)',fontSize:14,flexShrink:0}}>{sel?'☑':'☐'}</span>
                 <span style={{fontSize:10,color:sel?'#60a5fa':'var(--muted)',fontWeight:700}}>第 {i+1} 题</span>
+                <span style={{marginLeft:'auto',fontSize:9,color:'var(--muted)',flexShrink:0}}>评分方式</span>
                 <select value={normCat} onChange={e=>{e.stopPropagation();updateQuestion(i,'category',e.target.value);}}
                   onClick={e=>e.stopPropagation()}
-                  style={{marginLeft:'auto',fontSize:10,padding:'2px 6px',borderRadius:4,border:'1px solid var(--border)',background:'#0d1117',color:'#60a5fa',cursor:'pointer'}}>
+                  style={{fontSize:10,padding:'2px 6px',borderRadius:4,border:'1px solid var(--border)',background:'#0d1117',color:'#60a5fa',cursor:'pointer'}}>
                   {STANDARD_CATS.map(c=><option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
@@ -1200,43 +1309,29 @@ function DocParseCard({ pwd, banks, onImported }) {
                 rows={3} placeholder="参考答案（各要点用分号分隔）"
                 style={{width:'100%',boxSizing:'border-box',background:'#0d1117',border:'1px solid rgba(59,130,246,0.2)',color:'var(--muted)',borderRadius:5,padding:'6px 8px',fontSize:11,fontFamily:'inherit',resize:'vertical'}}/>
             </div>
+            </>
           );
         })}
       </div>
 
-      {/* 保存目标 — 简化 */}
+      {/* 自动归类说明 + 保存 */}
       <div style={{background:'rgba(13,17,23,0.6)',border:'1px solid var(--border)',borderRadius:8,padding:'10px 12px',marginBottom:10}}>
-        <div style={{fontSize:11,color:'var(--muted)',fontWeight:600,marginBottom:8}}>保存到</div>
-        <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:8}}>
-          {BANK_TYPES.map(t=>{
-            const active = destCat===t.key;
-            return (
-              <button key={t.key} onClick={()=>selectCat(t.key)}
-                style={{flex:1,minWidth:60,padding:'7px 4px',borderRadius:6,border:`1px solid ${active?t.color:'var(--border)'}`,background:active?`${t.color}20`:'transparent',color:active?t.color:'var(--muted)',fontSize:11,fontWeight:active?700:400,cursor:'pointer'}}>
-                {t.icon} {t.label}
-              </button>
-            );
-          })}
+        <div style={{fontSize:11,color:'var(--muted)',fontWeight:600,marginBottom:6}}>录入后自动归类（每个事件/条目一个题库，同名题库自动合并）</div>
+        <div style={{fontSize:10,color:'var(--muted)',marginBottom:6,lineHeight:1.5}}>题库的分类标签（应急 / 应知必会 / 非正常情况行车 / 违法乱纪）由 AI 按内容自动判定，预览里每条会显示「· 归入 XXX」；题干右侧的「评分方式」只决定 AI 怎么判分（事件复述 / 按得分点 / 按操作步骤），<b style={{color:'#60a5fa'}}>与题库分类无关，一般不用动</b>。</div>
+        <div style={{fontSize:11,color:'#60a5fa',lineHeight:1.7}}>
+          {(() => {
+            const sel = questions.filter((_,i)=>checked.includes(i));
+            const m = {};
+            sel.forEach(q => { const k = q.group || '未归类题目'; m[k] = (m[k]||0)+1; });
+            const parts = Object.entries(m).map(([k,v]) => `📌 ${k}（${v}题）`);
+            return parts.length ? parts.join('　') : '—';
+          })()}
         </div>
-        {destCat==='emergency' && (
-          <div style={{fontSize:12,color:'var(--muted)'}}>→ {bankGroups.emergency?.[0]?.name || '应急故障处置'}</div>
-        )}
-        {destCat==='event' && (
-          <input value={destNewName} onChange={e=>setDestNewName(e.target.value)} placeholder="事件名称（将作为新题库名称）"
-            style={{width:'100%',boxSizing:'border-box',padding:'7px 10px',borderRadius:6,border:'1px solid var(--border)',background:'#0d1117',color:'var(--text)',fontSize:12}}/>
-        )}
-        {(destCat==='knowledge'||destCat==='compliance'||destCat==='theory') && (
-          <select value={destBankId} onChange={e=>setDestBankId(e.target.value)}
-            style={{width:'100%',padding:'7px 10px',borderRadius:6,border:'1px solid var(--border)',background:'#0d1117',color:'var(--text)',fontSize:12}}>
-            <option value=''>── 选择题库 ──</option>
-            {(bankGroups[destCat]||[]).map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
-        )}
       </div>
 
       <button onClick={doSave} disabled={!canSave}
         style={{width:'100%',padding:'10px',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',border:'none',borderRadius:7,color:'var(--text)',fontSize:13,fontWeight:600,cursor:'pointer',opacity:canSave?1:0.4}}>
-        {step==='saving'?'保存中…':`保存选中 ${checked.length} 题`}
+        {step==='saving'?'录入中…':`✅ 确认录入选中的 ${checked.length} 题`}
       </button>
       {msg && <div style={{fontSize:12,marginTop:8,color:msg.startsWith('✅')?'var(--green)':'var(--red)'}}>{msg}</div>}
     </div>
@@ -1251,7 +1346,7 @@ function ManualEntryForm({ pwd, banks, hdrs, onDone }) {
   const [keywords, setKeywords] = useState('');
   const [bankId, setBankId] = useState('');
   const [newBankName, setNewBankName] = useState('');
-  const [newBankType, setNewBankType] = useState('knowledge');
+  const [newBankType, setNewBankType] = useState('essential');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const doSave = async () => {
@@ -1298,7 +1393,7 @@ function ManualEntryForm({ pwd, banks, hdrs, onDone }) {
 function ExcelImportForm({ pwd, banks, onDone }) {
   const [bankId, setBankId] = useState('');
   const [newBankName, setNewBankName] = useState('');
-  const [newBankType, setNewBankType] = useState('knowledge');
+  const [newBankType, setNewBankType] = useState('essential');
   const [importing, setImporting] = useState(false);
   const [msg, setMsg] = useState('');
   const fileRef = useRef();
@@ -2505,8 +2600,8 @@ function AdminScreen({ onBack }) {
                   setQPinned(d); setPinCount(d.count||3);
                   if(d.mode==='manual'){setPinMode('manual');setQSelected(d.ids||[]);}
                   else if(d.mode==='emergency'){setPinMode('emergency');setQuizCat('emergency');}
-                  else if(d.bank_id){setPinMode('random');const b=banks.find(x=>x.id===d.bank_id);if(b){setQuizCat(b.bank_type||'knowledge');setQuizBankId(String(b.id));}}
-                  else if(d.bank_ids?.length>0){setPinMode('random');const b=banks.find(x=>x.id===d.bank_ids[0]);if(b){setQuizCat(b.bank_type||'knowledge');setQuizBankId(null);}}
+                  else if(d.bank_id){setPinMode('random');const b=banks.find(x=>x.id===d.bank_id);if(b){setQuizCat(b.bank_type||'essential');setQuizBankId(String(b.id));}}
+                  else if(d.bank_ids?.length>0){setPinMode('random');const b=banks.find(x=>x.id===d.bank_ids[0]);if(b){setQuizCat(b.bank_type||'essential');setQuizBankId(null);}}
                 });
                 setPinSaveModal(false); setPinFormOpen(false);
                 apiJson('/api/admin/dingtalk/notify-start',{method:'POST',headers:hdrs(),body:JSON.stringify({ids,mode,count,bank_id,bank_ids,scope:pinScope})}).catch(()=>null);

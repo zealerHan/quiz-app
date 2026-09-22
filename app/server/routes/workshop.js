@@ -3,8 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const { db, PHOTO_DIR } = require('../db');
-const { adminAuth, workshopEditAuth, logAdmin, LEADER_ROTATION } = require('../middleware');
-const { getTrainingPlanForDate, getSetting } = require('../helpers');
+const { adminAuth, workshopEditAuth, logAdmin } = require('../middleware');
+const { getTrainingPlanForDate, getSetting, getLeaderRotation } = require('../helpers');
 const { fmtDate, sendGroupPush, getPlanMemberNames } = require('../push');
 
 const router = express.Router();
@@ -66,11 +66,8 @@ function getLocation(dateStr) {
 function generatePlan(yearMonth) {
   const dates = getMonthEarlyShifts(yearMonth);
   const groups = db.prepare('SELECT * FROM training_groups ORDER BY sort_order, id').all();
-  const rawLeaders = db.prepare("SELECT id, real_name, name FROM staff WHERE is_leader=1").all();
-  const leaders = [
-    ...LEADER_ROTATION.map(n => rawLeaders.find(l => (l.real_name||l.name) === n)).filter(Boolean),
-    ...rawLeaders.filter(l => !LEADER_ROTATION.includes(l.real_name||l.name))
-  ];
+  // 轮训班组长：读库按 rotation_order 排，onlyActive 过滤休假中(on_leave=1)
+  const leaders = getLeaderRotation(true);
   const setting = db.prepare('SELECT safety_date, start_group_id, start_leader_idx FROM training_plan_settings WHERE year_month=?').get(yearMonth);
 
   // 中旬会日期：自定义 or 默认（11~20日第一个工作日早班）
@@ -147,11 +144,8 @@ function buildPlanResponse(yearMonth) {
   for (const s of allStaff) staffMap[s.id] = { id: s.id, real_name: s.real_name, name: s.name, is_instructor: !!s.is_instructor, is_leader: !!s.is_leader };
   const members = db.prepare('SELECT tgm.group_id, tgm.is_fixed, s.id, s.real_name, s.name FROM training_group_members tgm JOIN staff s ON tgm.staff_id=s.id').all();
   const fixedStaff = db.prepare('SELECT f.staff_id, s.real_name, s.name FROM training_fixed_members f JOIN staff s ON f.staff_id=s.id').all();
-  const rawLeaderStaff = db.prepare("SELECT id, real_name, name FROM staff WHERE is_leader=1").all();
-  const leaderStaff = [
-    ...LEADER_ROTATION.map(n => rawLeaderStaff.find(l => (l.real_name||l.name) === n)).filter(Boolean),
-    ...rawLeaderStaff.filter(l => !LEADER_ROTATION.includes(l.real_name||l.name))
-  ];
+  // 班组长下拉候选：读库按 rotation_order 排（不过滤休假，供手动调整/选择）
+  const leaderStaff = getLeaderRotation(false);
   const membersByGroup = {};
   for (const m of members) {
     if (!membersByGroup[m.group_id]) membersByGroup[m.group_id] = [];
@@ -259,6 +253,31 @@ router.post('/api/admin/training-plan/regenerate', adminAuth, (req, res) => {
   const ins = db.prepare('INSERT OR IGNORE INTO monthly_training_plans (year_month,shift_date,location,plan_type,group_id,leader_name,is_type_custom,notes) VALUES (?,?,?,?,?,?,?,?)');
   db.transaction(() => rows.forEach(r => ins.run(r.year_month,r.shift_date,r.location,r.plan_type,r.group_id,r.leader_name,r.is_type_custom,r.notes)))();
   res.json({ ok: true });
+});
+
+// ─── 班组长轮训顺序/休假配置（adminAuth）─────────────────────────────────
+// body: { list: [{staff_id, rotation_order, on_leave}] }  — 传全部 is_leader 即可
+router.put('/api/admin/rotation', adminAuth, (req, res) => {
+  const list = req.body?.list;
+  if (!Array.isArray(list) || list.length === 0) return res.status(400).json({ error: '参数不完整' });
+  const upd = db.prepare('UPDATE staff SET rotation_order=?, on_leave=? WHERE id=? AND is_leader=1');
+  try {
+    const tx = db.transaction(() => {
+      for (const item of list) {
+        const sid = String(item.staff_id ?? '');
+        if (!sid) continue;
+        const order = Number.isInteger(item.rotation_order) ? item.rotation_order : null;
+        const leave = item.on_leave ? 1 : 0;
+        const r = upd.run(order, leave, sid);
+        if (r.changes === 0) throw new Error(`工号 ${sid} 不存在或非班组长`);
+      }
+    });
+    tx();
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
+  logAdmin('调整轮训', `保存 ${list.length} 名班组长顺序/休假`, req.adminName);
+  res.json({ ok: true, leaders: getLeaderRotation(false) });
 });
 
 // 互换两行的小组和类型

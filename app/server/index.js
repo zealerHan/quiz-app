@@ -25,6 +25,79 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, '..', 'dist')));
 app.use('/training-photos', express.static(path.join(__dirname, '..', 'data', 'training-photos')));
+// ─── 本地录音二次识别（流式 ASR 失败/超时时兜底）────────────────────────────
+// 前端把本地留存的 PCM(16k/16bit/mono) 原样 POST 上来，这里重放给 paraformer-realtime-v2
+function replayPcmToDashScope(pcmBuf, key) {
+  return new Promise((resolve) => {
+    const taskId = crypto.randomUUID().replace(/-/g, '');
+    const dashWs = new WebSocket('wss://dashscope.aliyuncs.com/api-ws/v1/inference', {
+      headers: { Authorization: `bearer ${key}` },
+    });
+    let finalText = '', partial = '', finished = false;
+    const done = () => { if (finished) return; finished = true; clearTimeout(timer); try { dashWs.close(); } catch(_){} resolve((finalText + partial).trim()); };
+    const timer = setTimeout(done, 120000);
+
+    dashWs.on('open', () => {
+      dashWs.send(JSON.stringify({
+        header: { action: 'run-task', task_id: taskId, streaming: 'duplex' },
+        payload: {
+          task_group: 'audio', task: 'asr', function: 'recognition',
+          model: 'paraformer-realtime-v2',
+          parameters: {
+            format: 'pcm', sample_rate: 16000, sentence_silence_duration: 800,
+            ...(process.env.DASHSCOPE_VOCABULARY_ID ? { vocabulary_id: process.env.DASHSCOPE_VOCABULARY_ID } : {}),
+          },
+          input: {},
+        },
+      }));
+    });
+
+    dashWs.on('message', (data) => {
+      if (data instanceof Buffer && data[0] !== 123) return;
+      let msg; try { msg = JSON.parse(data.toString()); } catch { return; }
+      const ev = msg.header && msg.header.event;
+      if (ev === 'task-started') {
+        // 全速重放：每块 3200B(≈100ms)，间隔 5ms → 1 分钟录音约 3 秒发完
+        let off = 0;
+        const pump = () => {
+          if (finished || dashWs.readyState !== WebSocket.OPEN) return;
+          if (off >= pcmBuf.length) {
+            try { dashWs.send(JSON.stringify({ header: { action: 'finish-task', task_id: taskId, streaming: 'duplex' }, payload: { input: {} } })); } catch(_){}
+            return;
+          }
+          const chunk = pcmBuf.slice(off, off + 3200); off += 3200;
+          dashWs.send(chunk, () => setTimeout(pump, 5));
+        };
+        pump();
+      } else if (ev === 'result-generated') {
+        const s = msg.payload && msg.payload.output && msg.payload.output.sentence;
+        if (!s) return;
+        if (s.sentence_end) { finalText += (s.text || ''); partial = ''; }
+        else partial = s.text || '';
+      } else if (ev === 'task-finished') { done(); }
+      else if (ev === 'task-failed') { console.error('[ASR二次识别] task-failed:', msg.header && msg.header.error_message); done(); }
+    });
+    dashWs.on('error', (e) => { console.error('[ASR二次识别] ws error:', e.message); done(); });
+    dashWs.on('close', done);
+  });
+}
+
+app.post('/api/asr/replay', express.raw({ type: 'application/octet-stream', limit: '24mb' }), async (req, res) => {
+  const key = process.env.DASHSCOPE_API_KEY;
+  if (!key) return res.status(503).json({ error: '未配置 DASHSCOPE_API_KEY', text: '' });
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || buf.length < 6400) return res.status(400).json({ error: '音频太短', text: '' });
+  try {
+    const t0 = Date.now();
+    const text = await replayPcmToDashScope(buf, key);
+    console.log(`[ASR二次识别] ${(buf.length / 32).toFixed(0)}ms 音频 → ${text.length} 字，耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    res.json({ text: text || '' });
+  } catch (e) {
+    console.error('[ASR二次识别] 异常:', e.message);
+    res.status(500).json({ error: 'replay failed', text: '' });
+  }
+});
+
 app.use(workshopRouter);
 app.use(quizRouter);
 app.use(adminRouter);

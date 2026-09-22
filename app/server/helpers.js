@@ -49,6 +49,22 @@ function ensureCurrentCycle() {
 function getSetting(key) {
   return db.prepare("SELECT value FROM settings WHERE key=?").get(key)?.value;
 }
+// 班组长轮训名单：从 staff 读 is_leader=1，按 rotation_order 排序。
+// 未设 rotation_order 的人按 LEADER_ROTATION 历史顺序兜底（保持稳定）。
+// onlyActive=true 时过滤 on_leave=1（休假中不参与轮训分派）。
+function getLeaderRotation(onlyActive = false) {
+  const rows = db.prepare("SELECT id, real_name, name, rotation_order, COALESCE(on_leave,0) AS on_leave FROM staff WHERE is_leader=1").all();
+  const sorted = [...rows].sort((a, b) => {
+    const ao = a.rotation_order, bo = b.rotation_order;
+    if (ao != null && bo != null) return ao - bo;
+    if (ao != null) return -1;
+    if (bo != null) return 1;
+    const ia = LEADER_ROTATION.indexOf(a.real_name || a.name);
+    const ib = LEADER_ROTATION.indexOf(b.real_name || b.name);
+    return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+  });
+  return onlyActive ? sorted.filter(l => !l.on_leave) : sorted;
+}
 function getCurrentCycle() {
   return ensureCurrentCycle();
 }
@@ -205,9 +221,8 @@ function getTrainingPlanForDate(dateStr) {
       WHERE COALESCE(is_cp,0)=0 AND (COALESCE(is_tester,0)=0 OR COALESCE(is_leader,0)=1)
       ORDER BY id
     `).all();
-    const rawLeaders = allStaff.filter(s => s.is_leader);
-    plan.zhxhLeaders = [...LEADER_ROTATION.map(n => rawLeaders.find(l => (l.real_name||l.name)===n)).filter(Boolean),
-      ...rawLeaders.filter(l => !LEADER_ROTATION.includes(l.real_name||l.name))];
+    // 中旬会班组长候选：按 rotation_order 排（含休假，供选/展示）
+    plan.zhxhLeaders = getLeaderRotation(false);
     plan.zhxhMembers  = allStaff.filter(s => !s.is_leader);
     plan.zhxhTotal    = allStaff.length;
     // 请假名单（notes JSON）
@@ -219,4 +234,4 @@ function getTrainingPlanForDate(dateStr) {
   return plan;
 }
 
-module.exports = { getShiftInfo, ensureCurrentCycle, getSetting, getCurrentCycle, calcPoints, detectQuestionType, TYPE_LABEL, backfillQuestionTypes, getTrainingPlanForDate };
+module.exports = { getShiftInfo, ensureCurrentCycle, getSetting, getCurrentCycle, calcPoints, detectQuestionType, TYPE_LABEL, backfillQuestionTypes, getTrainingPlanForDate, getLeaderRotation };

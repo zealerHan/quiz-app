@@ -134,10 +134,10 @@ router.get('/api/banks', (req, res) => {
   res.json(banks);
 });
 
-const VALID_BANK_TYPES = new Set(['emergency','event','knowledge','compliance','theory']);
+const VALID_BANK_TYPES = new Set(['emergency','essential','event','abnormal','compliance']);
 router.post('/api/banks', adminAuth, (req, res) => {
   const { name, q_type, default_count, bank_type } = req.body;
-  const type = VALID_BANK_TYPES.has(bank_type) ? bank_type : 'knowledge';
+  const type = VALID_BANK_TYPES.has(bank_type) ? bank_type : 'essential';
   const r = db.prepare('INSERT INTO question_banks (name,q_type,default_count,bank_type) VALUES (?,?,?,?)').run(name, q_type || '简答', default_count || 3, type);
   res.json({ id: r.lastInsertRowid });
 });
@@ -306,6 +306,7 @@ ${ansText}
 - "嗯""然后""就是""那个"等停顿词忽略不计
 - 同音字/近音字按语义理解（如"扣一个月工资"≈"扣发1个月绩效"，"撤职降级"≈"撤职降4级"）
 - 意思相近表达视为正确
+- **规章编号不算考核点**：参考得分点里的条款编号（如"6.4.6.1""6.19.2.3"）、书名号、括号内的补充说明都是为了便于查阅的标注，考生不必念出编号，该条内容正确即视为覆盖；绝不能因为考生没说编号而判为缺失
 - 涉及具体数字的得分点（限速数值、扣发月数、降级档数等），数字必须正确才算覆盖该点
 
 只返回如下JSON，不要加任何解释或markdown：
@@ -353,7 +354,10 @@ ${ansText}
 - 同音字/近音字（如"隔离"识别成"格里"）按语义理解，不算错
 - 意思相近、表达不同的步骤（如"通知列车长"说成"报告车长"）视为正确
 - 核心判断：是否按顺序说出了各关键步骤，完全遗漏才算缺失
-- 步骤顺序严格评判，颠倒不得分；含糊但方向正确给一半分
+- 【先判断参考内容的性质】若各条属于"不同场景/不同情形下的并列规则"（如道岔故障的几种情形、各地震烈度对应的要求、各水位对应的措施、不同故障件的处置办法），属**并列条款，顺序不作要求**，覆盖即得分；只有确属"递进排除的处置步骤"（同一故障按顺序逐项排查）时才评判顺序，不要对并列条款苛求顺序
+- 【规章编号不算考核点】参考内容里的条款编号（如 6.4.6.1、6.19.2.3）只是便于查阅的标注，考生不需念出编号，该条内容正确即视为覆盖，不得因没说编号而判缺失
+- 顺序评判仅适用于「递进处置步骤」：确属同一故障按顺序逐项排查的，颠倒才扣分；若各条是不同场景/不同情形下的并列规则（如道岔故障的几种情形、各地震烈度要求、各水位措施），**一律不评判顺序，更不得因顺序扣分**，覆盖即得分
+- 含糊但方向正确给一半分
 
 只返回如下JSON，不要加任何解释或markdown：
 {"score":0-100,"level":"优秀|合格|需加强","summary":"一句话总体评价","correct_points":["已正确说出的步骤"],"missing_points":["完全遗漏的步骤"],"order_errors":["顺序颠倒说明，没有则空数组"],"suggestion":"具体改进建议","encouragement":"鼓励语"}`;
@@ -362,32 +366,41 @@ ${ansText}
 async function scoreWithQwen(question, reference, answer, category) {
   const KEY = process.env.DEEPSEEK_API_KEY;
   if (!KEY || !answer?.trim()) return null;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
-  try {
-    const resp = await fetch('https://api.deepseek.com/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${KEY}` },
-      body: JSON.stringify({
-        model: 'deepseek-v4-flash',
-        messages: [{ role: 'user', content: buildScoringPrompt(question, reference, answer, category) }],
-        max_tokens: 2000,
-        temperature: 0.1
-      }),
-      signal: controller.signal
-    });
-    const data = await resp.json();
-    const msg = data.choices?.[0]?.message;
-    if (!msg) return null; // API 返回错误体，触发 keyword 兜底
-    // deepseek-v4-flash 推理模式下 content 可能为空，从 reasoning_content 提取 JSON
-    const src = msg.content || msg.reasoning_content || '';
-    const jsonMatch = src.match(/\{[\s\S]*"score"[\s\S]*\}/);
-    const raw = jsonMatch ? jsonMatch[0] : '';
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (typeof parsed.score !== 'number') return null; // score 字段非法，触发 keyword 兜底
-    return parsed;
-  } catch(e) { return null; } finally { clearTimeout(timer); }
+  const prompt = buildScoringPrompt(question, reference, answer, category);
+  // 最多尝试 3 次：评分模型是思考型，思考长度随机波动（实测同一题 450~8000+ token），
+  // 额度不足会被截断；截断后若退化为 keyword 精确匹配，会把答对的题判成低分。
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 45000);
+    try {
+      const resp = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${KEY}` },
+        body: JSON.stringify({
+          model: 'deepseek-v4-flash',
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 16000,
+          temperature: 0.1
+        }),
+        signal: controller.signal
+      });
+      const data = await resp.json();
+      const msg = data.choices?.[0]?.message;
+      if (!msg) { console.error(`[评分] 第${attempt}次 AI 返回错误体:`, JSON.stringify(data).substring(0, 200)); continue; } // API 返回错误体
+      // deepseek-v4-flash 推理模式下 content 可能为空，从 reasoning_content 提取 JSON
+      const src = msg.content || msg.reasoning_content || '';
+      const jsonMatch = src.match(/\{[\s\S]*"score"[\s\S]*\}/);
+      const raw = jsonMatch ? jsonMatch[0] : '';
+      if (!raw) { console.error(`[评分] 第${attempt}次 AI 未产出 JSON finish=${data.choices?.[0]?.finish_reason} completion_tokens=${data.usage?.completion_tokens} reasoning_tokens=${data.usage?.completion_tokens_details?.reasoning_tokens}`); continue; }
+      const parsed = JSON.parse(raw);
+      if (typeof parsed.score !== 'number') { console.error(`[评分] 第${attempt}次 AI score 字段非法`); continue; }
+      return parsed;
+    } catch(e) {
+      console.error(`[评分] 第${attempt}次 AI 调用异常:`, e.name, e.message);
+    } finally { clearTimeout(timer); }
+  }
+  console.error('[评分] AI 评分两次均失败 → 退化 keyword 兜底');
+  return null;
 }
 
 function scoreKeyword(reference, keywords, answer) {
@@ -419,13 +432,58 @@ function scoreKeyword(reference, keywords, answer) {
     score_method:'keyword' };
 }
 
+// ─── 待补评（AI 评分失败）记录自动补评 ─────────────────────────────────────
+// AI 评分失败时答案带 needs_review=1，分数是 keyword 兜底（对语音转写错字极脆弱，可能严重偏低）。
+// 这里用 AI 重评覆盖，成功即清标记；顺带按 finish 的口径重算 session 总分与复查台账。
+function recalcSessionScore(sessionId) {
+  const avg = db.prepare('SELECT ROUND(AVG(score), 1) as avg FROM answers WHERE session_id=?').get(sessionId)?.avg;
+  if (avg == null) return;
+  const sess = db.prepare('SELECT staff_id, cycle_id, COALESCE(is_remediation,0) as is_remediation FROM sessions WHERE id=?').get(sessionId);
+  if (sess?.is_remediation) {
+    db.prepare('UPDATE sessions SET total_score=? WHERE id=?').run(avg, sessionId);
+    db.prepare(`UPDATE remediation_records SET remediation_score=?, result=? WHERE remediation_session_id=?`)
+      .run(avg, avg >= 60 ? 'pass' : 'fail', sessionId);
+  } else {
+    db.prepare('UPDATE sessions SET total_score=?, total_points=? WHERE id=?').run(avg, avg, sessionId);
+  }
+}
+
+async function recheckPendingScores(limit = 8) {
+  if (!process.env.DEEPSEEK_API_KEY) return 0;
+  let rows = [];
+  try {
+    rows = db.prepare('SELECT id, session_id, question_id, answer_text FROM answers WHERE needs_review=1 ORDER BY id ASC LIMIT ?').all(limit);
+  } catch (e) { return 0; }
+  let fixed = 0;
+  for (const row of rows) {
+    const q = db.prepare('SELECT text, reference, category FROM questions WHERE id=?').get(row.question_id);
+    if (!q) { db.prepare('UPDATE answers SET needs_review=0 WHERE id=?').run(row.id); continue; }
+    const result = await scoreWithQwen(q.text, q.reference, row.answer_text, q.category);
+    if (!result) continue; // 仍未成功 → 保留标记，下轮再试
+    db.prepare(`UPDATE answers SET score=?, level=?, summary=?, correct_points=?, missing_points=?, suggestion=?, score_method='ai', needs_review=0 WHERE id=?`)
+      .run(result.score, result.level, result.summary,
+        JSON.stringify(result.correct_points || []), JSON.stringify(result.missing_points || []),
+        result.suggestion, row.id);
+    recalcSessionScore(row.session_id);
+    fixed++;
+  }
+  if (fixed) console.log(`[补评] 已修正 ${fixed} 条待补评记录`);
+  return fixed;
+}
+
 router.post('/api/score', async (req, res) => {
   const { questionId, answer } = req.body;
   const q = db.prepare('SELECT * FROM questions WHERE id=?').get(questionId);
   if (!q) return res.status(404).json({ error: '题目不存在' });
   let result = await scoreWithQwen(q.text, q.reference, answer, q.category);
-  if (!result) result = scoreKeyword(q.reference, q.keywords, answer);
-  else result.score_method = 'ai';
+  let needsReview = 0;
+  if (!result) {
+    result = scoreKeyword(q.reference, q.keywords, answer);
+    // AI 评分失败（有作答且 key 存在）→ 标记待补评：keyword 精确匹配对语音转写错字极脆弱，
+    // 它给出的低分不能当作最终结论，后台会用 AI 重评覆盖（见 recheckPendingScores）
+    if (answer?.trim() && process.env.DEEPSEEK_API_KEY) { needsReview = 1; result.score_method = 'pending'; }
+  } else result.score_method = 'ai';
+  result.needs_review = needsReview;
   result.transcript = answer || "";
 
   // 缓存评分结果，供 /session/:id/answer 使用（防止客户端篡改分数）
@@ -445,9 +503,10 @@ router.post('/api/session/:id/answer', (req, res) => {
   if (cached && Date.now() - cached.cachedAt < SCORE_CACHE_TTL) {
     r = cached;
   } else {
-    // 缓存未命中（正常流程不应发生）→ keyword 兜底
+    // 缓存未命中（正常流程不应发生）→ keyword 兜底，并标记待补评
     const q = db.prepare('SELECT reference, keywords FROM questions WHERE id=?').get(questionId);
     r = scoreKeyword(q?.reference || '', q?.keywords, answerText);
+    if (answerText?.trim() && process.env.DEEPSEEK_API_KEY) { r.needs_review = 1; r.score_method = 'pending'; }
   }
 
   // 定期清理过期缓存（约10%概率触发）
@@ -458,12 +517,12 @@ router.post('/api/session/:id/answer', (req, res) => {
     }
   }
 
-  db.prepare(`INSERT INTO answers (session_id,staff_id,staff_name,question_id,question_text,category,answer_text,score,level,summary,correct_points,missing_points,suggestion,score_method,duration_seconds) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+  db.prepare(`INSERT INTO answers (session_id,staff_id,staff_name,question_id,question_text,category,answer_text,score,level,summary,correct_points,missing_points,suggestion,score_method,duration_seconds,needs_review) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(req.params.id, staffId, staffName, questionId, questionText, category, answerText,
       r.score, r.level, r.summary,
       JSON.stringify(r.correct_points || []), JSON.stringify(r.missing_points || []),
-      r.suggestion, r.score_method || 'keyword', durationSeconds ?? null);
-  res.json({ ok: true });
+      r.suggestion, r.score_method || 'keyword', durationSeconds ?? null, r.needs_review ? 1 : 0);
+  res.json({ ok: true, needs_review: r.needs_review ? 1 : 0 });
 });
 
 router.post('/api/session/:id/finish', (req, res) => {
@@ -477,6 +536,30 @@ router.post('/api/session/:id/finish', (req, res) => {
   const { tabSwitchCount } = req.body;
   const cnt = db.prepare('SELECT COUNT(*) as c FROM answers WHERE session_id=?').get(req.params.id);
   const tabSwitch = parseInt(tabSwitchCount) || 0;
+
+  // ─── 提交校验（防"半截记录"，2026-09-10 新增）─────────────────────────────
+  // 客户端带上本轮应答题的 questionId 列表；若库中答案数不足（网络中断丢了某一题），
+  // 直接回 409 让前端补传，绝不把"少一题"的 session 标成 completed=1。
+  const expectedIds = Array.isArray(req.body.expectedQuestionIds)
+    ? [...new Set(req.body.expectedQuestionIds.map(x => parseInt(x)).filter(Number.isFinite))]
+    : [];
+  if (expectedIds.length) {
+    const savedSet = new Set(
+      db.prepare('SELECT DISTINCT question_id FROM answers WHERE session_id=?').all(req.params.id)
+        .map(r => parseInt(r.question_id))
+    );
+    const missingIds = expectedIds.filter(id => !savedSet.has(id));
+    if (missingIds.length) {
+      return res.status(409).json({
+        error: '部分答案未提交成功',
+        needsRetry: true,
+        missingIds,
+        savedCount: savedSet.size,
+        expectedCount: expectedIds.length,
+      });
+    }
+  }
+
   // 从已存储的 answers 重新计算总分，不信任客户端上传的 totalScore
   const scoreRow = db.prepare('SELECT ROUND(AVG(score), 1) as avg FROM answers WHERE session_id=?').get(req.params.id);
   const totalScore = scoreRow?.avg ?? 0;
@@ -531,7 +614,7 @@ router.get('/api/leaderboard/cycle', (req, res) => {
     SELECT s.staff_id, s.staff_name, s.total_points, s.total_score as score,
            s.q_count, s.tab_switch_count, s.created_at as last_at,
            (SELECT COUNT(*) FROM sessions s2 WHERE s2.staff_id=s.staff_id AND s2.cycle_id=s.cycle_id
-            AND s2.completed=1 AND COALESCE(s2.is_practice,0)=0) as attempts,
+            AND s2.completed=1 AND COALESCE(s2.q_count,0)>=3 AND COALESCE(s2.is_practice,0)=0) as attempts,
            (SELECT avatar FROM staff WHERE id=s.staff_id LIMIT 1) as avatar,
            COALESCE(st.is_exempt,0) as is_exempt,
            COALESCE(st.is_instructor,0) as is_instructor
@@ -540,6 +623,7 @@ router.get('/api/leaderboard/cycle', (req, res) => {
     WHERE s.id IN (
       SELECT MIN(id) FROM sessions
       WHERE cycle_id=? AND completed=1 AND COALESCE(hidden,0)=0
+      AND COALESCE(q_count,0)>=3
       AND COALESCE(is_practice,0)=0 AND COALESCE(is_deleted,0)=0
       AND staff_id NOT IN (SELECT id FROM staff WHERE is_leader=1)
       GROUP BY staff_id
@@ -556,11 +640,12 @@ router.get('/api/leaderboard/today', (req, res) => {
            s.q_count, s.tab_switch_count,
            (SELECT COUNT(*) FROM sessions s2 WHERE s2.staff_id=s.staff_id
             AND date(datetime(s2.created_at,'-6 hours'))=date(datetime('now','localtime','-6 hours'))
-            AND s2.completed=1 AND COALESCE(s2.is_practice,0)=0) as attempts
+            AND s2.completed=1 AND COALESCE(s2.q_count,0)>=3 AND COALESCE(s2.is_practice,0)=0) as attempts
     FROM sessions s
     WHERE s.id IN (
       SELECT MIN(id) FROM sessions
       WHERE date(datetime(created_at,'-6 hours'))=date(datetime('now','localtime','-6 hours')) AND completed=1 AND COALESCE(hidden,0)=0
+      AND COALESCE(q_count,0)>=3
       AND COALESCE(is_practice,0)=0 AND COALESCE(is_deleted,0)=0
       GROUP BY staff_id
     )
@@ -576,7 +661,7 @@ router.get('/api/leaderboard/monthly', (req, res) => {
       SELECT staff_id, staff_name, cycle_id,
              ROUND(AVG(total_points), 0) as cycle_pts
       FROM sessions
-      WHERE completed=1 AND COALESCE(hidden,0)=0 AND COALESCE(is_practice,0)=0
+      WHERE completed=1 AND q_count>=3 AND COALESCE(hidden,0)=0 AND COALESCE(is_practice,0)=0
       AND COALESCE(is_deleted,0)=0
       AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')
       AND staff_id NOT IN (SELECT id FROM staff WHERE is_exempt=1)
@@ -601,7 +686,7 @@ function getSessionsWithAnswers(staffId, whereExtra, params) {
            (SELECT avatar FROM staff WHERE id=s.staff_id LIMIT 1) as avatar,
            c.label as cycle_label
     FROM sessions s LEFT JOIN cycles c ON c.id=s.cycle_id
-    WHERE s.completed=1 AND COALESCE(s.is_practice,0)=0 AND COALESCE(s.hidden,0)=0
+    WHERE s.completed=1 AND COALESCE(s.q_count,0)>=3 AND COALESCE(s.is_practice,0)=0 AND COALESCE(s.hidden,0)=0
     AND COALESCE(s.is_deleted,0)=0
     AND s.staff_id=? ${whereExtra}
     ORDER BY s.id ASC LIMIT 10
@@ -658,7 +743,7 @@ router.get('/api/leaderboard/alltime', (req, res) => {
       SELECT staff_id, staff_name, cycle_id,
              ROUND(AVG(total_points), 0) as cycle_pts
       FROM sessions
-      WHERE completed=1 AND COALESCE(hidden,0)=0 AND COALESCE(is_practice,0)=0
+      WHERE completed=1 AND q_count>=3 AND COALESCE(hidden,0)=0 AND COALESCE(is_practice,0)=0
       AND COALESCE(is_deleted,0)=0
       AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')
       AND staff_id NOT IN (SELECT id FROM staff WHERE is_leader=1)
@@ -1087,7 +1172,7 @@ router.get('/api/admin/weak-questions', adminAuth, (req, res) => {
 
 router.get('/api/admin/members', adminAuth, (req, res) => {
   const members = db.prepare(`
-    SELECT s.id, s.real_name, s.phone_tail, s.is_exempt, s.is_tester, COALESCE(s.is_cp,0) as is_cp, COALESCE(s.is_leader,0) as is_leader, COALESCE(s.is_instructor,0) as is_instructor,
+    SELECT s.id, s.real_name, s.phone_tail, s.is_exempt, s.is_tester, COALESCE(s.is_cp,0) as is_cp, COALESCE(s.is_leader,0) as is_leader, COALESCE(s.is_instructor,0) as is_instructor, s.rotation_order, COALESCE(s.on_leave,0) as on_leave,
            COUNT(DISTINCT date(ss.created_at)) as answer_days,
            ROUND(AVG(ss.total_score),1) as avg_score,
            MAX(ss.total_score) as best_score,
@@ -1176,3 +1261,6 @@ router.get('/api/me/:staffId/sessions', (req, res) => {
 
 
 module.exports = router;
+module.exports.recheckPendingScores = recheckPendingScores;
+module.exports.recalcSessionScore = recalcSessionScore;
+module.exports.scoreWithQwen = scoreWithQwen;

@@ -98,6 +98,22 @@ function LoginScreen({ onLogin, onAdmin }) {
   );
 }
 
+// ─── 三问合一题的分段作答 ───────────────────────────────────────────────────
+// 题干形如：请口述【XXXX事件】的完整情况，包括：① 事件简要经过；② 乘务员存在哪些问题；③ 整改措施及反思。
+// 返回各小问文案；非三问合一的题返回 null（走原有单段录音流程）
+function parseSegments(text){
+  if(!text || !String(text).includes('完整情况') || !String(text).includes('包括：')) return null;
+  const m = String(text).match(/包括：(.+?)。?\s*$/);
+  if(!m) return null;
+  const asks = m[1].split(/[；;]/).map(s=>s.replace(/^[\s①②③④⑤⑥]*/,'').trim()).filter(Boolean);
+  return asks.length >= 2 ? asks : null;
+}
+// 分段作答时题干只显示主标题，三个小问单独列出来
+function segmentStem(text){
+  const i = String(text||'').indexOf('，包括：');
+  return i > 0 ? String(text).slice(0, i) + '。' : (text||'');
+}
+
 function splitToItems(text) {
   if (!text?.trim()) return [];
   // ① 分号分隔的编号步骤："1.xxx；2.xxx"
@@ -162,8 +178,43 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
   const isRecRef=useRef(false);       // 录音状态 ref，供 visibilitychange 跨闭包访问
   const hiddenWhileRecRef=useRef(false); // 录音期间是否发生过息屏
   const noSleepAudioRef=useRef(null); // iOS 息屏兜底静音音频
+  const wakeLockRef=useRef(null); // 屏幕常亮：录音期间防止息屏中断（安卓/钉钉webview 靠这个）
   const recRef=useRef(),typeRef=useRef(),pendingSubmitRef=useRef(false),submitRef=useRef(null),scoreCacheRef=useRef(null),audioStreamRef=useRef(null),recognizeTimeoutRef=useRef(null);
+  const segAsksRef=useRef(null),segIdxRef=useRef(0); // 分段作答：ws 回调闭包需要读最新值
+  const pcmChunksRef=useRef([]);  // 录音期间本地留存的 PCM 帧（流式识别失败时重传做二次识别）
   const finishPromiseRef=useRef(null),finishResultRef=useRef(null);
+  const answerStoreRef=useRef({}); // 本题已提交的答案载荷（finish 校验缺题时用于补传）
+  const [finishWarn,setFinishWarn]=useState(null); // 交卷未完成提示
+  // ── 三问合一题的分段作答：①②③ 分别录音，提交时拼成整段 ──
+  const [segIdx,setSegIdx]=useState(0);
+  const [segTexts,setSegTexts]=useState([]);
+
+  // 传答案：keepalive + 失败重试（防"最后一题答案半路丢失"→ 半截记录）
+  const postAnswer = async (payload, tries=2) => {
+    for (let i=0;i<tries;i++){
+      try {
+        const r = await api(`/api/session/${sessionId}/answer`,{method:"POST",keepalive:true,body:JSON.stringify(payload)});
+        if (r?.ok) return true;
+      } catch {}
+      if (i<tries-1) await new Promise(s=>setTimeout(s,500));
+    }
+    return false;
+  };
+  // 交卷：带上本轮应答题清单 → 服务端校验题数，缺题则补传后重交（绝不产生"已完成但少一题"）
+  const doFinish = async (avg) => {
+    const expectedQuestionIds = questions.map(x=>x.id);
+    const body = {totalScore:avg,tabSwitchCount:tabSwitchRef.current,expectedQuestionIds};
+    let d = null;
+    try { d = await apiJson(`/api/session/${sessionId}/finish`,{method:"POST",keepalive:true,body:JSON.stringify(body)}); } catch {}
+    if (d?.needsRetry && Array.isArray(d.missingIds) && d.missingIds.length) {
+      for (const qid of d.missingIds) {
+        const p = answerStoreRef.current[qid];
+        if (p) await postAnswer(p, 3);
+      }
+      try { d = await apiJson(`/api/session/${sessionId}/finish`,{method:"POST",body:JSON.stringify(body)}); } catch {}
+    }
+    return d;
+  };
 
   const isPractice = mode !== 'normal';
 
@@ -212,7 +263,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
             try{ recRef.current?.stop?.(); }catch(_){}
             setIsRec(false);
             setIsRecognizing(false);
-            setRecogError('屏幕息屏导致录音中断，请重新录音');
+            setRecogError('屏幕息屏导致录音中断。已识别到的内容保留在文本框里，可手动补充后提交；也可以重新录音。（已开启屏幕常亮，若仍息屏，请调高屏幕亮度或关闭省电模式）');
           }
         } else if(tabSwitchRef.current>0){
           setShowTabWarn(true);
@@ -277,18 +328,54 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
   }, [muted]);
 
   const q = questions[qi];
+  // 三问合一题（①②③）→ 分段作答；其余题走原有单段录音流程
+  const segAsks = parseSegments(q?.text);
+  segAsksRef.current = segAsks;   // 渲染期同步给 ws 回调闭包
+  // 提交按钮可用性：分段作答时不前置要求"已有转写"（缺哪一问会给出明确提示）
+  const submitReady = !isRec && !isRecognizing && phase!=="processing" && phase!=="intro" && (segAsks ? true : transcriptItems.length>0);
+  segIdxRef.current = segIdx;
+  useEffect(()=>{ setSegIdx(0); setSegTexts([]); segIdxRef.current=0; }, [qi]); // 换题重置分段进度
 
   useEffect(() => {
     if (phase !== "intro" || !q) return;
-    const introText = `${user.name}，第${qi+1}题，共${questions.length}题。${q.text}`;
+    const segs0 = parseSegments(q.text);
+    const spoken = segs0
+      ? `请依次回答 ${segs0.length} 个问题：${segs0.map((s,i)=>`第${i+1}问，${s}`).join('；')}`
+      : q.text;
+    const introText = `${user.name}，第${qi+1}题，共${questions.length}题。${spoken}`;
     setTimeout(() => {
-      typeText(q.text, () => {
+      typeText(segs0 ? segmentStem(q.text) : q.text, () => {
         setPhase("ready");
         questionStartRef.current = Date.now();
       });
       speak(introText, () => {});
     }, 400);
   }, [phase, qi, q]);
+
+  // 流式识别失败/超时 → 用本地留存的 PCM 重传做二次识别（服务端按"录音文件识别"重放）
+  const retryWithLocalAudio = async () => {
+    const chunks = pcmChunksRef.current;
+    if(!chunks || chunks.length < 3) return null;
+    try{
+      setRecogError('语音识别中断，正在用本地录音重新识别，请稍候…');
+      const blob = new Blob(chunks, {type:'application/octet-stream'});
+      const r = await fetch('/api/asr/replay', {method:'POST', headers:{'Content-Type':'application/octet-stream'}, body:blob});
+      const d = await r.json().catch(()=>null);
+      const text = String(d?.text || '').trim();
+      if(text){
+        setTranscript(text);
+        setTranscriptItems(splitToItems(text));
+        window._streamingTranscript = text;
+        setRecogError(null);
+        return text;
+      }
+      setRecogError('二次识别也没能听清。请重新录音，或在下方文本框直接输入答案。');
+      return null;
+    }catch(e){
+      setRecogError('二次识别失败（网络异常）。请重新录音，或在下方文本框直接输入答案。');
+      return null;
+    }
+  };
 
   const startRec = async () => {
     navigator.vibrate?.(50);
@@ -306,7 +393,15 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
       // 拿到麦克风权限后立即变红，不等 WebSocket 握手
       setIsRec(true);
       isRecRef.current=true;
-      // iOS 息屏兜底：播放静音音频循环，阻止系统在录音期间息屏
+      pcmChunksRef.current = [];   // 本次录音的本地 PCM 缓存，从零开始
+      // 防息屏①：Wake Lock 屏幕常亮（安卓 Chrome / 钉钉 webview 靠这个）
+      try{
+        if(navigator.wakeLock?.request && !wakeLockRef.current){
+          wakeLockRef.current = await navigator.wakeLock.request('screen');
+          wakeLockRef.current?.addEventListener?.('release',()=>{ wakeLockRef.current=null; });
+        }
+      }catch(_){}
+      // 防息屏②：播放静音音频循环兜底（不支持 Wake Lock 的浏览器，如 iOS Safari）
       try{
         if(!noSleepAudioRef.current){
           // 最短合法 WAV：44字节，0.001秒静音
@@ -333,6 +428,10 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
           const f32 = e.inputBuffer.getChannelData(0);
           const i16 = new Int16Array(f32.length);
           for(let i=0;i<f32.length;i++) i16[i]=Math.max(-32768,Math.min(32767,Math.round(f32[i]*32767)));
+          // 本地留一份 PCM 副本：流式识别失败/超时时可重传，做"录音文件识别"二次兜底（约 31KB/秒，上限 8 分钟）
+          try{
+            if(pcmChunksRef.current.length < 2000) pcmChunksRef.current.push(i16.buffer.slice(0));
+          }catch(_){}
           ws.send(i16.buffer);
         };
         source.connect(processor);
@@ -355,6 +454,16 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
             setTranscriptItems(splitToItems(msg.text));
             window._streamingTranscript = msg.text;
             setIsRecognizing(false);
+            // 分段作答：三问是分别录的 —— 本段说完先存下、自动切到下一问，全部说完再由乘务员核对提交
+            if(msg.text && segAsksRef.current?.length >= 2){
+              const cur = segIdxRef.current, total = segAsksRef.current.length;
+              setSegTexts(prev=>{ const a=[...prev]; a[cur]=msg.text; return a; });
+              if(cur < total-1){
+                pendingSubmitRef.current = false;
+                setTimeout(()=>{ setSegIdx(cur+1); setTranscript(''); setTranscriptItems([]); window._streamingTranscript=null; }, 250);
+                return; // 本段完成：不预热评分、不提交
+              }
+            }
             // 预热评分：识别完成后立即后台请求，结果缓存供提交时直接使用
             const preText = msg.text;
             const preQid = questions[qi]?.id;
@@ -369,10 +478,10 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
             }
           } else if(msg.type === 'error') {
             clearRecognizeTimeout();
-            setTranscript(msg.text);
-            window._streamingTranscript = '';
             setIsRecognizing(false);
             pendingSubmitRef.current = false;
+            // 服务端流式识别报错 → 本地录音兜底（不再把错误文案当成转写内容）
+            retryWithLocalAudio();
           }
         } catch(err){}
       };
@@ -383,7 +492,8 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
         isRecRef.current=false;
         try{ noSleepAudioRef.current?.pause(); }catch(_){}
         setIsRecognizing(false);
-        setRecogError('识别服务连接失败，请重新录音或切换手动输入');
+        // 流式连接断了，但本地有完整录音 → 自动二次识别，乘务员不用重说
+        retryWithLocalAudio();
       };
 
       ws.onclose = () => {
@@ -409,8 +519,9 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
             recognizeTimeoutRef.current = null;
             setIsRecognizing(false);
             pendingSubmitRef.current = false;
-            setRecogError('识别超时，请重新录音或切换手动输入');
             try { ws.close(); } catch {}
+            // 超时也别让人白说：用本地录音做二次识别
+            retryWithLocalAudio();
           }, 8000);
         },
         ws
@@ -423,6 +534,14 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
       if(err.name !== "NotAllowedError") alert("无法访问麦克风: "+err.message);
     }
   };
+
+  // 录音一结束就释放屏幕常亮（手动停止/报错/超时各路径全覆盖）
+  useEffect(()=>{
+    if(!isRec && wakeLockRef.current){
+      try{ wakeLockRef.current.release?.(); }catch(_){}
+      wakeLockRef.current=null;
+    }
+  },[isRec]);
 
   const stopRec = () => {
     navigator.vibrate?.([30, 50, 30]);
@@ -444,9 +563,32 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
       setShowSubmitConfirm(false);
       return;
     }
-    const finalTranscript = transcript || window._streamingTranscript;
-    window._streamingTranscript = null;
-    if (!finalTranscript.trim() || finalTranscript.includes('录音完成')) return;
+    // ── 分段作答：把各问的转写拼成 ①②③ 整段（评分用的答案就是这个结构，评分侧无需改动）──
+    let finalTranscript;
+    if(segAsksRef.current?.length >= 2){
+      const asks = segAsksRef.current;
+      const parts = [...(segTexts || [])];
+      const curText = transcript || window._streamingTranscript || '';
+      window._streamingTranscript = null;
+      if(curText.trim()) parts[segIdxRef.current] = curText;
+      const missing = asks.findIndex((_,i)=>!parts[i] || !String(parts[i]).trim());
+      if(missing >= 0){
+        setRecogError(`第 ${missing+1} 问「${asks[missing]}」还没有作答内容，请先说完这一问。`);
+        setSegIdx(missing); segIdxRef.current = missing;
+        setShowSubmitConfirm(false);
+        return;
+      }
+      finalTranscript = asks.map((_,i)=>`${'①②③④⑤⑥'[i]||('('+(i+1)+')')} ${String(parts[i]).trim()}`).join('\n');
+    } else {
+      finalTranscript = transcript || window._streamingTranscript;
+      window._streamingTranscript = null;
+      if (!finalTranscript.trim() || finalTranscript.includes('录音完成')) {
+        // 以前这里是静默 return：乘务员点提交后页面毫无反应，被当成"系统卡死"（反馈最多的问题之一）
+        setRecogError('没有识别到语音内容：请确认弹窗里已允许使用麦克风，环境别太吵，再重新录音；也可以在下方文本框直接输入答案。');
+        return;
+      }
+    }
+    setRecogError(null);
     const durationSeconds = questionStartRef.current ? Math.round((Date.now() - questionStartRef.current) / 1000) : null;
     setPhase("processing");
     let result;
@@ -463,15 +605,17 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
     if (!result) result={score:0,level:"需加强",summary:"评分服务异常",correct_points:[],missing_points:[],suggestion:"请重试",encouragement:"继续加油！",score_method:"error"};
     result.transcript = finalTranscript || result.transcript || transcript;
     setAiRes(result);
-    try { await api(`/api/session/${sessionId}/answer`,{method:"POST",body:JSON.stringify({staffId:user.staffId,staffName:user.name,questionId:q.id,questionText:q.text,category:q.category,answerText:finalTranscript||transcript,score:result.score,level:result.level,summary:result.summary,correctPoints:result.correct_points,missingPoints:result.missing_points,suggestion:result.suggestion,scoreMethod:result.score_method,durationSeconds})}); } catch {}
+    const answerPayload={staffId:user.staffId,staffName:user.name,questionId:q.id,questionText:q.text,category:q.category,answerText:finalTranscript||transcript,score:result.score,level:result.level,summary:result.summary,correctPoints:result.correct_points,missingPoints:result.missing_points,suggestion:result.suggestion,scoreMethod:result.score_method,durationSeconds};
+    answerStoreRef.current[q.id]=answerPayload; // 暂存，交卷校验缺题时补传
+    await postAnswer(answerPayload, 3);
     const nr = [...results,{...result,questionText:q.text,category:q.category,qNum:qi+1}];
     setResults(nr);
     // 最后一题答完后立即在后台 finish，keepalive 确保关闭 APP 后请求仍能发出
     if (qi+1 >= questions.length && sessionId) {
       localStorage.removeItem('quiz_inprogress');
       const avg = Math.round(nr.reduce((s,r)=>s+r.score,0)/nr.length);
-      finishPromiseRef.current = apiJson(`/api/session/${sessionId}/finish`,{method:"POST",keepalive:true,body:JSON.stringify({totalScore:avg,tabSwitchCount:tabSwitchRef.current})})
-        .then(pts=>{ finishResultRef.current = pts?.points ?? null; return pts; })
+      finishPromiseRef.current = doFinish(avg)
+        .then(d=>{ finishResultRef.current = d?.points ?? null; return d; })
         .catch(()=>{ finishResultRef.current = null; return null; });
     }
     speak(`${result.summary}本题${result.score}分。${result.encouragement}`,()=>{});
@@ -480,19 +624,33 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
   submitRef.current = submit;
 
 
+  // 交卷并进入总结页；若答案仍缺题（网络原因）→ 不交卷，弹窗提示重试
+  const finishAndGo = async () => {
+    let pts = finishResultRef.current;
+    if (pts == null && finishPromiseRef.current) {
+      try { const r = await finishPromiseRef.current; pts = r?.points ?? null; } catch {}
+    }
+    if (pts == null) {
+      // 兜底：submit 阶段 finish 没成功，这里再补一次
+      const avg = Math.round(results.reduce((s,r)=>s+r.score,0)/(results.length||1));
+      const d = await doFinish(avg);
+      pts = d?.points ?? null;
+      if (pts == null) {
+        setFinishWarn(d?.needsRetry
+          ? `有 ${d.missingIds?.length || 1} 道题的答案没能上传成功（已自动重试）。\n请检查网络后重试，或联系班组长。`
+          : '交卷请求没有成功，请检查网络后重试。');
+        return false;
+      }
+      finishResultRef.current = pts;
+    }
+    onDone(results, pts, mode);
+    return true;
+  };
+
   const next = async () => {
     if (qi+1 >= questions.length) {
       localStorage.removeItem('quiz_inprogress');
-      let pts = finishResultRef.current;
-      if (pts == null && finishPromiseRef.current) {
-        try { const r = await finishPromiseRef.current; pts = r?.points ?? null; } catch {}
-      }
-      if (pts == null) {
-        // 兜底：submit 阶段 finish 没成功，这里再补一次
-        const avg = Math.round(results.reduce((s,r)=>s+r.score,0)/results.length);
-        try { const r = await apiJson(`/api/session/${sessionId}/finish`,{method:"POST",body:JSON.stringify({totalScore:avg,tabSwitchCount:tabSwitchRef.current})}); pts = r?.points ?? null; } catch {}
-      }
-      onDone(results, pts, mode);
+      await finishAndGo();
     } else { setQi(i=>i+1); setTranscript(""); setTranscriptItems([]); setEditingIdx(-1); setAiRes(null); setPhase("intro"); setDisplayText(""); setEditMode(false); scoreCacheRef.current=null; }
   };
 
@@ -608,9 +766,42 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
 
             {/* 题目文字 */}
             <div style={{fontSize:18,lineHeight:1.75,color:"rgba(255,255,255,0.85)",letterSpacing:0.3,minHeight:72}}>
-              {displayText || (phase==="ready" ? q.text : "")}
+              {displayText || (phase==="ready" ? (segAsks ? segmentStem(q.text) : q.text) : "")}
               {isSpeaking && <span style={{display:"inline-block",width:2,height:16,background:"#c8394b",marginLeft:2,verticalAlign:"middle",animation:"blink 0.8s step-end infinite"}}/>}
             </div>
+            {/* 三问合一题：三问分开列、逐问录音（说完一问自动跳下一问），避免一口气说 500 字卡壳 */}
+            {segAsks && phase!=="intro" && phase!=="processing" && phase!=="feedback" && (
+              <div style={{width:"100%",display:"flex",flexDirection:"column",gap:6,marginTop:12}}>
+                {segAsks.map((ask,i)=>{
+                  const done=(segTexts[i]||"").trim();
+                  const cur=i===segIdx;
+                  return (
+                    <div key={i}
+                      onClick={()=>{ if(!isRec && !isRecognizing && i!==segIdx){ setSegIdx(i); segIdxRef.current=i; setTranscript(segTexts[i]||""); setTranscriptItems(splitToItems(segTexts[i]||"")); window._streamingTranscript=segTexts[i]||null; setRecogError(null); } }}
+                      style={{display:"flex",gap:8,alignItems:"flex-start",padding:"7px 10px",borderRadius:9,
+                        background:cur?"rgba(200,57,75,0.12)":"rgba(255,255,255,0.03)",
+                        border:`1px solid ${cur?"rgba(200,57,75,0.45)":"rgba(255,255,255,0.08)"}`,
+                        cursor:(!isRec&&!isRecognizing&&i!==segIdx)?"pointer":"default",transition:"all 0.2s"}}>
+                      <span style={{fontSize:13,flexShrink:0,lineHeight:"18px"}}>{done?"✅":(cur?"🎤":"○")}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12.5,fontWeight:cur?700:500,color:cur?"#fff":"rgba(255,255,255,0.62)",lineHeight:1.45}}>
+                          {'①②③④⑤⑥'[i]} {ask}
+                        </div>
+                        {(done||(cur&&transcript)) && (
+                          <div style={{fontSize:11,color:"rgba(255,255,255,0.45)",marginTop:3,lineHeight:1.5,whiteSpace:"pre-wrap"}}>
+                            {done || transcript}
+                          </div>
+                        )}
+                      </div>
+                      {cur && !done && <span style={{fontSize:10,color:"rgba(255,255,255,0.4)",flexShrink:0,lineHeight:"18px"}}>{isRec?"录音中":isRecognizing?"识别中":""}</span>}
+                    </div>
+                  );
+                })}
+                <div style={{fontSize:10.5,color:"rgba(255,255,255,0.35)",textAlign:"center",marginTop:1,lineHeight:1.5}}>
+                  按 ①②③ 依次口述，说完一问自动进入下一问；点任意一问可回去重录
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -718,6 +909,10 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
                     if(isRec) stopRec();
                     setTranscript(""); setTranscriptItems([]); setEditingIdx(-1);
                     window._streamingTranscript=null; scoreCacheRef.current=null;
+                    // 分段作答：重录只清当前这一问，已说完的其他问保留
+                    if(segAsksRef.current?.length>=2){
+                      setSegTexts(prev=>{ const a=[...prev]; a[segIdxRef.current]=''; return a; });
+                    }
                   }}
                   disabled={(!transcript&&transcriptItems.length===0)||isRecognizing||phase==="intro"||phase==="processing"}
                   style={{width:64,height:64,borderRadius:"50%",background:"rgba(255,255,255,0.06)",border:"2px solid rgba(255,255,255,0.15)",cursor:(transcript||transcriptItems.length>0)&&!isRecognizing&&phase!=="intro"&&phase!=="processing"?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",opacity:(transcript||transcriptItems.length>0)&&!isRecognizing?1:0.3,transition:"all 0.2s"}}>
@@ -752,14 +947,14 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
               <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,flex:1}}>
                 <button
                   onClick={submitWithConfirm}
-                  disabled={transcriptItems.length===0||isRec||isRecognizing||phase==="processing"||phase==="intro"}
-                  style={{width:64,height:64,borderRadius:"50%",background:(transcriptItems.length>0&&!isRec&&!isRecognizing&&phase!=="processing"&&phase!=="intro")?"linear-gradient(135deg,#1e3a5f,#3b82f6)":"rgba(255,255,255,0.06)",border:`2px solid ${(transcriptItems.length>0&&!isRec&&!isRecognizing&&phase!=="processing"&&phase!=="intro")?"rgba(59,130,246,0.6)":"rgba(255,255,255,0.1)"}`,cursor:(transcriptItems.length>0&&!isRec&&!isRecognizing&&phase!=="processing"&&phase!=="intro")?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",opacity:(transcriptItems.length>0&&!isRec&&!isRecognizing&&phase!=="processing"&&phase!=="intro")?1:0.3,transition:"all 0.2s",boxShadow:(transcriptItems.length>0&&!isRec&&!isRecognizing&&phase!=="processing"&&phase!=="intro")?"0 4px 16px rgba(59,130,246,0.3)":"none"}}>
+                  disabled={!submitReady}
+                  style={{width:64,height:64,borderRadius:"50%",background:submitReady?"linear-gradient(135deg,#1e3a5f,#3b82f6)":"rgba(255,255,255,0.06)",border:`2px solid ${submitReady?"rgba(59,130,246,0.6)":"rgba(255,255,255,0.1)"}`,cursor:submitReady?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",opacity:submitReady?1:0.3,transition:"all 0.2s",boxShadow:submitReady?"0 4px 16px rgba(59,130,246,0.3)":"none"}}>
                   {phase==="processing"
                     ? <div style={{width:8,height:8,borderRadius:"50%",background:"white",animation:"blink 0.8s step-end infinite"}}/>
                     : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                   }
                 </button>
-                <span style={{fontSize:12,fontWeight:600,color:(transcriptItems.length>0&&!isRec&&!isRecognizing&&phase!=="processing"&&phase!=="intro")?"rgba(255,255,255,0.5)":"rgba(255,255,255,0.2)",letterSpacing:1}}>{phase==="processing"?"分析中":"提交"}</span>
+                <span style={{fontSize:12,fontWeight:600,color:submitReady?"rgba(255,255,255,0.5)":"rgba(255,255,255,0.2)",letterSpacing:1}}>{phase==="processing"?"分析中":"提交"}</span>
               </div>
             </div>
 
@@ -843,6 +1038,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
       {showSubmitConfirm&&<AppModal icon="📝" title="准备提交" body={"确认提交当前语音作答？\nAI将按语义理解评分，\n识别文字有偏差不影响得分。"} buttons={[{label:"再想想",onClick:()=>setShowSubmitConfirm(false)},{label:"提交",onClick:()=>{setShowSubmitConfirm(false);submit();},primary:true}]}/>}
       {showBackConfirm&&<AppModal icon="⚠️" title="确认返回？" body={"本题尚未完成作答，\n返回将记零分并结束本次答题。"} buttons={[{label:"继续答题",onClick:()=>setShowBackConfirm(false)},{label:"记零分返回",onClick:()=>{setShowBackConfirm(false);goBack();},danger:true}]}/>}
       {showTabWarn&&<AppModal icon="👀" title={`检测到切屏 ${tabSwitchCount} 次`} body="请专注答题，切屏次数已被记录。" buttons={[{label:"我知道了",onClick:()=>setShowTabWarn(false),primary:true}]}/>}
+      {finishWarn&&<AppModal icon="⚠️" title="交卷未完成" body={finishWarn} buttons={[{label:"返回首页",onClick:()=>{setFinishWarn(null);onBack?.();}},{label:"重试",primary:true,onClick:async()=>{setFinishWarn(null);await finishAndGo();}}]}/>}
     </div>
   );
 }
@@ -1781,7 +1977,7 @@ function PracticeFlowScreen({ user, mode, bankId, onBack, onHome }) {
     }
     try {
       await api(`/api/session/${sessionId}/answer`, {
-        method: 'POST',
+        method: 'POST', keepalive: true,
         body: JSON.stringify({
           staffId: user.staffId, staffName: user.name,
           questionId: q.id, questionText: q.text, category: q.category,
@@ -1816,10 +2012,21 @@ function PracticeFlowScreen({ user, mode, bankId, onBack, onHome }) {
     } else {
       const correctCount = results.filter(r => r.isCorrect).length;
       const totalScore = Math.round(correctCount / results.length * 100);
+      const expectedQuestionIds = questions.map(x=>x.id);
+      const postItem = async (item) => {
+        const payload = {staffId:user.staffId,staffName:user.name,questionId:item.id,questionText:item.text,category:item.category,
+          answerText:item.userAnswer,score:item.isCorrect?100:0,level:item.isCorrect?'优秀':'需加强',summary:item.isCorrect?'答对':'答错',
+          correctPoints:[],missingPoints:[],suggestion:'',scoreMethod:item.type};
+        try { await api(`/api/session/${sessionId}/answer`,{method:'POST',keepalive:true,body:JSON.stringify(payload)}); } catch {}
+      };
       try {
-        const r = await api(`/api/session/${sessionId}/finish`, {method:'POST', body: JSON.stringify({totalScore, tabSwitchCount: 0})});
-        const d = await r.json();
-        setPoints(d.points);
+        let d = await (await api(`/api/session/${sessionId}/finish`, {method:'POST', keepalive:true, body: JSON.stringify({totalScore, tabSwitchCount: 0, expectedQuestionIds})})).json();
+        // 服务端校验缺题 → 补传后再交一次（防半截记录）
+        if (d?.needsRetry && Array.isArray(d.missingIds)) {
+          for (const qid of d.missingIds) { const item = results.find(x=>x.id===qid); if (item) await postItem(item); }
+          d = await (await api(`/api/session/${sessionId}/finish`, {method:'POST', body: JSON.stringify({totalScore, tabSwitchCount: 0, expectedQuestionIds})})).json();
+        }
+        setPoints(d?.points ?? null);
       } catch {}
       setPhase('done');
     }

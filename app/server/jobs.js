@@ -125,6 +125,14 @@ let lastNoQuizReminderDate = { '11:00': '', '17:30': '' };
 let lastMonthEndCheckDate = '';
 // 每5分钟自动补完遗漏的 finish
 setInterval(() => { autoCompleteAbandonedSessions(); }, 5 * 60 * 1000);
+
+// ─── 待补评记录自动补评（每 10 分钟）──────────────────────────────────────
+// AI 评分失败时答案被标记 needs_review=1、分数为 keyword 兜底（可能误判偏低）。
+// 后台用 AI 重评覆盖，避免"答对了判 0 分"的结果留在台账里。
+const quizRouter = require('./routes/quiz');
+setInterval(() => {
+  Promise.resolve(quizRouter.recheckPendingScores?.(8)).catch(() => {});
+}, 10 * 60 * 1000);
 setInterval(() => {
   const now = new Date();
   const cst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));

@@ -104,8 +104,11 @@ try { db.exec('ALTER TABLE staff ADD COLUMN real_name TEXT'); } catch(e) {}
 try { db.exec('ALTER TABLE staff ADD COLUMN phone_tail TEXT'); } catch(e) {}
 try { db.exec('ALTER TABLE staff ADD COLUMN is_tester INTEGER DEFAULT 0'); } catch(e) {}
 try { db.exec('ALTER TABLE staff ADD COLUMN is_cp INTEGER DEFAULT 0'); } catch(e) {}
+try { db.exec('ALTER TABLE staff ADD COLUMN rotation_order INTEGER'); } catch(e) {}   // 班组长轮训先后(仅 is_leader=1 有意义)
+try { db.exec('ALTER TABLE staff ADD COLUMN on_leave INTEGER DEFAULT 0'); } catch(e) {} // 班组长休假中(1=休假跳过轮训)
 try { db.exec('ALTER TABLE staff ADD COLUMN avatar TEXT'); } catch(e) {}
 try { db.exec('ALTER TABLE sessions ADD COLUMN is_deleted INTEGER DEFAULT 0'); } catch(e) {}
+try { db.exec('ALTER TABLE answers ADD COLUMN needs_review INTEGER DEFAULT 0'); } catch(e) {} // AI评分失败时标记待补评(1=keyword兜底分不可信,待AI重评)
 try { db.exec('ALTER TABLE questions ADD COLUMN options TEXT'); } catch(e) {} // 选择题选项 JSON: {A:"...",B:"...",C:"...",D:"..."}
 try { db.exec('ALTER TABLE questions ADD COLUMN type TEXT'); } catch(e) {} // 题型: choice_single|choice_multi|true_false|fill_blank|short_answer
 db.exec(`CREATE TABLE IF NOT EXISTS admin_logs (
@@ -118,24 +121,25 @@ db.exec(`CREATE TABLE IF NOT EXISTS admin_logs (
 // 兼容旧 cycle_id NOT NULL 约束（某些记录可能缺失）
 try { db.exec("UPDATE sessions SET cycle_id='' WHERE cycle_id IS NULL"); } catch(e) {}
 
-// ─── bank_type 列迁移（5分类体系）──────────────────────────────────────────
-// 值: emergency | event | knowledge | compliance | theory
-try { db.exec("ALTER TABLE question_banks ADD COLUMN bank_type TEXT DEFAULT 'knowledge'"); } catch(e) {}
-// 按题库 id 和名称特征一次性打标，仅影响尚未分类（NULL 或默认 'knowledge'）的行
+// ─── bank_type 分类（5分类体系 v2 · 2026-09 用户定版）──────────────────────
+// 值: emergency(应急) | essential(应知必会) | event(安全事件) | abnormal(非正常情况行车) | compliance(违法乱纪)
+// 口径: emergency = 车上设备故障（司机照处置方案自办）；abnormal = 车外环境/设施因素（需多专业联动）
+try { db.exec("ALTER TABLE question_banks ADD COLUMN bank_type TEXT DEFAULT 'essential'"); } catch(e) {}
 try {
-  db.exec(`
-    UPDATE question_banks SET bank_type='emergency' WHERE id=1;
-    UPDATE question_banks SET bank_type='emergency' WHERE name='风险数据库';
-    UPDATE question_banks SET bank_type='theory'    WHERE q_type='选择/判断';
-    UPDATE question_banks SET bank_type='compliance' WHERE name LIKE '%违章%' OR name LIKE '%违纪%' OR name LIKE '%法律%' OR name LIKE '%法规%' OR name LIKE '%处罚%';
-    UPDATE question_banks SET bank_type='event' WHERE bank_type='knowledge' AND (
-      name LIKE '%事件%' OR name LIKE '%事故%' OR name LIKE '%脱轨%' OR
-      name LIKE '%冒进%' OR name LIKE '%跳闸%' OR name LIKE '%挤岔%' OR
-      name LIKE '%碰撞%' OR name LIKE '%倒灌%' OR name LIKE '%进人%' OR
-      name LIKE '%报告%' OR name LIKE '%分析%'
-    );
-  `);
-} catch(e) { console.error('[Migration] bank_type 打标失败', e.message); }
+  const done = db.prepare("SELECT value FROM settings WHERE key='bank_type_v2_done'").get();
+  if (!done) {
+    db.exec(`
+      UPDATE question_banks SET bank_type='emergency'  WHERE name='5号线应急故障处置方案';
+      UPDATE question_banks SET bank_type='essential'  WHERE name IN ('风险数据库','信号机显示意义','五问两测题库','紧急制动拉手操作说明','区段闭塞法');
+      UPDATE question_banks SET bank_type='abnormal'   WHERE name IN ('隧道积水处理','遇恶劣天气时的规定','接触轨（ 网） 失电时的处理','地震灾害的处置原则','道岔故障的处理');
+      UPDATE question_banks SET bank_type='compliance' WHERE name LIKE '%违章%' OR name LIKE '%违纪%' OR name LIKE '%法律%' OR name LIKE '%法规%' OR name LIKE '%处罚%';
+      UPDATE question_banks SET bank_type='event'      WHERE name LIKE '%事件%';
+      UPDATE question_banks SET bank_type='essential'  WHERE bank_type IN ('knowledge','theory') OR bank_type IS NULL;
+    `);
+    db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('bank_type_v2_done','1')").run();
+    console.log('[Migration] bank_type 已切换到 5 分类体系 v2');
+  }
+} catch(e) { console.error('[Migration] bank_type 迁移失败', e.message); }
 
 // ─── Makeup Grant Table（早班逾期补答授权）──────────────────────────────────
 db.exec(`CREATE TABLE IF NOT EXISTS makeup_grants (
@@ -285,6 +289,17 @@ if (!fs.existsSync(PHOTO_DIR)) fs.mkdirSync(PHOTO_DIR, { recursive: true });
   if (cnt === 0) {
     // 艾凌风 07512、韩颖 3743、胡鑫 17341 — 按实际工号设置
     db.prepare("UPDATE staff SET is_leader=1 WHERE id IN ('07512','3743','17341')").run();
+  }
+}
+// ─── 一次性初始化：班组长轮训顺序（韩→艾→胡），仅当全部未设时写入 ──────────
+{
+  const set = db.prepare('SELECT COUNT(*) as c FROM staff WHERE rotation_order IS NOT NULL').get().c;
+  if (set === 0) {
+    // 韩颖=1、艾凌风=2、胡鑫=3（与历史默认轮序一致）；on_leave 默认 0
+    db.prepare("UPDATE staff SET rotation_order=1 WHERE id='3743'").run();
+    db.prepare("UPDATE staff SET rotation_order=2 WHERE id='07512'").run();
+    db.prepare("UPDATE staff SET rotation_order=3 WHERE id='17341'").run();
+    console.log('[Migration] 已初始化班组长轮训顺序: 韩颖=1 艾凌风=2 胡鑫=3');
   }
 }
 
