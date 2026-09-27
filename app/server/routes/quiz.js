@@ -1173,6 +1173,7 @@ router.get('/api/admin/weak-questions', adminAuth, (req, res) => {
 router.get('/api/admin/members', adminAuth, (req, res) => {
   const members = db.prepare(`
     SELECT s.id, s.real_name, s.phone_tail, s.is_exempt, s.is_tester, COALESCE(s.is_cp,0) as is_cp, COALESCE(s.is_leader,0) as is_leader, COALESCE(s.is_instructor,0) as is_instructor, s.rotation_order, COALESCE(s.on_leave,0) as on_leave,
+           (SELECT tg.name FROM training_group_members tgm JOIN training_groups tg ON tg.id=tgm.group_id WHERE tgm.staff_id=s.id LIMIT 1) as group_name,
            COUNT(DISTINCT date(ss.created_at)) as answer_days,
            ROUND(AVG(ss.total_score),1) as avg_score,
            MAX(ss.total_score) as best_score,

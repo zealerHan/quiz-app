@@ -149,6 +149,8 @@ function getTrainingPlanForDate(dateStr) {
 
       // 基础组员（同时排除"原默认教员"和"override 后的有效教员"，
       // 避免互换后的另一位教员或被换走的教员仍出现在成员名单中）
+      // 并排除「车峰」人员（is_cp=1）：他们不属于本班组序列，答题统计/月末检查/小组显示
+      // 全部按 is_cp=0 口径，培训提醒名单必须一致，否则会出现"通知里有他、界面里没他"
       const excludeIds = [groupDefaultInstructorId, effectiveInstructorId]
         .filter(Boolean).map(String);
       const placeholders = excludeIds.length ? excludeIds.map(()=>'?').join(',') : null;
@@ -156,12 +158,12 @@ function getTrainingPlanForDate(dateStr) {
         ? db.prepare(`
             SELECT s.id, s.real_name, s.name
             FROM training_group_members tgm JOIN staff s ON tgm.staff_id = s.id
-            WHERE tgm.group_id = ? AND tgm.staff_id NOT IN (${placeholders})
+            WHERE tgm.group_id = ? AND COALESCE(s.is_cp,0)=0 AND tgm.staff_id NOT IN (${placeholders})
           `).all(group.id, ...excludeIds)
         : db.prepare(`
             SELECT s.id, s.real_name, s.name
             FROM training_group_members tgm JOIN staff s ON tgm.staff_id = s.id
-            WHERE tgm.group_id = ?
+            WHERE tgm.group_id = ? AND COALESCE(s.is_cp,0)=0
           `).all(group.id);
 
       // 应用换人覆盖

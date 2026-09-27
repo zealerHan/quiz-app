@@ -265,7 +265,7 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
                 {!!m.is_leader&&<Badge label="组长" color="var(--amber)"/>}
                 {!!m.is_exempt&&!m.is_leader&&<Badge label="免答" color="var(--muted)"/>}
                 {!!m.is_tester&&<Badge label="测" color="#a855f7"/>}
-                {!!m.is_cp&&<Badge label="峰" color="#eab308"/>}
+                {!!m.is_cp&&<Badge label={m.group_name ? `峰·${(m.group_name.match(/[一二三四五六七八九十\d]+/)||[''])[0]}组` : '峰·未归组'} color={m.group_name ? '#eab308' : '#ef4444'}/>}
               </div>
             </div>
           );
@@ -483,7 +483,9 @@ function TrainingGroupsSection({ pwd, staff }) {
 
   const openMemberEdit = (g) => {
     setEditingMembers(g.id);
-    setSelectedMembers(new Set(g.members.filter(m => !m.is_cp).map(m => m.id)));
+    // 车峰人员保留组籍（临时调整跑车方式，回岗即恢复名单），所以要一并带进来，
+    // 否则保存时全量替换会把他们的组籍静默删掉
+    setSelectedMembers(new Set(g.members.map(m => m.id)));
   };
 
   const toggleMember = (staffId) => {
@@ -600,17 +602,27 @@ function TrainingGroupsSection({ pwd, staff }) {
                               <span style={{fontSize:9,fontWeight:700}}>固</span>{staffName(sid)}
                             </span>
                           ))}
+                          {/* 车峰（临时调整跑车方式）：保留组籍、暂不参与培训名单，显出来避免"库里有人、界面看不见" */}
+                          {g.members.filter(m=>m.is_cp).map(m => (
+                            <span key={'cp_'+m.id} style={{fontSize:11,padding:'2px 7px',borderRadius:5,background:'rgba(148,163,184,0.08)',border:'1px dashed #64748b',color:'#94a3b8'}}>
+                              {m.real_name||m.name}<span style={{fontSize:9,marginLeft:3}}>车峰</span>
+                            </span>
+                          ))}
                         </>
                     }
                   </div>
                   <div style={{fontSize:10,color:'var(--muted)',marginTop:5}}>
                     {(()=>{
+                      // 车峰 = 临时调整跑车方式：在册但不在跑车序列、不参训。
+                      // 两个数字分开写，避免"在册总数"和"实际跑车数"被读混。
+                      const cpCnt = g.members.filter(m=>!!m.is_cp).length;
                       const normalCnt = g.members.filter(m=>!fixedSet.has(m.id) && !m.is_cp).length;
-                      const hasInstructor = !!g.instructor_id;
-                      const total = (hasInstructor?1:0) + normalCnt;
+                      const running = normalCnt + (g.instructor_id?1:0);
                       return <>
-                        {hasInstructor?'1个教员 + ':''}本组{normalCnt}人 = {total}人
-                        {fixedGlobal.length>0&&<span style={{color:'#78716c'}}> （未加固定{fixedGlobal.length}人）</span>}
+                        实际跑车 {running} 人{g.instructor_id&&<span style={{color:'var(--muted)'}}>（含教员1人）</span>}
+                        {cpCnt>0 && <span style={{color:'#94a3b8'}}> · 车峰 {cpCnt} 人（在册，不参训）</span>}
+                        {cpCnt>0 && <span style={{color:'#64748b'}}> · 在册共 {running+cpCnt} 人</span>}
+                        {fixedGlobal.length>0&&<span style={{color:'#78716c'}}> · 另加固定{fixedGlobal.length}人</span>}
                       </>;
                     })()}
                   </div>
@@ -663,20 +675,30 @@ function TrainingGroupsSection({ pwd, staff }) {
               <button onClick={()=>setEditingMembers(null)} style={{fontSize:20,lineHeight:1,padding:'0 4px',border:'none',background:'transparent',color:'var(--muted)',cursor:'pointer'}}>×</button>
             </div>
             <div style={{fontSize:11,color:'var(--muted)',marginBottom:10,flexShrink:0}}>
-              已选 <span style={{color:'var(--blue)'}}>{selectedMembers.size}</span> 人（固定人员自动显示，无需勾选）
+              已选 <span style={{color:'var(--blue)'}}>{selectedMembers.size}</span> 人（固定人员自动显示，无需勾选）<br/>
+              <span style={{color:'#94a3b8'}}>「车峰」= 临时调整跑车方式，保留组籍但不参与培训名单；取消勾选即真正退出小组</span>
             </div>
             <div style={{overflow:'auto',flex:1}}>
-              {allStaff.filter(s=>!fixedSet.has(s.id)).map(s => {
+              {(() => {
+                // 车峰人员不在 allStaff 里（它过滤了 is_cp），但他们是本组成员 → 补进列表显示
+                const cur = groups.find(g=>g.id===editingMembers);
+                const cpExtra = (cur?.members || []).filter(m=>!!m.is_cp)
+                  .filter(m=>!allStaff.some(s=>String(s.id)===String(m.id)));
+                return [...allStaff.filter(s=>!fixedSet.has(s.id)), ...cpExtra];
+              })().map(s => {
                 const checked = selectedMembers.has(s.id);
+                const isCp = !!s.is_cp;
                 return (
                   <div key={s.id} onClick={()=>toggleMember(s.id)}
                     style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',borderRadius:7,marginBottom:4,cursor:'pointer',
-                      background:checked?'#1e3a5f':'transparent',border:'1px solid '+(checked?'var(--blue)':'var(--border)')}}>
-                    <div style={{width:16,height:16,borderRadius:3,border:'2px solid '+(checked?'var(--blue)':'var(--muted)'),background:checked?'var(--blue)':'transparent',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'var(--text)',flexShrink:0}}>
+                      background:checked?(isCp?'rgba(148,163,184,0.10)':'#1e3a5f'):'transparent',
+                      border:'1px '+(isCp?'dashed':'solid')+' '+(checked?(isCp?'#64748b':'var(--blue)'):'var(--border)')}}>
+                    <div style={{width:16,height:16,borderRadius:3,border:'2px solid '+(checked?(isCp?'#64748b':'var(--blue)'):'var(--muted)'),background:checked?(isCp?'#64748b':'var(--blue)'):'transparent',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'var(--text)',flexShrink:0}}>
                       {checked?'✓':''}
                     </div>
-                    <span style={{fontSize:13,color:checked?'var(--text)':'var(--muted)',flex:1}}>{s.real_name||s.name}</span>
+                    <span style={{fontSize:13,color:(checked&&!isCp)?'var(--text)':'var(--muted)',flex:1}}>{s.real_name||s.name}</span>
                     <span style={{fontSize:10,color:'var(--muted)'}}>{s.id}</span>
+                    {isCp&&<span style={{fontSize:9,padding:'1px 4px',borderRadius:3,background:'rgba(148,163,184,0.15)',color:'#94a3b8'}}>车峰</span>}
                     {!!s.is_exempt&&<span style={{fontSize:9,padding:'1px 4px',borderRadius:3,background:'rgba(100,116,139,0.2)',color:'var(--muted)'}}>免答</span>}
                   </div>
                 );

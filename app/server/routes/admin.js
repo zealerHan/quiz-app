@@ -70,7 +70,13 @@ router.post('/api/staff/batch', adminAuth, (req, res) => {
 
 router.delete('/api/staff/:id', adminAuth, (req, res) => {
   const s = db.prepare('SELECT name FROM staff WHERE id=?').get(req.params.id);
-  db.prepare('DELETE FROM staff WHERE id=?').run(req.params.id);
+  // 真正删除人员（永久调出/离职）时，连组籍一起清掉；
+  // 「车峰」只是临时调整跑车方式（保留组籍，回岗即恢复名单），不在这里处理
+  db.transaction(() => {
+    db.prepare('DELETE FROM training_group_members WHERE staff_id=?').run(req.params.id);
+    db.prepare('DELETE FROM training_fixed_members WHERE staff_id=?').run(req.params.id);
+    db.prepare('DELETE FROM staff WHERE id=?').run(req.params.id);
+  })();
   logAdmin('删除人员', `工号${req.params.id} ${s?.name||''}`, req.adminName);
   res.json({ ok: true });
 });
@@ -80,11 +86,10 @@ router.put('/api/staff/:id', adminAuth, (req, res) => {
   if (!real_name?.trim()) return res.status(400).json({ error: '姓名不能为空' });
   db.prepare('UPDATE staff SET name=?, real_name=?, phone_tail=?, is_exempt=?, is_tester=?, is_cp=?, is_leader=?, is_instructor=? WHERE id=?')
     .run(real_name.trim(), real_name.trim(), (phone_tail||'').toString().trim().slice(-4), is_exempt?1:0, is_tester?1:0, is_cp?1:0, is_leader?1:0, is_instructor?1:0, req.params.id);
-  if (is_cp) {
-    db.prepare('DELETE FROM training_group_members WHERE staff_id=?').run(req.params.id);
-    db.prepare('DELETE FROM training_fixed_members WHERE staff_id=?').run(req.params.id);
-  }
-  logAdmin('编辑人员', `工号${req.params.id} ${real_name.trim()}`, req.adminName);
+  // 注意：车峰（is_cp=1）是临时调整跑车方式，**保留组籍**（回岗时间不定，少则一月多则数月），
+  // 只做名单过滤、不删 training_group_members，否则回岗还得重新分配小组。
+  // 原实现在这里删组籍，与"临时"语义不符，已于 2026-09-27 去掉。
+  logAdmin('编辑人员', `工号${req.params.id} ${real_name.trim()}${is_cp?'（车峰）':''}`, req.adminName);
   res.json({ ok: true });
 });
 
@@ -816,13 +821,11 @@ router.put('/api/admin/staff/batch-identity', adminAuth, (req, res) => {
   const { ids, is_tester, is_exempt, is_cp } = req.body;
   if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: '未选择人员' });
   const stmt = db.prepare('UPDATE staff SET is_tester=?, is_exempt=?, is_cp=? WHERE id=?');
-  const delGroup = db.prepare('DELETE FROM training_group_members WHERE staff_id=?');
-  const delFixed = db.prepare('DELETE FROM training_fixed_members WHERE staff_id=?');
+  // 车峰（is_cp=1）= 临时调整跑车方式，保留组籍、回岗即恢复名单（回岗时间不定，少则一月多则数月）
+  // → 这里**不再**删 training_group_members / training_fixed_members；各名单读侧统一按 is_cp=0 过滤。
+  // （真正永久调出用「删除人员」，那里会清组籍。）原删组籍逻辑已于 2026-09-27 去掉。
   const run = db.transaction(() => {
-    ids.forEach(id => {
-      stmt.run(is_tester?1:0, is_exempt?1:0, is_cp?1:0, id);
-      if (is_cp) { delGroup.run(id); delFixed.run(id); }
-    });
+    ids.forEach(id => stmt.run(is_tester?1:0, is_exempt?1:0, is_cp?1:0, id));
   });
   run();
   logAdmin('批量修改身份', `${ids.length}人 → 测试:${is_tester?'是':'否'} 免答:${is_exempt?'是':'否'} 车峰:${is_cp?'是':'否'}`, req.adminName);

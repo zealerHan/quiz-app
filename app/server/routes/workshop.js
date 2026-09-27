@@ -1021,13 +1021,25 @@ router.delete('/api/admin/training-groups/:id', adminAuth, (req, res) => {
 router.put('/api/admin/training-groups/:id/members', adminAuth, (req, res) => {
   const { members } = req.body;
   if (!Array.isArray(members)) return res.status(400).json({ error: 'members 须为数组' });
+  const gid = req.params.id;
+  // 「车峰」人员是临时调整跑车方式 → 保留组籍（回岗即恢复名单），
+  // 全量替换时不能被静默删掉（旧前端不会把他们放进 payload）
+  const cpRows = db.prepare(`SELECT tgm.staff_id, tgm.is_fixed FROM training_group_members tgm
+      JOIN staff s ON s.id = tgm.staff_id
+      WHERE tgm.group_id=? AND COALESCE(s.is_cp,0)=1`).all(gid);
+  const before = db.prepare('SELECT COUNT(*) c FROM training_group_members WHERE group_id=?').get(gid).c;
   const del = db.prepare('DELETE FROM training_group_members WHERE group_id=?');
   const ins = db.prepare('INSERT OR REPLACE INTO training_group_members (group_id, staff_id, is_fixed) VALUES (?, ?, ?)');
   db.transaction(() => {
-    del.run(req.params.id);
-    for (const { staff_id, is_fixed } of members) ins.run(req.params.id, staff_id, is_fixed ? 1 : 0);
+    del.run(gid);
+    const sent = new Set(members.map(m => String(m.staff_id)));
+    for (const { staff_id, is_fixed } of members) ins.run(gid, staff_id, is_fixed ? 1 : 0);
+    for (const r of cpRows) if (!sent.has(String(r.staff_id))) ins.run(gid, r.staff_id, r.is_fixed ? 1 : 0);
   })();
-  res.json({ ok: true });
+  const after = db.prepare('SELECT COUNT(*) c FROM training_group_members WHERE group_id=?').get(gid).c;
+  const g = db.prepare('SELECT name FROM training_groups WHERE id=?').get(gid);
+  logAdmin('设置小组成员', `小组${gid}${g?.name?`(${g.name})`:''} ${before}人 → ${after}人${cpRows.length?`（保留车峰${cpRows.length}人）`:''}`, req.adminName);
+  res.json({ ok: true, keptCp: cpRows.length });
 });
 
 // 设置/取消教员标记
