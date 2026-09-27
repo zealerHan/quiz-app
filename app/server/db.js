@@ -230,6 +230,46 @@ try { db.exec("ALTER TABLE monthly_training_plans ADD COLUMN completed_items TEX
 try { db.exec("ALTER TABLE monthly_training_plans ADD COLUMN change_log TEXT"); } catch(e) {}
 try { db.exec("ALTER TABLE monthly_training_plans ADD COLUMN instructor_id_override TEXT"); } catch(e) {}
 
+// 工作日日历：法定节假日 + 调休上班日（每年按国务院办公厅通知录一次）
+// 用途：培训计划生成判断"这天是不是工作日"——周末一般轮空，但调休上班的周末要照常排培训；
+//       法定节假日一律轮空。老韩 2026-09-27 反馈：原来只按周六日硬判断，国庆调休（9/20 上班）
+//       这种日子会排错。
+db.exec(`CREATE TABLE IF NOT EXISTS workday_calendar (
+  date TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  name TEXT,
+  source TEXT
+)`);
+try {
+  const _wcCount = db.prepare('SELECT COUNT(*) c FROM workday_calendar').get().c;
+  if (_wcCount === 0) {
+    const yr = 2026;
+    const range = (a, b) => { const out = []; const d = new Date(a + 'T00:00:00');
+      const end = new Date(b + 'T00:00:00');
+      while (d <= end) { out.push(d.toLocaleDateString('sv-SE')); d.setDate(d.getDate() + 1); } return out; };
+    const ins = db.prepare('INSERT OR IGNORE INTO workday_calendar (date,kind,name,source) VALUES (?,?,?,?)');
+    const SRC = `国办发明电〔2025〕7号（${yr}年放假安排）`;
+    const holidays = [
+      [range('2026-01-01', '2026-01-03'), '元旦'],
+      [range('2026-02-15', '2026-02-23'), '春节'],
+      [range('2026-04-04', '2026-04-06'), '清明节'],
+      [range('2026-05-01', '2026-05-05'), '劳动节'],
+      [range('2026-06-19', '2026-06-21'), '端午节'],
+      [range('2026-09-25', '2026-09-27'), '中秋节'],
+      [range('2026-10-01', '2026-10-07'), '国庆节'],
+    ];
+    const workdays = [
+      ['2026-01-04', '元旦调休'], ['2026-02-14', '春节调休'], ['2026-02-28', '春节调休'],
+      ['2026-05-09', '劳动节调休'], ['2026-09-20', '国庆调休'], ['2026-10-10', '国庆调休'],
+    ];
+    db.transaction(() => {
+      for (const [dates, name] of holidays) for (const d of dates) ins.run(d, 'holiday', name, SRC);
+      for (const [d, name] of workdays) ins.run(d, 'workday', name, SRC);
+    })();
+    console.log(`[workday_calendar] 已导入 ${yr} 年节假日/调休 ${holidays.reduce((n, h) => n + h[0].length, 0) + workdays.length} 条`);
+  }
+} catch (e) { console.error('[workday_calendar] 导入失败:', e.message); }
+
 // 数据修复：2026-04-13 第三小组已有评价但 completed_items 未设置
 try {
   const p0413 = db.prepare("SELECT id, completed_items FROM monthly_training_plans WHERE shift_date='2026-04-13' AND year_month='2026-04'").get();

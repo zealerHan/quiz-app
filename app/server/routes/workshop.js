@@ -4,7 +4,7 @@ const fs = require('fs');
 const multer = require('multer');
 const { db, PHOTO_DIR } = require('../db');
 const { adminAuth, workshopEditAuth, logAdmin } = require('../middleware');
-const { getTrainingPlanForDate, getSetting, getLeaderRotation } = require('../helpers');
+const { getTrainingPlanForDate, getSetting, getLeaderRotation, isWorkday, getWorkdayCalendar } = require('../helpers');
 const { fmtDate, sendGroupPush, getPlanMemberNames, queueMemberNotice, flushMemberNotice } = require('../push');
 
 const router = express.Router();
@@ -73,10 +73,10 @@ function generatePlan(yearMonth) {
   // 中旬会日期：自定义 or 默认（11~20日第一个工作日早班）
   let zhongxunDate = setting?.safety_date || null;
   if (!zhongxunDate) {
+    // 默认：11~20 日的第一个"工作日"早班（调休感知：国庆调休上班的周末也算工作日）
     const candidates = dates.filter(d => {
       const day = parseInt(d.slice(8));
-      const wd = getWeekday(d);
-      return day >= 11 && day <= 20 && wd !== 0 && wd !== 6;
+      return day >= 11 && day <= 20 && isWorkday(d);
     });
     zhongxunDate = candidates[0] || null;
   }
@@ -112,11 +112,11 @@ function generatePlan(yearMonth) {
 
   const rows = [];
   for (const date of dates) {
-    const wd = getWeekday(date);
-    const isWeekend = wd === 0 || wd === 6;
+    // 工作日判断走"工作日日历"：法定节假日一律轮空；调休上班的周末照常排培训（占轮换）
+    const workday = isWorkday(date);
     const isZhongxun = date === zhongxunDate;
     let planType, groupId, leaderName = null;
-    if (isWeekend) {
+    if (!workday) {
       planType = '轮空'; groupId = null;
     } else if (isZhongxun) {
       planType = '中旬会'; groupId = null; // 不消耗 groupIdx / leaderPos
@@ -572,6 +572,31 @@ router.post('/api/admin/training-plan/instructor-swap', workshopEditAuth, (req, 
     `${fmtDate(pb.shift_date)} 由 ${na} 上课`,
   ];
   sendGroupPush(lines.join('\n'));
+});
+
+// ─── 工作日日历（法定节假日 / 调休上班日）────────────────────────────────────
+// 计划生成依据：节假日→轮空；调休上班的周末→照常排培训（占轮换）；其余按周末判断
+router.get('/api/workshop/workday-calendar', (req, res) => {
+  const year = String(req.query.year || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(0, 4));
+  res.json(getWorkdayCalendar(year));
+});
+
+router.post('/api/admin/workday-calendar', workshopEditAuth, (req, res) => {
+  const { date, kind, name } = req.body || {};
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) || !['holiday', 'workday'].includes(kind)) {
+    return res.status(400).json({ error: '参数不完整' });
+  }
+  db.prepare(`INSERT INTO workday_calendar (date,kind,name,source) VALUES (?,?,?,?)
+    ON CONFLICT(date) DO UPDATE SET kind=excluded.kind, name=excluded.name, source=excluded.source`)
+    .run(date, kind, name || null, '手动维护');
+  logAdmin('工作日日历', `${date} ${kind === 'holiday' ? '放假' : '调休上班'}${name ? ' ' + name : ''}`, req.adminName || req.instructorId || 'admin');
+  res.json({ ok: true });
+});
+
+router.delete('/api/admin/workday-calendar/:date', workshopEditAuth, (req, res) => {
+  const r = db.prepare('DELETE FROM workday_calendar WHERE date=?').run(req.params.date);
+  logAdmin('工作日日历', `删除标记 ${req.params.date}`, req.adminName || req.instructorId || 'admin');
+  res.json({ ok: true, removed: r.changes });
 });
 
 // ─── 培训计划导入文件 API ──────────────────────────────────────────────────────

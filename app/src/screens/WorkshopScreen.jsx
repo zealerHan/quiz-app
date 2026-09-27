@@ -59,6 +59,8 @@ function WorkshopScreen({ user, onBack }) {
   // {planId, photos:[]}
   // 确认点评弹窗
   const [evalModal, setEvalModal] = useState(null);
+  // 工作日日历弹窗（法定节假日 / 调休上班日）
+  const [calModal, setCalModal] = useState(null); // {year, items:[], loading, dateInput, kindInput, nameInput}
   // {planId, members:[], step:'pick'|'eval', target:{staffId,staffName}, comment:'', saving:false, evaluations:{}}
   // 弹窗
   const [showSettings, setShowSettings] = useState(false);
@@ -564,6 +566,18 @@ function WorkshopScreen({ user, onBack }) {
             }} style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid rgba(148,163,184,0.3)',background:'rgba(148,163,184,0.06)',color:'var(--muted)',cursor:'pointer',fontFamily:'inherit'}}>
               🖼 相册
             </button>
+
+            {/* 工作日日历（节假日/调休） */}
+            {hasEditPerm && (
+              <button onClick={async()=>{
+                const y = (month || '').slice(0,4) || String(new Date().getFullYear());
+                setCalModal({year:y, items:[], loading:true, dateInput:'', kindInput:'holiday', nameInput:''});
+                const rows = await apiJson(`/api/workshop/workday-calendar?year=${y}`).catch(()=>[]);
+                setCalModal(prev=>prev?({...prev, items:Array.isArray(rows)?rows:[], loading:false}):prev);
+              }} style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid rgba(96,165,250,0.35)',background:'rgba(59,130,246,0.07)',color:'#60a5fa',cursor:'pointer',fontFamily:'inherit'}}>
+                📅 节假日
+              </button>
+            )}
 
             {/* 确认/评论（补录）模式 */}
             {hasEditPerm && !wsEditMode && (
@@ -1588,6 +1602,65 @@ function WorkshopScreen({ user, onBack }) {
           </div>
         </div>
       )}
+
+      {/* 工作日日历弹窗（节假日 / 调休上班日） */}
+      {calModal && (() => {
+        const WD = ['日','一','二','三','四','五','六'];
+        const reload = async (y) => {
+          const rows = await apiJson(`/api/workshop/workday-calendar?year=${y}`).catch(()=>[]);
+          setCalModal(prev=>prev?({...prev, items:Array.isArray(rows)?rows:[], loading:false}):prev);
+        };
+        return (
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:210,padding:16}} onClick={()=>setCalModal(null)}>
+            <div style={{background:'#0f2744',borderRadius:12,width:'100%',maxWidth:420,maxHeight:'86vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+              <div style={{padding:'14px 16px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:14,color:'var(--text)'}}>📅 {calModal.year} 年 节假日 / 调休</div>
+                  <div style={{fontSize:10,color:'var(--muted)',marginTop:3,lineHeight:1.6}}>放假 → 早班日排「轮空」；调休上班 → 早班日照常排培训（占小组轮换）。改动对之后生成/重排的计划生效。</div>
+                </div>
+                <button onClick={()=>setCalModal(null)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:20,cursor:'pointer',lineHeight:1}}>×</button>
+              </div>
+
+              {/* 新增 */}
+              <div style={{display:'flex',gap:6,padding:'10px 16px',borderBottom:'1px solid rgba(27,50,85,0.5)',alignItems:'center',flexWrap:'wrap'}}>
+                <input type="date" value={calModal.dateInput} onChange={e=>setCalModal(prev=>({...prev,dateInput:e.target.value}))}
+                  style={{flex:'1 1 120px',padding:'7px 9px',borderRadius:7,border:'1px solid var(--border)',background:'rgba(13,17,23,0.5)',color:'var(--text)',fontFamily:'inherit',fontSize:12}}/>
+                <select value={calModal.kindInput} onChange={e=>setCalModal(prev=>({...prev,kindInput:e.target.value}))}
+                  style={{flex:'0 0 92px',padding:'7px 9px',borderRadius:7,border:'1px solid var(--border)',background:'rgba(13,17,23,0.5)',color:'var(--text)',fontFamily:'inherit',fontSize:12}}>
+                  <option value="holiday">放假</option>
+                  <option value="workday">调休上班</option>
+                </select>
+                <input value={calModal.nameInput} onChange={e=>setCalModal(prev=>({...prev,nameInput:e.target.value}))} placeholder="名称（如 国庆调休）"
+                  style={{flex:'1 1 110px',padding:'7px 9px',borderRadius:7,border:'1px solid var(--border)',background:'rgba(13,17,23,0.5)',color:'var(--text)',fontFamily:'inherit',fontSize:12}}/>
+                <button onClick={async()=>{
+                  if(!calModal.dateInput) return alert('先选日期');
+                  const r = await apiJson('/api/admin/workday-calendar',{method:'POST',headers:hdrs(),body:JSON.stringify({date:calModal.dateInput,kind:calModal.kindInput,name:calModal.nameInput||null})}).catch(()=>null);
+                  if(r?.ok){ setCalModal(prev=>({...prev,dateInput:'',nameInput:''})); await reload(calModal.year); } else alert(r?.error||'保存失败');
+                }} style={{flex:'0 0 auto',padding:'7px 12px',borderRadius:7,border:'1px solid rgba(34,197,94,0.4)',background:'rgba(34,197,94,0.1)',color:'var(--green)',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer'}}>＋ 添加</button>
+              </div>
+
+              {/* 列表 */}
+              <div style={{flex:1,overflowY:'auto',padding:'10px 16px'}}>
+                {calModal.loading ? <div style={{textAlign:'center',color:'var(--muted)',fontSize:12,padding:'20px 0'}}>加载中…</div>
+                  : (calModal.items||[]).length===0 ? <div style={{textAlign:'center',color:'var(--muted)',fontSize:12,padding:'20px 0'}}>这一年还没录入节假日/调休</div>
+                  : (calModal.items||[]).map(it=>(
+                    <div key={it.date} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',borderRadius:7,background:it.kind==='holiday'?'rgba(239,68,68,0.06)':'rgba(34,197,94,0.06)',border:`1px solid ${it.kind==='holiday'?'rgba(239,68,68,0.25)':'rgba(34,197,94,0.25)'}`,marginBottom:4}}>
+                      <span style={{fontSize:12,color:'var(--text)',fontWeight:600,flexShrink:0}}>{it.date.slice(5)}</span>
+                      <span style={{fontSize:10,color:'var(--muted)',flexShrink:0}}>周{WD[it.weekday]}</span>
+                      <span style={{fontSize:10,color:it.kind==='holiday'?'#fca5a5':'#86efac',flexShrink:0}}>{it.kind==='holiday'?'放假':'调休上班'}</span>
+                      <span style={{fontSize:11,color:'var(--muted)',flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{it.name||''}</span>
+                      <button onClick={async()=>{
+                        if(!window.confirm(`删除 ${it.date} 的标记？`)) return;
+                        await apiJson(`/api/admin/workday-calendar/${it.date}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);
+                        await reload(calModal.year);
+                      }} style={{background:'none',border:'none',color:'var(--muted)',fontSize:14,cursor:'pointer',padding:0,lineHeight:1,flexShrink:0}}>×</button>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 现场记录弹窗 */}
       {photoModal && (

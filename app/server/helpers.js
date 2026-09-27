@@ -258,4 +258,18 @@ function getTrainingPlanForDate(dateStr) {
   return plan;
 }
 
-module.exports = { getShiftInfo, ensureCurrentCycle, getSetting, getCurrentCycle, calcPoints, detectQuestionType, TYPE_LABEL, backfillQuestionTypes, getTrainingPlanForDate, getLeaderRotation };
+// 工作日判断：调休感知（法定节假日一律非工作日；调休上班的周末算工作日）
+function isWorkday(dateStr) {
+  const row = db.prepare('SELECT kind FROM workday_calendar WHERE date=?').get(dateStr);
+  if (row) return row.kind === 'workday';
+  const wd = new Date(dateStr + 'T00:00:00').getDay();
+  return wd !== 0 && wd !== 6;
+}
+
+// 取某年的节假日/调休清单（供后台查看维护）
+function getWorkdayCalendar(year) {
+  const rows = db.prepare("SELECT date, kind, name, source FROM workday_calendar WHERE date LIKE ? ORDER BY date").all(year + '-%');
+  return rows.map(r => ({ ...r, weekday: new Date(r.date + 'T00:00:00').getDay() }));
+}
+
+module.exports = { getShiftInfo, ensureCurrentCycle, getSetting, getCurrentCycle, calcPoints, detectQuestionType, TYPE_LABEL, backfillQuestionTypes, getTrainingPlanForDate, getLeaderRotation, isWorkday, getWorkdayCalendar };
