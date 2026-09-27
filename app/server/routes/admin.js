@@ -14,7 +14,7 @@ const WebSocket = require('ws');
 const { db, PHOTO_DIR, getTodayShift } = require('../db');
 const { adminAuth, workshopEditAuth, logAdmin, _adminMap } = require('../middleware');
 const { getSetting, getCurrentCycle, detectQuestionType, TYPE_LABEL, backfillQuestionTypes, getTrainingPlanForDate, getShiftInfo } = require('../helpers');
-const { generateMagicToken, formatTrainingLines, sendDingTalkCard, fmtDate } = require('../push');
+const { generateMagicToken, formatTrainingLines, sendDingTalkCard, fmtDate, isPushDisabled } = require('../push');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -272,6 +272,7 @@ function getTopDeductions(sessionId) {
 // ─── DingTalk Push ─────────────────────────────────────────────────────────
 router.post('/api/admin/dingtalk/push', adminAuth, async (req, res) => {
   const webhook = process.env.DINGTALK_WEBHOOK;
+  if (isPushDisabled()) return res.json({ ok: true, skipped: '测试/调试模式：已跳过钉钉推送' });
   const secret = process.env.DINGTALK_SECRET;
   if (!webhook || !secret) return res.status(500).json({ error: '未配置钉钉Webhook' });
 
@@ -444,7 +445,7 @@ router.post('/api/admin/remediation/grant', adminAuth, (req, res) => {
   logAdmin('复查授权', `${staff?.name||staffId}(${staffId}) 原始分=${originalSess.total_score} 有效至 ${expiresAt}`, req.adminName);
 
   // 钉钉群通知：班组长对xxx进行授权复查
-  const groupWebhook = process.env.DINGTALK_WEBHOOK;
+  const groupWebhook = isPushDisabled() ? null : process.env.DINGTALK_WEBHOOK;
   const groupSecret = process.env.DINGTALK_SECRET;
   if (groupWebhook && groupSecret) {
     const msgText = `📢 班组长 ${req.adminName} 对 ${staff?.name||staffId} 进行授权复查，请当事人在 12 小时内认真作答。`;
@@ -555,6 +556,7 @@ router.get('/api/admin/remediation/export', adminAuth, async (req, res) => {
 // ─── DingTalk: 复查结果推送 ────────────────────────────────────────────────
 router.post('/api/admin/dingtalk/notify-remediation', adminAuth, async (req, res) => {
   const webhook = process.env.DINGTALK_WEBHOOK;
+  if (isPushDisabled()) return res.json({ ok: true, skipped: '测试/调试模式：已跳过钉钉推送' });
   const secret = process.env.DINGTALK_SECRET;
   if (!webhook || !secret) return res.status(500).json({ error: '未配置钉钉Webhook' });
 
@@ -623,6 +625,7 @@ router.post('/api/admin/dingtalk/notify-remediation', adminAuth, async (req, res
 // ─── DingTalk: 抽问开始通知 ────────────────────────────────────────────────
 router.post('/api/admin/dingtalk/notify-start', adminAuth, async (req, res) => {
   const webhook = process.env.DINGTALK_WEBHOOK;
+  if (isPushDisabled()) return res.json({ ok: true, skipped: '测试/调试模式：已跳过钉钉推送' });
   const secret = process.env.DINGTALK_SECRET;
   if (!webhook || !secret) return res.status(500).json({ error: '未配置钉钉Webhook' });
 

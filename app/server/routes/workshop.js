@@ -5,7 +5,7 @@ const multer = require('multer');
 const { db, PHOTO_DIR } = require('../db');
 const { adminAuth, workshopEditAuth, logAdmin } = require('../middleware');
 const { getTrainingPlanForDate, getSetting, getLeaderRotation } = require('../helpers');
-const { fmtDate, sendGroupPush, getPlanMemberNames } = require('../push');
+const { fmtDate, sendGroupPush, getPlanMemberNames, queueMemberNotice, flushMemberNotice } = require('../push');
 
 const router = express.Router();
 
@@ -139,10 +139,10 @@ function generatePlan(yearMonth) {
 function buildPlanResponse(yearMonth) {
   const plans = db.prepare('SELECT * FROM monthly_training_plans WHERE year_month=? ORDER BY shift_date').all(yearMonth);
   const groups = db.prepare('SELECT * FROM training_groups ORDER BY sort_order, id').all();
-  const allStaff = db.prepare('SELECT id, real_name, name, is_instructor, is_leader FROM staff').all();
+  const allStaff = db.prepare('SELECT id, real_name, name, is_instructor, is_leader, COALESCE(is_cp,0) as is_cp FROM staff').all();
   const staffMap = {};
   for (const s of allStaff) staffMap[s.id] = { id: s.id, real_name: s.real_name, name: s.name, is_instructor: !!s.is_instructor, is_leader: !!s.is_leader };
-  const members = db.prepare('SELECT tgm.group_id, tgm.is_fixed, s.id, s.real_name, s.name FROM training_group_members tgm JOIN staff s ON tgm.staff_id=s.id').all();
+  const members = db.prepare('SELECT tgm.group_id, tgm.is_fixed, s.id, s.real_name, s.name, COALESCE(s.is_cp,0) as is_cp FROM training_group_members tgm JOIN staff s ON tgm.staff_id=s.id').all();
   const fixedStaff = db.prepare('SELECT f.staff_id, s.real_name, s.name FROM training_fixed_members f JOIN staff s ON f.staff_id=s.id').all();
   // 班组长下拉候选：读库按 rotation_order 排（不过滤休假，供手动调整/选择）
   const leaderStaff = getLeaderRotation(false);
@@ -194,8 +194,22 @@ function buildPlanResponse(yearMonth) {
           members: (baseGroup.members || []).filter(m => String(m.id) !== String(baseInstId)),
         };
       }
+      // 专项培训（不挂小组）：给一个虚拟 group，前端才能显示参训人员/「调组员」/「确认点评」
+      // 参训人员 = 计划级勾选（overrides 的 added），可从全体班组人员里单独点选
+      if (!group && p.plan_type !== '中旬会' && p.plan_type !== '轮空') {
+        const cpIds = new Set((allStaff || []).filter(s => s.is_cp).map(s => String(s.id)));
+        const picked = (overridesByPlan[p.id]?.added || []).filter(a => !cpIds.has(String(a.id)));
+        const ov = p.instructor_id_override ? staffMap[p.instructor_id_override] : null;
+        group = {
+          id: null, name: '专项培训', is_special: 1,
+          instructor_id: p.instructor_id_override || null,
+          instructor_name: ov ? (ov.real_name || ov.name) : null,
+          members: picked.map(a => ({ id: a.id, real_name: a.real_name, name: a.name })),
+        };
+      }
       return {
         ...p,
+        is_special: !p.group_id && p.plan_type !== '中旬会' && p.plan_type !== '轮空',
         instructor_overridden: !!p.instructor_id_override,
         group,
         memberOverrides: overridesByPlan[p.id] || { added: [], removed: [] },
@@ -491,26 +505,23 @@ router.post('/api/admin/training-plan/member-remove', workshopEditAuth, (req, re
   }
   res.json({ ok: true });
 
-  // 推送到教员群
+  // 推送到教员群：不立即发，入队由 flushMemberNotice 合并成一条
+  // （原来每增删一个人就发一条，老韩连续勾 5 个人 → 群里 5 条，太吵）
   const shiftDate = db.prepare('SELECT shift_date FROM monthly_training_plans WHERE id=?').get(plan_id)?.shift_date || '';
   const nm = db.prepare('SELECT real_name,name FROM staff WHERE id=?').get(staff_id);
   const memberName = nm?.real_name || nm?.name || String(staff_id);
   const opId = req.instructorId;
   const opStaff = opId ? db.prepare('SELECT real_name,name FROM staff WHERE id=?').get(opId) : null;
   const opName = opStaff?.real_name || opStaff?.name || '管理员';
-  const nowTime = new Date().toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
-  const verb = action === 'add'
-    ? `${memberName} 加入 ${fmtDate(shiftDate)} 培训`
-    : action === 'restore'
-      ? `${memberName} 恢复 ${fmtDate(shiftDate)} 回段`
-      : `${memberName} 取消 ${fmtDate(shiftDate)} 回段`;
-  const members = getPlanMemberNames(plan_id).join('、');
-  const lines = [
-    `${nowTime}  ${opName}`,
-    verb,
-    members ? `\n当日培训人员：${members}` : '',
-  ].filter(Boolean);
-  sendGroupPush(lines.join('\n'));
+  queueMemberNotice({ planId: plan_id, actorName: opName, action, memberName });
+});
+
+// 立即发出该计划的「人员调整」合并通知（前端关闭「调组员」面板时调用）
+router.post('/api/admin/training-plan/member-notify', workshopEditAuth, async (req, res) => {
+  const planId = req.body?.plan_id;
+  if (!planId) return res.status(400).json({ error: '参数不完整' });
+  const text = await flushMemberNotice(planId).catch(() => null);
+  res.json({ ok: true, sent: !!text });
 });
 
 // ─── 教员互换：两个计划的有效教员对调 ──────────────────────────────────────────
@@ -816,17 +827,31 @@ router.get('/api/workshop/member-month-items', (req, res) => {
     nameCache[id] = s?.real_name || null;
     return nameCache[id];
   };
+  // 计划级自定义项点（专项培训等）：不在年度计划里、但写进了某期 completed_items。
+  // 必须一并列出，否则「确认项点里手动加的专项项点」在人员确认时看不到、没法跟进。
+  const _yearNames = new Set(yearItems.map(it => it.item));
+  const extraNames = [];
+  for (const plan of plans) {
+    let completed = [];
+    try { completed = JSON.parse(plan.completed_items || '[]'); } catch (e) {}
+    for (const nm of completed) {
+      if (nm && !_yearNames.has(nm) && !extraNames.includes(nm)) extraNames.push(nm);
+    }
+  }
+
   // 按项点聚合：找本月最早包含该项点且此人已被确认的场次
-  const items = yearItems.map(it => {
+  const buildRow = (itemName, isExtra) => {
+    const it = { item: itemName };
     let found = null;
     for (const plan of plans) {
-      const completed = JSON.parse(plan.completed_items || '[]');
+      let completed = [];
+      try { completed = JSON.parse(plan.completed_items || '[]'); } catch (e) {}
       if (completed.includes(it.item) && evalMap[plan.id]) {
         found = evalMap[plan.id];
         break;
       }
     }
-    if (!found) return { item: it.item, confirmed: false, has_comment: false, comment: '', session_date: null, confirmed_by: null, is_retroactive: false };
+    if (!found) return { item: it.item, is_extra: !!isExtra, confirmed: false, has_comment: false, comment: '', session_date: null, confirmed_by: null, is_retroactive: false };
     const evalDate = (found.evaluated_at || '').slice(0, 10);
     const isRetroactive = !!(evalDate && evalDate !== found.shift_date);
     let confirmedBy;
@@ -836,10 +861,19 @@ router.get('/api/workshop/member-month-items', (req, res) => {
     } else {
       confirmedBy = [found.group_name, found.instructor_name].filter(Boolean).join('·');
     }
-    return { item: it.item, confirmed: true, has_comment: !!(found.comment), comment: found.comment || '', session_date: found.shift_date, confirmed_by: confirmedBy, is_retroactive: isRetroactive };
+    return { item: it.item, is_extra: !!isExtra, confirmed: true, has_comment: !!(found.comment), comment: found.comment || '', session_date: found.shift_date, confirmed_by: confirmedBy, is_retroactive: isRetroactive };
+  };
+  const items = [...yearItems.map(it => buildRow(it.item, false)), ...extraNames.map(n => buildRow(n, true))];
+  // total/done 仍只统计年度计划项点（本月完成率口径不变），专项项点单独回报
+  const yearRows = items.filter(i => !i.is_extra);
+  const extraRows = items.filter(i => i.is_extra);
+  res.json({
+    items,
+    total: yearRows.length,
+    done: yearRows.filter(i => i.confirmed).length,
+    extraTotal: extraRows.length,
+    extraDone: extraRows.filter(i => i.confirmed).length,
   });
-  const done = items.filter(i => i.confirmed).length;
-  res.json({ items, total: items.length, done });
 });
 
 // 保存/更新点评
@@ -940,12 +974,16 @@ router.get('/api/workshop/my-status', (req, res) => {
   // 我所在的小组
   const myGroup = db.prepare('SELECT group_id FROM training_group_members WHERE staff_id=?').get(staff_id);
   const myGroupId = myGroup?.group_id || null;
+  // 专项培训：被「调组员」勾选加入的计划也算我相关
+  const myPickedPlanIds = new Set(
+    db.prepare("SELECT plan_id FROM training_plan_member_overrides WHERE staff_id=? AND action='add'").all(staff_id).map(r=>String(r.plan_id))
+  );
   // 我的姓名（用于 leader_name 比对）
   const myStaff = db.prepare('SELECT real_name, name FROM staff WHERE id=?').get(staff_id);
   const myName = myStaff?.real_name || myStaff?.name || '';
   const result = plans.map(p => {
     const isLeaderRow = !!(p.leader_name && p.leader_name === myName);
-    const relevant = p.plan_type === '中旬会' || isFixed || isLeaderRow ||
+    const relevant = p.plan_type === '中旬会' || isFixed || isLeaderRow || myPickedPlanIds.has(String(p.id)) ||
       (p.plan_type === '培训' && p.group_id && p.group_id === myGroupId);
     const att = attMap[p.id] || {};
     const completedItems = JSON.parse(p.completed_items || '[]');

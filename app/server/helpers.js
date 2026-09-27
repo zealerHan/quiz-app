@@ -209,6 +209,28 @@ function getTrainingPlanForDate(dateStr) {
     plan.group = group || null;
   }
 
+  // 专项培训：不挂小组，参训人员 = 计划级勾选（training_plan_member_overrides 的 action='add'）
+  // 场景：法定工作日/调休日的临时专项培训，只抽几个人、不成组 → 让"调组员"面板直接
+  // 从全体班组人员里勾选即可，不必先挂小组。给一个虚拟 group 让下游（名单/提醒/统计/月结）
+  // 全部照常工作；未勾人时也给空 group，编辑面板才打得开。
+  if (!plan.group_id && plan.plan_type !== '中旬会') {
+    const ovr = db.prepare('SELECT staff_id, action FROM training_plan_member_overrides WHERE plan_id=?').all(plan.id);
+    const pickedIds = ovr.filter(o => o.action === 'add').map(o => String(o.staff_id));
+    const picked = pickedIds.length
+      ? db.prepare(`SELECT id, real_name, name FROM staff WHERE id IN (${pickedIds.map(()=>'?').join(',')}) AND COALESCE(is_cp,0)=0`).all(...pickedIds)
+      : [];
+    const ins = plan.instructor_id_override
+      ? db.prepare('SELECT real_name, name FROM staff WHERE id=?').get(plan.instructor_id_override) : null;
+    plan.group = {
+      id: null, name: '专项培训', is_special: 1,
+      instructor_id: plan.instructor_id_override || null,
+      instructor_name: ins?.real_name || ins?.name || null,
+      members: picked,
+    };
+    plan.isSpecial = true;
+    plan.adjustNotes = picked.map(s => ({ name: s.real_name || s.name, date: dateStr }));
+  }
+
   // 固定成员
   plan.fixedStaff = db.prepare(`
     SELECT f.staff_id, s.real_name, s.name

@@ -659,8 +659,10 @@ function WorkshopScreen({ user, onBack }) {
                 const fixedNames = activeFixedStaff.map(f => f.real_name || f.name);
                 const allLeaders = (plan.leaderStaff || []).map(l => l.real_name || l.name);
                 const normalMembers = g
-                  ? (g.members || []).filter(m => m.id !== g.instructor_id && !(plan.fixedStaff||[]).some(f => f.staff_id === m.id))
+                  ? (g.members || []).filter(m => m.id !== g.instructor_id && !(plan.fixedStaff||[]).some(f => f.staff_id === m.id) && !m.is_cp)
                   : [];
+                // 车峰（临时调整跑车方式）：保留组籍但不参训，单独灰显，不占组员格
+                const cpMembers = g ? (g.members || []).filter(m => !!m.is_cp) : [];
 
                 const isOpen = (field) => activeField?.planId === p.id && activeField?.field === field;
                 const toggleField = (field) => {
@@ -743,11 +745,11 @@ function WorkshopScreen({ user, onBack }) {
                         {mine && <span style={{fontSize:9,color:'var(--blue)'}}>◆</span>}
                         <span style={{fontWeight:700,fontSize:12,color:'var(--text)',marginRight:2}}>{dateLabel(p.shift_date)}</span>
 
-                        {/* 小组 */}
-                        {g && p.plan_type!=='中旬会' && p.plan_type!=='轮空' && (
-                          <Chip field="group" label={g.name} color="var(--text)" borderColor="#1e3a5f"
-                            options={(plan.groups||[]).map(gr=>({value:gr.id,label:gr.name,current:p.group_id}))}
-                            onSelect={v=>patchRow(p.id,{group_id:v},`${now} 小组改为"${(plan.groups||[]).find(gr=>gr.id===v)?.name}"`)}
+                        {/* 小组：未指定时也能选（临时培训/补排当天培训都靠这个入口） */}
+                        {p.plan_type!=='中旬会' && p.plan_type!=='轮空' && (
+                          <Chip field="group" label={g ? g.name : '未指定小组'} color={g?'var(--text)':'#fca5a5'} borderColor={g?'#1e3a5f':'rgba(248,113,113,0.45)'}
+                            options={[{value:null,label:'专项培训（不挂小组·单独勾人）',current:p.group_id}, ...(plan.groups||[]).map(gr=>({value:gr.id,label:gr.name,current:p.group_id}))]}
+                            onSelect={v=>patchRow(p.id,{group_id:v},`${now} 小组改为"${v?(plan.groups||[]).find(gr=>gr.id===v)?.name:'专项培训（不挂小组）'}"`)}
                           />
                         )}
                         {/* 中旬会固定标签 */}
@@ -1011,7 +1013,8 @@ function WorkshopScreen({ user, onBack }) {
                           const removedIds = new Set((overrides.removed||[]).map(r=>String(r.id||r.staff_id)));
                           const baseMembers = normalMembers.filter(m=>!removedIds.has(String(m.id)));
                           const addedMembers = (overrides.added||[]).map(a=>({id:a.id||a.staff_id,real_name:a.real_name||a.staff_name||a.name,isAdded:true}));
-                          const effectiveMembers = [...baseMembers,...addedMembers];
+                          // 去重：专项培训（不挂小组）时 added 与 base 是同一批人，不去重会出现"5人变10人"
+                          const effectiveMembers = [...baseMembers,...addedMembers].filter((m,i,arr)=>arr.findIndex(x=>String(x.id)===String(m.id))===i);
                           const SLOTS = 8;
                           return (
                             <div style={{display:'flex',flexDirection:'column',gap:4}}>
@@ -1105,6 +1108,16 @@ function WorkshopScreen({ user, onBack }) {
                                   {activeFixedStaff.length>0 && <span style={{color:'#c4b5fd'}}>◆ 固定</span>}
                                 </div>
                               )}
+                              {cpMembers.length>0 && (
+                                <div style={{fontSize:9,color:'#94a3b8'}}>
+                                  车峰（在册，不参训）：{cpMembers.map(m=>m.real_name||m.name).join('、')}
+                                </div>
+                              )}
+                              {!p.group_id && p.plan_type!=='轮空' && p.plan_type!=='中旬会' && (
+                                <div style={{fontSize:9,color:'#60a5fa'}}>
+                                  专项培训：不挂小组，点「✎ 调组员」可直接从全体班组人员里单独勾选参训人员（用于调休日/临时专项）
+                                </div>
+                              )}
                             </div>
                           );
                         })()}
@@ -1113,6 +1126,9 @@ function WorkshopScreen({ user, onBack }) {
                     ) : (
                       <div style={{padding:'8px 12px',fontSize:11,color:'#7c8fa6'}}>
                         未分配小组{p.notes && <span style={{marginLeft:6}}>（{p.notes}）</span>}
+                        <div style={{marginTop:4,color:'#94a3b8'}}>
+                          先在上面选一个小组（临时培训也这样），选定后才会出现 教员 / 班组长 / 参训人员，再用「✎ 调组员」加减人和「✅ 确认点评」补录出席。
+                        </div>
                       </div>
                     )}
 
@@ -1138,7 +1154,7 @@ function WorkshopScreen({ user, onBack }) {
                           <button onClick={async()=>{
                             const overrides = p.memberOverrides||{added:[],removed:[]};
                             const removedIds = new Set((overrides.removed||[]).map(r=>String(r.id||r.staff_id)));
-                            const baseM = (g?.members||[]).filter(m=>!removedIds.has(String(m.id)));
+                            const baseM = (g?.members||[]).filter(m=>!removedIds.has(String(m.id)) && !m.is_cp);
                             const addedM = (overrides.added||[]).map(a=>({id:a.id||a.staff_id,real_name:a.real_name||a.staff_name||a.name}));
                             const fixedM = (plan.fixedStaff||[]).filter(f=>!removedIds.has(String(f.staff_id))).map(f=>({id:f.staff_id,real_name:f.real_name||f.name}));
                             const allM = [...baseM,...addedM,...fixedM].filter((m,i,a)=>a.findIndex(x=>x.id===m.id)===i);
@@ -1362,7 +1378,7 @@ function WorkshopScreen({ user, onBack }) {
         const ov = p.memberOverrides || {added:[],removed:[]};
         const removedIds = new Set((ov.removed||[]).map(r=>String(r.id||r.staff_id)));
         const g = p.group;
-        const baseM = g ? (g.members||[]).filter(m=>String(m.id)!==String(g.instructor_id)) : [];
+        const baseM = g ? (g.members||[]).filter(m=>String(m.id)!==String(g.instructor_id) && !m.is_cp) : [];
         const baseList = baseM.filter(m=>!removedIds.has(String(m.id)));
         const addedList = (ov.added||[]).map(a=>({id:String(a.id||a.staff_id), real_name:a.real_name||a.staff_name||a.name, isAdded:true}));
         const fixedAll = plan.fixedStaff||[];
@@ -1371,25 +1387,31 @@ function WorkshopScreen({ user, onBack }) {
           ...baseList.map(m=>({id:String(m.id), real_name:m.real_name||m.name})),
           ...addedList,
           ...fixedActive.map(f=>({id:String(f.staff_id), real_name:f.real_name||f.name, isFixed:true})),
-        ];
+        ].filter((m,i,arr)=>arr.findIndex(x=>String(x.id)===String(m.id))===i); // 去重（专项培训时 base 与 added 同批人）
         const currentIds = new Set(current.map(c=>c.id));
         const removedList = (ov.removed||[]).map(r=>({id:String(r.id||r.staff_id), real_name:r.real_name||r.staff_name||r.name}));
-        const pool = (plan.allStaff||[]).filter(s=>!currentIds.has(String(s.id)) && !removedIds.has(String(s.id)));
+        const pool = (plan.allStaff||[]).filter(s=>!currentIds.has(String(s.id)) && !removedIds.has(String(s.id)) && !s.is_cp);
         const doOp = async (staff_id, action) => {
           const now2 = logNow();
           const r = await apiJson('/api/admin/training-plan/member-remove',{method:'POST',headers:hdrs(),body:JSON.stringify({plan_id:p.id,staff_id,action,note:`${now2} 调组员`})}).catch(()=>null);
           if (r?.ok){ flashCard(p.id); load(month); } else alert(r?.error||'操作失败');
         };
+        // 关闭面板时把本次的人员调整合并成一条钉钉通知（不等 8 秒自动发）
+        const finishAndClose = async () => {
+          await apiJson('/api/admin/training-plan/member-notify',{method:'POST',headers:hdrs(),body:JSON.stringify({plan_id:p.id})}).catch(()=>null);
+          setMemberEditModal(null);
+        };
         return (
-          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:220,padding:16}} onClick={()=>setMemberEditModal(null)}>
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:220,padding:16}} onClick={finishAndClose}>
             <div onClick={e=>e.stopPropagation()} style={{background:'#0f2744',borderRadius:12,width:'100%',maxWidth:360,maxHeight:'88vh',display:'flex',flexDirection:'column'}}>
               <div style={{padding:'14px 16px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                 <div>
                   <div style={{fontWeight:700,fontSize:14,color:'var(--text)'}}>调整组员</div>
                   <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{memberEditModal.shiftDate} · {memberEditModal.groupName}</div>
                 </div>
-                <button onClick={()=>setMemberEditModal(null)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:20,cursor:'pointer',lineHeight:1}}>×</button>
+                <button onClick={finishAndClose} style={{background:'none',border:'none',color:'var(--muted)',fontSize:20,cursor:'pointer',lineHeight:1}}>×</button>
               </div>
+              <div style={{fontSize:10,color:'#94a3b8',padding:'8px 16px 0'}}>改完关掉这个面板，会把这几次调整合并成一条通知发到群里（不是每点一次发一条）</div>
               <div style={{flex:1,overflowY:'auto',padding:'12px 16px'}}>
                 <div style={{fontSize:11,color:'#60a5fa',fontWeight:700,marginBottom:6}}>本期人员（{current.length}）</div>
                 {current.length===0 && <div style={{fontSize:11,color:'var(--muted)',marginBottom:8}}>暂无人员</div>}
@@ -1688,6 +1710,7 @@ function WorkshopScreen({ user, onBack }) {
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:12,color:alreadyDone?'#86efac':isSelected?'#93c5fd':'var(--muted)',fontWeight:alreadyDone||isSelected?600:400,lineHeight:1.4}}>
                           {it.item}
+                          {it.is_extra && <span style={{marginLeft:5,fontSize:9,color:'#fbbf24',border:'1px solid rgba(251,191,36,0.4)',borderRadius:3,padding:'0 3px',fontWeight:400}}>专项</span>}
                           {inPlan && !alreadyDone && <span style={{marginLeft:5,fontSize:9,color:'var(--muted)',fontWeight:400}}>本次项点</span>}
                         </div>
                         {alreadyDone && fmtDate && (
@@ -1735,7 +1758,7 @@ function WorkshopScreen({ user, onBack }) {
                     <button disabled={memberCheckModal.saving} onClick={async()=>{
                       setMemberCheckModal(prev=>({...prev,saving:true}));
                       const {planId,staffId,staffName,selectedItems,comment} = memberCheckModal;
-                      await apiJson(`/api/workshop/training-plan/${planId}/completed-items`,{method:'PATCH',headers:hdrs(),body:JSON.stringify({items:selectedItems||[]})}).catch(()=>{});
+                      if ((selectedItems||[]).length > 0) await apiJson(`/api/workshop/training-plan/${planId}/completed-items`,{method:'PATCH',headers:hdrs(),body:JSON.stringify({items:selectedItems})}).catch(()=>{});
                       const r = await apiJson(`/api/workshop/training-plan/${planId}/evaluations/${staffId}`,{method:'PUT',headers:hdrs(),body:JSON.stringify({staff_name:staffName,comment:comment||''})}).catch(()=>null);
                       setMemberCheckModal(null);
                       if(r?.ok) load(month);
@@ -1747,7 +1770,7 @@ function WorkshopScreen({ user, onBack }) {
                     <button disabled={memberCheckModal.saving} onClick={async()=>{
                       setMemberCheckModal(prev=>({...prev,saving:true}));
                       const {planId,staffId,staffName,selectedItems,comment} = memberCheckModal;
-                      await apiJson(`/api/workshop/training-plan/${planId}/completed-items`,{method:'PATCH',headers:hdrs(),body:JSON.stringify({items:selectedItems||[]})}).catch(()=>{});
+                      if ((selectedItems||[]).length > 0) await apiJson(`/api/workshop/training-plan/${planId}/completed-items`,{method:'PATCH',headers:hdrs(),body:JSON.stringify({items:selectedItems})}).catch(()=>{});
                       const r = await apiJson(`/api/workshop/training-plan/${planId}/evaluations/${staffId}`,{method:'PUT',headers:hdrs(),body:JSON.stringify({staff_name:staffName,comment:comment||''})}).catch(()=>null);
                       setMemberCheckModal(null);
                       if(r?.ok) load(month);
@@ -1798,6 +1821,31 @@ function WorkshopScreen({ user, onBack }) {
                   })}
                 </div>
               }
+              {/* 专项/临时项点：不在年度计划里的自定义项点（显示为已勾选，可删） */}
+              {(()=>{
+                const extra = (evalModal.selectedItems||[]).filter(x=>!evalModal.yearPlanItems.some(it=>it.item===x));
+                if (!extra.length) return null;
+                return (
+                  <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:8}}>
+                    {extra.map((x,i)=>(
+                      <div key={'x'+i} style={{padding:'10px 14px',borderRadius:8,border:'1px solid rgba(34,197,94,0.5)',background:'rgba(34,197,94,0.09)',color:'var(--text)',fontSize:12,display:'flex',alignItems:'center',gap:10}}>
+                        <span style={{width:16,height:16,borderRadius:4,background:'var(--green)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'var(--text)'}}>✓</span>
+                        <span style={{flex:1,fontWeight:600}}>{x}</span>
+                        <span style={{fontSize:9,color:'#fbbf24',border:'1px solid rgba(251,191,36,0.4)',borderRadius:3,padding:'0 3px',flexShrink:0}}>专项</span>
+                        <button onClick={()=>setEvalModal(prev=>({...prev,selectedItems:(prev.selectedItems||[]).filter(y=>y!==x)}))} style={{background:'none',border:'none',color:'var(--muted)',fontSize:14,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+              {/* 添加专项项点（专项/临时培训用，写进本期项点，计入完成进度） */}
+              <div style={{display:'flex',gap:6,marginBottom:12}}>
+                <input value={evalModal.customInput||''} onChange={e=>setEvalModal(prev=>({...prev,customInput:e.target.value}))}
+                  onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); setEvalModal(prev=>{const v=(prev.customInput||'').trim(); if(!v) return prev; return {...prev,selectedItems:[...(prev.selectedItems||[]).filter(x=>x!==v),v],customInput:''};}); } }}
+                  placeholder="添加专项项点（如：手摇道岔实操）" style={{flex:1,padding:'9px 11px',borderRadius:8,border:'1px solid var(--border)',background:'rgba(13,17,23,0.5)',color:'var(--text)',fontFamily:'inherit',fontSize:12}}/>
+                <button onClick={()=>setEvalModal(prev=>{const v=(prev.customInput||'').trim(); if(!v) return prev; return {...prev,selectedItems:[...(prev.selectedItems||[]).filter(x=>x!==v),v],customInput:''};})}
+                  style={{padding:'9px 12px',borderRadius:8,border:'1px solid rgba(96,165,250,0.45)',background:'rgba(59,130,246,0.12)',color:'#60a5fa',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer',flexShrink:0}}>＋ 添加</button>
+              </div>
               <button disabled={evalModal.saving} onClick={async()=>{
                 setEvalModal(prev=>({...prev,saving:true}));
                 await apiJson(`/api/workshop/training-plan/${evalModal.planId}/completed-items`,{method:'PATCH',headers:hdrs(),body:JSON.stringify({items:evalModal.selectedItems||[]})}).catch(()=>{});
@@ -1861,7 +1909,7 @@ function WorkshopScreen({ user, onBack }) {
                       const fmtDate = it.session_date ? `${parseInt(it.session_date.slice(5,7))}月${parseInt(it.session_date.slice(8,10))}日` : '';
                       return (
                         <div key={i} style={{display:'flex',alignItems:'center',gap:6}}>
-                          <span style={{fontSize:11,color:'var(--muted)',flex:1}}>{it.item}</span>
+                          <span style={{fontSize:11,color:'var(--muted)',flex:1}}>{it.item}{it.is_extra && <span style={{marginLeft:4,fontSize:9,color:'#fbbf24',border:'1px solid rgba(251,191,36,0.4)',borderRadius:3,padding:'0 3px'}}>专项</span>}</span>
                           <span style={{fontSize:12}}>{it.confirmed?'✅':'❌'}</span>
                           {it.confirmed ? (it.has_comment ? <span style={{fontSize:12}}>✅</span> : <span style={{fontSize:9,color:'var(--muted)'}}>未评价</span>) : <span style={{fontSize:12}}>❌</span>}
                           {fmtDate && <span style={{fontSize:9,color:'var(--muted)'}}>{fmtDate}</span>}

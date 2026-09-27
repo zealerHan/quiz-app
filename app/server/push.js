@@ -98,8 +98,23 @@ function formatTrainingLines(plan, dateLabel, mode) {
   return lines;
 }
 
+// ── 调试/测试护栏 ────────────────────────────────────────────────────────────
+// 副本测试实例（独立端口 + 副本库）与生产共用 .env，走"调组员/改计划"等接口会真的把
+// 消息发到真实钉钉群 → 调试期间会刷屏。规则：PUSH_DISABLED=1，或端口不是 3000
+// （生产端口，nginx 反代目标），一律跳过推送；确认要发就显式 PUSH_FORCE=1。
+function pushDisabled() {
+  const forced = String(process.env.PUSH_FORCE || '') === '1';
+  const disabled = String(process.env.PUSH_DISABLED || '') === '1';
+  const notProdPort = !!process.env.PORT && String(process.env.PORT) !== '3000';
+  return !forced && (disabled || notProdPort);
+}
+function logSkip(kind, detail) {
+  console.log(`[push] 跳过${kind}（测试/调试模式）: ${String(detail || '').replace(/\n/g, ' ').slice(0, 80)}`);
+}
+
 // ── 教员群实时推送（纯文本）──────────────────────────────────────────────────
 async function sendGroupPush(text) {
+  if (pushDisabled()) { logSkip('群消息', text); return; }
   const webhook = process.env.DINGTALK_GROUP_WEBHOOK;
   const secret  = process.env.DINGTALK_GROUP_SECRET;
   if (!webhook || !secret) return;
@@ -135,6 +150,7 @@ function getPlanMemberNames(planId) {
 
 // 公共：发钉钉 ActionCard 消息
 async function sendDingTalkCard({ title, bodyLines, plan, logTag, operator = 'admin' }) {
+  if (pushDisabled()) { logSkip('卡片', `${title} / ${logTag}`); return; }
   const webhook = process.env.DINGTALK_WEBHOOK;
   const secret  = process.env.DINGTALK_SECRET;
   if (!webhook || !secret) throw new Error('未配置钉钉Webhook');
@@ -170,4 +186,46 @@ async function sendDingTalkCard({ title, bodyLines, plan, logTag, operator = 'ad
   logAdmin('钉钉通知', logTag, operator);
 }
 
-module.exports = { generateMagicToken, formatTrainingLines, sendGroupPush, fmtDate, getPlanMemberNames, sendDingTalkCard };
+// ── 批量通知：同一张计划卡的"调组员"合并成一条（点一下发一条太吵）────────────────
+// 机制：每次增删只入队，8 秒内没有新动作才发（连续点选 = 一条）；前端在关闭
+// 「调组员」面板时调 flushMemberNotice 立即发出。
+const _memberNotice = new Map(); // planId -> {actorName, adds:Set, removes:Set, restores:Set, timer}
+const MEMBER_NOTICE_DELAY = 8000;
+function queueMemberNotice({ planId, actorName, action, memberName }) {
+  const key = String(planId);
+  let s = _memberNotice.get(key);
+  if (!s) { s = { actorName: '', adds: new Set(), removes: new Set(), restores: new Set(), timer: null }; _memberNotice.set(key, s); }
+  if (actorName) s.actorName = actorName;
+  if (action === 'add') s.adds.add(memberName);
+  else if (action === 'restore') s.restores.add(memberName);
+  else s.removes.add(memberName);
+  if (s.timer) clearTimeout(s.timer);
+  s.timer = setTimeout(() => { flushMemberNotice(planId); }, MEMBER_NOTICE_DELAY);
+  if (s.timer.unref) s.timer.unref();
+}
+async function flushMemberNotice(planId) {
+  const key = String(planId);
+  const s = _memberNotice.get(key);
+  if (!s) return null;
+  if (s.timer) clearTimeout(s.timer);
+  _memberNotice.delete(key);
+  const parts = [];
+  if (s.adds.size)     parts.push(`加入：${[...s.adds].join('、')}`);
+  if (s.removes.size)  parts.push(`移除：${[...s.removes].join('、')}`);
+  if (s.restores.size) parts.push(`恢复：${[...s.restores].join('、')}`);
+  if (!parts.length) return null;
+  const shiftDate = db.prepare('SELECT shift_date FROM monthly_training_plans WHERE id=?').get(planId)?.shift_date || '';
+  const nowTime = new Date().toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
+  const members = getPlanMemberNames(planId).join('、');
+  const lines = [
+    `${nowTime}  ${s.actorName || '管理员'}`,
+    `${fmtDate(shiftDate)} 培训人员调整`,
+    parts.join('\n'),
+    members ? `\n当日培训人员：${members}` : '',
+  ].filter(Boolean);
+  const text = lines.join('\n');
+  await sendGroupPush(text);
+  return text;
+}
+
+module.exports = { generateMagicToken, formatTrainingLines, sendGroupPush, fmtDate, getPlanMemberNames, sendDingTalkCard, isPushDisabled: pushDisabled, queueMemberNotice, flushMemberNotice };

@@ -225,6 +225,9 @@ db.exec(`CREATE TABLE IF NOT EXISTS training_plan_settings (
 try { db.exec('ALTER TABLE training_plan_settings ADD COLUMN start_group_id INTEGER'); } catch(e) {}
 try { db.exec('ALTER TABLE training_plan_settings ADD COLUMN start_leader_idx INTEGER DEFAULT 0'); } catch(e) {}
 try { db.exec("ALTER TABLE monthly_training_plans ADD COLUMN completed_items TEXT DEFAULT '[]'"); } catch(e) {}
+// change_log：计划卡片的「变更记录」（改小组/班组长/地点等都会追加）。生产库是早期手工加的，
+// 代码里一直没有兜底 → 在全新库（或灾备重建）上会因缺列直接 500，这里补上幂等迁移。
+try { db.exec("ALTER TABLE monthly_training_plans ADD COLUMN change_log TEXT"); } catch(e) {}
 try { db.exec("ALTER TABLE monthly_training_plans ADD COLUMN instructor_id_override TEXT"); } catch(e) {}
 
 // 数据修复：2026-04-13 第三小组已有评价但 completed_items 未设置
