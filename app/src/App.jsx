@@ -37,12 +37,12 @@ function LoginScreen({ onLogin, onAdmin }) {
     <div style={{position:"relative",width:"100%",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:"var(--p-navy-04)"}}>
       {/* 背景：高架封闭段 */}
       <div style={{position:"absolute",inset:0,backgroundImage:"var(--img-hero)",backgroundSize:"cover",backgroundPosition:"center",filter:"var(--img-hero-filter)",animation:"bgZoom 18s ease-in-out infinite alternate"}}/>
-      <div style={{position:"absolute",inset:0,background:"linear-gradient(180deg,var(--p-black-00-a50) 0%,var(--p-black-00-a15) 40%,var(--p-blue-60-a12) 70%,var(--p-black-00-a75) 100%)"}}/>
+      <div style={{position:"absolute",inset:0,background:"var(--hero-overlay)"}}/>
       {/* 轨道光线 */}
-      <div style={{position:"absolute",bottom:0,left:"50%",transform:"translateX(-50%)",width:3,height:"55%",background:"linear-gradient(to bottom,transparent,var(--p-blue-60-a80))",filter:"blur(7px)",animation:"glowPulse 3s ease-in-out infinite"}}/>
+      <div style={{position:"absolute",bottom:0,left:"50%",transform:"translateX(-50%)",width:3,height:"55%",background:"var(--hero-glow)",filter:"blur(7px)",animation:"glowPulse 3s ease-in-out infinite"}}/>
 
       {/* 登录卡片 */}
-      <div style={{position:"relative",zIndex:10,width:"100%",maxWidth:340,margin:"0 20px",padding:"36px 30px 28px",background:"var(--p-navy-04-a80)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",border:"1px solid var(--p-white-100-a10)",borderTop:"2px solid var(--color-accent)",borderRadius:6,boxShadow:"0 24px 80px var(--p-black-00-a70),0 0 40px var(--p-blue-60-a10)",animation:"cardIn 0.7s cubic-bezier(0.16,1,0.3,1) both"}}>
+      <div style={{position:"relative",zIndex:10,width:"100%",maxWidth:340,margin:"0 20px",padding:"36px 30px 28px",background:"var(--p-navy-04-a80)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",border:"1px solid var(--p-white-100-a10)",borderTop:"2px solid var(--color-accent)",borderRadius:6,boxShadow:"var(--shadow-card)",animation:"cardIn 0.7s cubic-bezier(0.16,1,0.3,1) both"}}>
         {/* Logo */}
         <div style={{textAlign:"center",marginBottom:28}}>
           <div style={{display:"inline-flex",alignItems:"center",gap:8,marginBottom:14}}>
@@ -50,7 +50,7 @@ function LoginScreen({ onLogin, onAdmin }) {
             <span style={{fontSize:11,fontWeight:600,letterSpacing:3,color:"var(--color-accent)"}}>培训系统</span>
             <div style={{width:8,height:8,borderRadius:"50%",background:"var(--color-accent)",boxShadow:"0 0 12px var(--p-amber-54-a60)",animation:"liveDotGold 2s ease-in-out infinite"}}/>
           </div>
-          <div style={{fontSize:20,fontWeight:700,letterSpacing:5,color:"white",marginBottom:5}}>乘务培训系统</div>
+          <div style={{fontSize:20,fontWeight:700,letterSpacing:5,color:"var(--text-on-media)",marginBottom:5}}>乘务培训系统</div>
           <div style={{fontSize:11,fontWeight:300,color:"var(--p-white-100-a50)",letterSpacing:2}}>OPERATIONS TRAINING SYSTEM</div>
         </div>
 
@@ -72,15 +72,15 @@ function LoginScreen({ onLogin, onAdmin }) {
             <div style={{display:"flex",alignItems:"center",background:"var(--p-white-100-a06)",border:"1px solid var(--p-white-100-a10)",borderRadius:4,height:44,paddingLeft:14,gap:2}}
               onFocus={e=>{e.currentTarget.style.borderColor="var(--color-primary)";e.currentTarget.style.background="var(--p-blue-60-a07)";e.currentTarget.style.boxShadow="0 0 0 3px var(--p-blue-60-a10)"}}
               onBlur={e=>{e.currentTarget.style.borderColor="var(--p-white-100-a10)";e.currentTarget.style.background="var(--p-white-100-a06)";e.currentTarget.style.boxShadow="none"}}>
-                <span style={{color:"white",fontSize:14,fontWeight:700,userSelect:"none",letterSpacing:0.5,opacity:0.9}}>Y</span>
+                <span style={{color:"var(--text-on-media)",fontSize:14,fontWeight:700,userSelect:"none",letterSpacing:0.5,opacity:0.9}}>Y</span>
                 <input value={id} onChange={e=>setId(e.target.value.replace(/[^0-9]/g,""))} placeholder="输入工号数字" maxLength={8} inputMode="numeric"
-              style={{flex:1,height:"100%",background:"transparent",border:"none",padding:"0 4px",fontFamily:"inherit",fontSize:14,color:"white",outline:"none",letterSpacing:0.5}}/>
+              style={{flex:1,height:"100%",background:"transparent",border:"none",padding:"0 4px",fontFamily:"inherit",fontSize:14,color:"var(--text-on-media)",outline:"none",letterSpacing:0.5}}/>
               </div>
           </div>
           <div style={{marginBottom:14}}>
             <label style={{display:"block",fontSize:11,fontWeight:600,letterSpacing:2.5,color:"var(--p-white-100-a50)",marginBottom:7}}>手机尾号</label>
             <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="请输入手机后4位" maxLength={4} inputMode="numeric"
-              style={{width:"100%",height:44,background:"var(--p-white-100-a06)",border:"1px solid var(--p-white-100-a10)",borderRadius:4,padding:"0 14px",fontFamily:"inherit",fontSize:14,color:"white",outline:"none",letterSpacing:0.5}}
+              style={{width:"100%",height:44,background:"var(--p-white-100-a06)",border:"1px solid var(--p-white-100-a10)",borderRadius:4,padding:"0 14px",fontFamily:"inherit",fontSize:14,color:"var(--text-on-media)",outline:"none",letterSpacing:0.5}}
               onFocus={e=>{e.target.style.borderColor="var(--color-primary)";e.target.style.background="var(--p-blue-60-a07)";e.target.style.boxShadow="0 0 0 3px var(--p-blue-60-a10)";}}
               onBlur={e=>{e.target.style.borderColor="var(--p-white-100-a10)";e.target.style.background="var(--p-white-100-a06)";e.target.style.boxShadow="none";}}/>
           </div>
@@ -674,9 +674,9 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
       <div style={{position:"absolute",inset:0,background:"var(--img-quiz-tint)",pointerEvents:"none"}}/>
       <div style={{position:"relative",zIndex:1,textAlign:"center",padding:"0 32px"}}>
         <div style={{fontSize:40,marginBottom:12}}>⏰</div>
-        <div style={{color:"white",fontSize:18,fontWeight:700,marginBottom:8}}>早班答题已截止</div>
+        <div style={{color:"var(--text-on-media)",fontSize:18,fontWeight:700,marginBottom:8}}>早班答题已截止</div>
         <div style={{color:"var(--p-white-100-a45)",fontSize:13,lineHeight:1.7,marginBottom:24}}>早班答题截止时间为 09:30<br/>如需答题请联系班组长</div>
-        <button onClick={onBack} style={{padding:"10px 28px",borderRadius:8,border:"1px solid var(--p-white-100-a20)",background:"none",color:"white",fontSize:14,cursor:"pointer"}}>返回首页</button>
+        <button onClick={onBack} style={{padding:"10px 28px",borderRadius:8,border:"1px solid var(--p-white-100-a20)",background:"none",color:"var(--text-on-media)",fontSize:14,cursor:"pointer"}}>返回首页</button>
       </div>
     </div>
   );
@@ -686,9 +686,9 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
       <div style={{position:"absolute",inset:0,background:"var(--img-quiz-tint)",pointerEvents:"none"}}/>
       <div style={{position:"relative",zIndex:1,textAlign:"center",padding:"0 32px"}}>
         <div style={{fontSize:40,marginBottom:12}}>✅</div>
-        <div style={{color:"white",fontSize:18,fontWeight:700,marginBottom:8}}>本轮已完成答题</div>
+        <div style={{color:"var(--text-on-media)",fontSize:18,fontWeight:700,marginBottom:8}}>本轮已完成答题</div>
         <div style={{color:"var(--p-white-100-a45)",fontSize:13,lineHeight:1.7,marginBottom:24}}>每套班（白夜早）只需完成一次答题<br/>下一轮开始后即可继续<br/>您可以在练习板块中继续沉淀</div>
-        <button onClick={onBack} style={{padding:"10px 28px",borderRadius:8,border:"1px solid var(--p-white-100-a20)",background:"none",color:"white",fontSize:14,cursor:"pointer"}}>返回首页</button>
+        <button onClick={onBack} style={{padding:"10px 28px",borderRadius:8,border:"1px solid var(--p-white-100-a20)",background:"none",color:"var(--text-on-media)",fontSize:14,cursor:"pointer"}}>返回首页</button>
       </div>
     </div>
   );
@@ -705,7 +705,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
     <div style={{position:"relative",width:"100%",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,background:"var(--p-navy-04)"}}>
       <div style={{fontSize:30}}>⚠</div>
       <div style={{color:"var(--red)",marginTop:8,fontSize:14}}>题库暂无题目，请联系管理员</div>
-      <button onClick={onBack} style={{marginTop:16,padding:"10px 28px",borderRadius:8,border:"1px solid var(--p-white-100-a20)",background:"none",color:"white",fontSize:14,cursor:"pointer"}}>返回</button>
+      <button onClick={onBack} style={{marginTop:16,padding:"10px 28px",borderRadius:8,border:"1px solid var(--p-white-100-a20)",background:"none",color:"var(--text-on-media)",fontSize:14,cursor:"pointer"}}>返回</button>
     </div>
   );
 
@@ -751,7 +751,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
           <div style={{width:"100%",padding:"10px 0 4px",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
             <div style={{width:36,height:36,borderRadius:18,background:"linear-gradient(135deg,var(--p-red-50),var(--p-red-39))",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,color:"white",fontSize:15,flexShrink:0,boxShadow:"0 4px 12px var(--p-red-50-a35)"}}>{user.name?.[0]||"?"}</div>
             <div>
-              <div style={{fontSize:15,fontWeight:700,color:"white",letterSpacing:1}}>{user.name}</div>
+              <div style={{fontSize:15,fontWeight:700,color:"var(--text-on-media)",letterSpacing:1}}>{user.name}</div>
               <div style={{fontSize:11,color:"var(--p-white-100-a40)",letterSpacing:2}}>请回答：</div>
             </div>
             {isSpeaking && (
@@ -820,7 +820,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
                   <textarea
                     placeholder="语音识别失败，请在此手动输入答案…"
                     rows={4}
-                    style={{width:"100%",boxSizing:"border-box",background:"var(--p-white-100-a07)",border:"1px solid var(--p-white-100-a20)",borderRadius:8,color:"white",fontSize:14,padding:"8px 10px",resize:"none",fontFamily:"inherit",lineHeight:1.6,outline:"none"}}
+                    style={{width:"100%",boxSizing:"border-box",background:"var(--p-white-100-a07)",border:"1px solid var(--p-white-100-a20)",borderRadius:8,color:"var(--text-on-media)",fontSize:14,padding:"8px 10px",resize:"none",fontFamily:"inherit",lineHeight:1.6,outline:"none"}}
                     onChange={e=>{
                       const val=e.target.value;
                       setTranscript(val);
@@ -953,7 +953,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
                   disabled={!submitReady}
                   style={{width:64,height:64,borderRadius:"50%",background:submitReady?"linear-gradient(135deg,var(--p-navy-25),var(--blue))":"var(--p-white-100-a06)",border:`2px solid ${submitReady?"var(--p-blue-60-a60)":"var(--p-white-100-a10)"}`,cursor:submitReady?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",opacity:submitReady?1:0.3,transition:"all 0.2s",boxShadow:submitReady?"0 4px 16px var(--p-blue-60-a30)":"none"}}>
                   {phase==="processing"
-                    ? <div style={{width:8,height:8,borderRadius:"50%",background:"white",animation:"blink 0.8s step-end infinite"}}/>
+                    ? <div style={{width:8,height:8,borderRadius:"50%",background:"var(--text-on-media)",animation:"blink 0.8s step-end infinite"}}/>
                     : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                   }
                 </button>
@@ -977,7 +977,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
             <div style={{padding:"12px 20px 20px",animation:"slideUp 0.3s ease"}}>
               <div style={{background:"var(--p-navy-04-a90)",backdropFilter:"blur(16px)",border:"1px solid var(--p-white-100-a10)",borderRadius:12,padding:"16px"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-                  <div style={{fontSize:36,fontWeight:900,color:"white"}}>{aiRes.score}<span style={{fontSize:13,color:"var(--p-white-100-a40)",fontWeight:400}}> 分</span></div>
+                  <div style={{fontSize:36,fontWeight:900,color:"var(--text-on-media)"}}>{aiRes.score}<span style={{fontSize:13,color:"var(--p-white-100-a40)",fontWeight:400}}> 分</span></div>
                   <Badge label={aiRes.level} color={aiRes.level==="优秀"?"var(--green)":aiRes.level==="合格"?"var(--amber)":"var(--red)"}/>
                 </div>
                 <p style={{fontSize:13,color:"var(--p-white-100-a75)",marginBottom:10,lineHeight:1.7}}>{aiRes.summary}</p>
@@ -1494,7 +1494,7 @@ function HomeScreen({ user, nav }) {
               : makeupGrant
               ? <button onClick={() => nav('quiz')} style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', cursor:'pointer', background:'linear-gradient(135deg,var(--p-amber-36),var(--p-amber-53))', color:'var(--text)', fontSize:12, fontWeight:800, fontFamily:'var(--font)', letterSpacing:'1px' }}>⏰ 补答（限时）</button>
               : pinnedInfo
-              ? <button onClick={() => nav('quiz')} style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', cursor:'pointer', background:'linear-gradient(135deg,var(--p-amber-33),var(--gold))', color:'var(--bg)', fontSize:12, fontWeight:800, fontFamily:'var(--font)', letterSpacing:'1px' }}>开始抽问</button>
+              ? <button onClick={() => nav('quiz')} style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', cursor:'pointer', background:'linear-gradient(135deg,var(--p-amber-33),var(--gold))', color:'var(--ink-on-gold)', fontSize:12, fontWeight:800, fontFamily:'var(--font)', letterSpacing:'1px' }}>开始抽问</button>
               : <button disabled style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid var(--border)', cursor:'not-allowed', background:'var(--card-deep)', color:'var(--muted)', fontSize:11, fontWeight:700, fontFamily:'var(--font)', letterSpacing:'0.5px', opacity:0.6 }}>管理员尚未发布本套班抽问</button>
             }
           </div>
@@ -2707,6 +2707,12 @@ const CSS=`
   --surface-1:var(--bg);--surface-2:var(--card);--surface-3:var(--card-deep);--surface-input:var(--input-bg);
   /* 语义文字 */
   --text-primary:var(--text);--text-secondary:var(--muted);
+  /* 媒体面（照片/深色背景）上的文字与层叠 —— 浅色主题需覆盖 */
+  --text-on-media:#fff;
+  --ink-on-gold:var(--bg);
+  --hero-overlay:linear-gradient(180deg,var(--p-black-00-a50) 0%,var(--p-black-00-a15) 40%,var(--p-blue-60-a12) 70%,var(--p-black-00-a75) 100%);
+  --hero-glow:linear-gradient(to bottom,transparent,var(--p-blue-60-a80));
+  --shadow-card:0 24px 80px var(--p-black-00-a70),0 0 40px var(--p-blue-60-a10);
   /* 尺度：字号 / 圆角 / 间距 */
   --fs-xs:11px;--fs-sm:12px;--fs-base:13px;--fs-md:14px;--fs-lg:16px;--fs-xl:18px;--fs-2xl:22px;
   --r-xs:4px;--r-sm:6px;--r-md:8px;--r-lg:12px;--r-xl:16px;--r-full:999px;
@@ -3376,6 +3382,95 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);-webkit-tap-
 --img-quiz-dim-filter:brightness(.3) saturate(.55) hue-rotate(283deg);
 --img-tint-a:0.16;
 --img-quiz-tint-a:0.16;
+}
+/* ══ 浅色主题：Win11 / Fluent 风 ══
+   干净、清爽、纯色底 + 柔和阴影；主色为 Win11 accent 蓝。
+   只覆盖基色层与媒体面变量，页面代码一行不用动。 */
+:root[data-theme="light"]{
+/* ① 底色族 → 浅色面 */
+--p-navy-04-rgb:255,255,255;
+--p-navy-06-rgb:243,243,243;
+--p-navy-07-rgb:250,250,250;
+--p-navy-09-rgb:247,247,247;
+--p-navy-09-h210-rgb:250,250,250;
+--p-navy-10-rgb:245,245,245;
+--p-navy-11-rgb:255,255,255;
+--p-navy-11-h214-rgb:255,255,255;
+--p-navy-12-rgb:245,245,245;
+--p-navy-13-rgb:255,255,255;
+--p-navy-14-rgb:255,255,255;
+--p-navy-14-h213-rgb:255,255,255;
+--p-navy-16-rgb:240,240,240;
+--p-navy-16-h215-rgb:232,232,232;
+--p-navy-17-rgb:238,238,238;
+--p-navy-22-rgb:229,229,229;
+--p-navy-25-rgb:225,225,225;
+/* ② 主色族 → Win11 accent 蓝 */
+--p-blue-27-h214-rgb:11,80,145;
+--p-blue-33-rgb:13,88,158;
+--p-blue-40-rgb:12,95,170;
+--p-blue-53-rgb:12,105,185;
+--p-blue-60-rgb:15,108,189;
+--p-blue-68-rgb:43,135,209;
+--p-blue-78-rgb:120,180,230;
+--p-blue-82-rgb:66,110,160;
+/* ③ 文字：深墨 / 中灰 */
+--p-blue-91-rgb:26,26,26;
+--p-blue-65-rgb:95,95,95;
+/* ④ 白叠加层反转为黑叠加层（浅色面上变成淡灰描边/高光） */
+--p-white-100-rgb:0,0,0;
+/* ⑤ 媒体面 */
+--text-on-media:rgb(26,26,26);
+--img-hero:linear-gradient(155deg,#eef4fb 0%,#f7f9fc 45%,#e9eff7 100%);
+--img-hero-filter:none;
+--img-hue-rotate:0deg;
+--img-quiz:linear-gradient(200deg,#f7f9fc 0%,#eef2f8 60%,#e7edf5 100%);
+--img-quiz-filter:none;
+--img-quiz-dim-filter:none;
+--img-tint-a:0;
+--img-quiz-tint-a:0;
+--hero-overlay:none;
+--hero-glow:none;
+--shadow-card:0 2px 4px rgba(0,0,0,.04),0 10px 28px rgba(0,0,0,.08);
+/* ⑥ 浅色面上需压深才可读的强调色（金色/绿色/金色按钮文字） */
+--p-amber-54-rgb:146,116,20;
+--p-green-45-rgb:21,128,61;
+--ink-on-gold:#1a1a1a;
+}
+/* ══ Win11 / Fluent 深色 ══
+   中性炭灰面 + 亮蓝 accent（#60CDFF），与浅色成对；
+   不与功能色（录音红 / 金按钮 / 早班橙）冲突。 */
+:root[data-theme="fluent-dark"]{
+/* ① 底色族 → 中性炭灰面 */
+--p-navy-04-rgb:32,32,32;
+--p-navy-06-rgb:32,32,32;
+--p-navy-07-rgb:39,39,39;
+--p-navy-09-rgb:40,40,40;
+--p-navy-09-h210-rgb:43,43,43;
+--p-navy-10-rgb:45,45,45;
+--p-navy-11-rgb:45,45,45;
+--p-navy-11-h214-rgb:45,45,45;
+--p-navy-12-rgb:48,48,48;
+--p-navy-13-rgb:43,43,43;
+--p-navy-14-rgb:43,43,43;
+--p-navy-14-h213-rgb:43,43,43;
+--p-navy-16-rgb:52,52,52;
+--p-navy-16-h215-rgb:58,58,58;
+--p-navy-17-rgb:56,56,56;
+--p-navy-22-rgb:61,61,61;
+--p-navy-25-rgb:70,70,70;
+/* ② 主色族 → Win11 深色 accent 亮蓝 */
+--p-blue-27-h214-rgb:12,74,110;
+--p-blue-33-rgb:16,84,122;
+--p-blue-40-rgb:20,95,138;
+--p-blue-53-rgb:40,145,199;
+--p-blue-60-rgb:96,205,255;
+--p-blue-68-rgb:130,220,255;
+--p-blue-78-rgb:160,230,255;
+--p-blue-82-rgb:185,238,255;
+/* ③ 文字：纯白 / 浅灰 */
+--p-blue-91-rgb:255,255,255;
+--p-blue-65-rgb:197,197,197;
 }
 
 
