@@ -1450,7 +1450,7 @@ function HomeScreen({ user, nav }) {
                         <div style={{color:'var(--green)',fontWeight:700,fontSize:11}}>📌 今日指定题目 · {manualCnt}题 · 每题{manualPts}分</div>
                         {(pinnedInfo.questions||[]).map((q,i)=>(
                           <div key={q.id||i} style={{display:'flex',gap:5,alignItems:'flex-start'}}>
-                            <span style={{color:'var(--blue)',fontWeight:700,flexShrink:0,fontSize:11,lineHeight:1.65}}>{i+1}.</span>
+                            <span style={{color:'var(--gold)',fontWeight:700,flexShrink:0,fontSize:11,lineHeight:1.65}}>{i+1}.</span>
                             <span style={{color:'var(--text)',fontSize:11,lineHeight:1.65}}>{q.text}</span>
                           </div>
                         ))}
@@ -1494,7 +1494,7 @@ function HomeScreen({ user, nav }) {
               : makeupGrant
               ? <button onClick={() => nav('quiz')} style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', cursor:'pointer', background:'linear-gradient(135deg,var(--p-amber-36),var(--p-amber-53))', color:'var(--text)', fontSize:12, fontWeight:800, fontFamily:'var(--font)', letterSpacing:'1px' }}>⏰ 补答（限时）</button>
               : pinnedInfo
-              ? <button onClick={() => nav('quiz')} style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', cursor:'pointer', background:'linear-gradient(135deg,var(--p-amber-33),var(--gold))', color:'var(--ink-on-gold)', fontSize:12, fontWeight:800, fontFamily:'var(--font)', letterSpacing:'1px' }}>开始抽问</button>
+              ? <button onClick={() => nav('quiz')} style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', cursor:'pointer', background:'linear-gradient(135deg,var(--cta-gold-1),var(--cta-gold-2))', color:'var(--ink-on-gold)', fontSize:12, fontWeight:800, fontFamily:'var(--font)', letterSpacing:'1px' }}>开始抽问</button>
               : <button disabled style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid var(--border)', cursor:'not-allowed', background:'var(--card-deep)', color:'var(--muted)', fontSize:11, fontWeight:700, fontFamily:'var(--font)', letterSpacing:'0.5px', opacity:0.6 }}>管理员尚未发布本套班抽问</button>
             }
           </div>
@@ -2710,6 +2710,9 @@ const CSS=`
   /* 媒体面（照片/深色背景）上的文字与层叠 —— 浅色主题需覆盖 */
   --text-on-media:#fff;
   --ink-on-gold:var(--bg);
+  /* 金色实心按钮的渐变两端（与 --gold 分开：--gold 在浅色下要压深当文字，按钮底反而要亮） */
+  --cta-gold-1:var(--p-amber-33);
+  --cta-gold-2:var(--gold);
   --hero-overlay:linear-gradient(180deg,var(--p-black-00-a50) 0%,var(--p-black-00-a15) 40%,var(--p-blue-60-a12) 70%,var(--p-black-00-a75) 100%);
   --hero-glow:linear-gradient(to bottom,transparent,var(--p-blue-60-a80));
   --shadow-card:0 24px 80px var(--p-black-00-a70),0 0 40px var(--p-blue-60-a10);
@@ -3433,7 +3436,9 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);-webkit-tap-
 --hero-glow:none;
 --shadow-card:0 2px 4px rgba(0,0,0,.04),0 10px 28px rgba(0,0,0,.08);
 /* ⑥ 浅色面上需压深才可读的强调色（金色/绿色/金色按钮文字） */
---p-amber-54-rgb:146,116,20;
+--p-amber-54-rgb:140,110,18;
+--cta-gold-1:#e0a82e;
+--cta-gold-2:#c8901a;
 --p-green-45-rgb:21,128,61;
 --ink-on-gold:#1a1a1a;
 }

@@ -9,25 +9,27 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚇</text></svg>"/>
   <script>
   /* ── 一周七套主题轮转（周一 → 周日）────────────────────────────
-     每周按「星期几」自动换一套主题；不写 data-theme 即用默认地铁蓝。
-     · 想临时锁定某套：网址后加 ?theme=shouyi（或 ?theme=default 用地铁蓝）
+     每周按「星期几」自动换一套主题；空字符串 = 默认地铁蓝。
+     · 想临时锁定某套：网址后加 ?theme=shouyi（或 ?theme=default 回地铁蓝）
      · 想改成随机：把 WEEK[new Date().getDay()] 换成按日期做种子的伪随机
        （用日期当种子 → 同一天全系统一致，且每天不重样）          */
   (function(){
+    var COL = { '':'#07101f', 'shouyi':'#1d0908', 'shouyi-deep':'#1d0909', 'bianzhong':'#001417',
+                'fangcao':'#051408', 'light':'#f3f3f3', 'fluent-dark':'#202020' };
     var WEEK = {
-      1:{t:'',            c:'#07101f'}, /* 周一 · 地铁蓝（默认）   */
-      2:{t:'shouyi',      c:'#1d0908'}, /* 周二 · 首义红           */
-      3:{t:'bianzhong',   c:'#001417'}, /* 周三 · 编钟青           */
-      4:{t:'fangcao',     c:'#051408'}, /* 周四 · 芳草绿           */
-      5:{t:'shouyi-deep', c:'#1d0909'}, /* 周五 · 首义红·深绛      */
-      6:{t:'light',       c:'#f3f3f3'}, /* 周六 · Win11 浅色       */
-      0:{t:'fluent-dark', c:'#202020'}  /* 周日 · Win11 深色       */
+      1:'',            /* 周一 · 地铁蓝（默认） */
+      2:'shouyi',      /* 周二 · 首义红         */
+      3:'bianzhong',   /* 周三 · 编钟青         */
+      4:'fangcao',     /* 周四 · 芳草绿         */
+      5:'shouyi-deep', /* 周五 · 首义红·深绛    */
+      6:'light',       /* 周六 · Win11 浅色     */
+      0:'fluent-dark'  /* 周日 · Win11 深色     */
     };
     var q = (location.search.match(/[?&]theme=([\w-]+)/) || [])[1];
-    var d = q ? (q === 'default' ? {t:'', c:'#07101f'} : {t:q, c:''})
-              : (WEEK[new Date().getDay()] || WEEK[1]);
-    if (d.t) document.documentElement.setAttribute('data-theme', d.t);
-    if (d.c) { var m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', d.c); }
+    var t = q ? (q === 'default' ? '' : q) : (WEEK[new Date().getDay()] || '');
+    if (t) document.documentElement.setAttribute('data-theme', t);
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m && COL[t]) m.setAttribute('content', COL[t]);
   })();
   </script>
   <style>html,body{margin:0;padding:0;overflow:hidden;overscroll-behavior:none;}</style>
