@@ -4,11 +4,11 @@ import { api, apiJson, adminHeaders, AppModal, Badge, ScoreRing, MiniBar } from 
 // ─── 题库分类常量（5分类体系 v2 · 用户定版 2026-09）──────────────────────────
 // 口径: emergency=车上设备故障（司机自办）/ abnormal=车外环境设施因素（多专业联动）
 const BANK_TYPES = [
-  { key: 'emergency',  icon: '🚨', label: '应急',           color: '#f87171' },
-  { key: 'essential',  icon: '📕', label: '应知必会',       color: '#60a5fa' },
-  { key: 'event',      icon: '📋', label: '安全事件',       color: '#fb923c' },
-  { key: 'abnormal',   icon: '⚠️', label: '非正常情况行车', color: '#fbbf24' },
-  { key: 'compliance', icon: '⚖️', label: '违法乱纪',       color: '#a78bfa' },
+  { key: 'emergency',  icon: '🚨', label: '应急',           color: 'var(--p-red-71)' },
+  { key: 'essential',  icon: '📕', label: '应知必会',       color: 'var(--p-blue-68)' },
+  { key: 'event',      icon: '📋', label: '安全事件',       color: 'var(--p-amber-61)' },
+  { key: 'abnormal',   icon: '⚠️', label: '非正常情况行车', color: 'var(--p-amber-56)' },
+  { key: 'compliance', icon: '⚖️', label: '违法乱纪',       color: 'var(--p-indigo-76)' },
 ];
 const BANK_TYPE_MAP = Object.fromEntries(BANK_TYPES.map(t => [t.key, t]));
 // banks 数组按 bank_type 分组
@@ -44,8 +44,8 @@ function BankTypeSelect({ banks, bankId, setBankId, newBankName, setNewBankName,
   const chip = (active) => ({
     padding:'5px 10px', borderRadius:6, fontFamily:'inherit', cursor:'pointer', fontSize:11,
     border:`1px solid ${active?'var(--blue)':'var(--border)'}`,
-    background: active?'rgba(59,130,246,0.15)':'none',
-    color: active?'#60a5fa':'var(--muted)',
+    background: active?'var(--p-blue-60-a15)':'none',
+    color: active?'var(--p-blue-68)':'var(--muted)',
   });
 
   return (
@@ -57,10 +57,10 @@ function BankTypeSelect({ banks, bankId, setBankId, newBankName, setNewBankName,
           return (
             <button key={t.key} onClick={()=>pickCat(t.key)}
               style={{flex:1,minWidth:54,padding:'7px 2px',borderRadius:7,border:`2px solid ${active?t.color:'var(--border)'}`,
-                background:active?`${t.color}22`:'rgba(13,17,23,0.4)',color:active?t.color:'var(--muted)',
+                background:active?`${t.color}22`:'var(--p-navy-07-a40)',color:active?t.color:'var(--muted)',
                 cursor:'pointer',textAlign:'center',lineHeight:1.3,fontFamily:'inherit'}}>
               <div style={{fontSize:14}}>{t.icon}</div>
-              <div style={{fontSize:9,marginTop:1}}>{t.label}</div>
+              <div style={{fontSize:11,marginTop:1}}>{t.label}</div>
             </button>
           );
         })}
@@ -91,7 +91,7 @@ function BankTypeSelect({ banks, bankId, setBankId, newBankName, setNewBankName,
           onChange={e=>{ setNewBankName(e.target.value); setBankId(''); setNewBankType?.(selCat); }}
           placeholder={`新题库名称（将归入 ${BANK_TYPE_MAP[selCat]?.label}）`}
           style={{width:'100%',padding:'7px 10px',borderRadius:7,border:'1px solid var(--blue)',
-            background:'#0d1117',color:'var(--text)',fontSize:12,boxSizing:'border-box',fontFamily:'inherit'}}/>
+            background:'var(--p-navy-07)',color:'var(--text)',fontSize:12,boxSizing:'border-box',fontFamily:'inherit'}}/>
       )}
     </div>
   );
@@ -204,20 +204,20 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
         if(!leaders.length) return null;
         return (
           <div style={{display:'flex',alignItems:'center',gap:6,padding:'8px 12px 6px',flexWrap:'wrap'}}>
-            <span style={{fontSize:10,color:'var(--muted)',flexShrink:0,marginRight:2}}>班组长</span>
+            <span style={{fontSize:11,color:'var(--muted)',flexShrink:0,marginRight:2}}>班组长</span>
             {leaders.map(m=>(
-              <div key={m.id} onClick={()=>openEdit(m)} style={{display:'flex',flexDirection:'column',gap:1,padding:'5px 12px',background:m.on_leave?'rgba(148,163,184,0.08)':'rgba(245,158,11,0.08)',border:`1px solid ${m.on_leave?'rgba(148,163,184,0.4)':'rgba(245,158,11,0.38)'}`,borderRadius:6,cursor:'pointer',minWidth:56,opacity:m.on_leave?0.75:1}}>
-                <div style={{fontSize:12,fontWeight:700,color:m.on_leave?'#94a3b8':'#fbbf24',whiteSpace:'nowrap'}}>{m.real_name||'（未设）'}</div>
-                <div style={{fontSize:9,color:m.on_leave?'#64748b':'#92724a'}}>{m.on_leave?'休假中':'班组长'}</div>
+              <div key={m.id} onClick={()=>openEdit(m)} style={{display:'flex',flexDirection:'column',gap:1,padding:'5px 12px',background:m.on_leave?'var(--p-blue-65-a08)':'var(--p-amber-50-a08)',border:`1px solid ${m.on_leave?'var(--p-blue-65-a40)':'var(--p-amber-50-a38)'}`,borderRadius:6,cursor:'pointer',minWidth:56,opacity:m.on_leave?0.75:1}}>
+                <div style={{fontSize:12,fontWeight:700,color:m.on_leave?'var(--muted)':'var(--p-amber-56)',whiteSpace:'nowrap'}}>{m.real_name||'（未设）'}</div>
+                <div style={{fontSize:11,color:m.on_leave?'var(--muted)':'var(--p-amber-43)'}}>{m.on_leave?'休假中':'班组长'}</div>
               </div>
             ))}
-            <button onClick={openRotation} style={{fontSize:10,padding:'4px 9px',borderRadius:6,border:'1px solid rgba(245,158,11,0.4)',background:'rgba(245,158,11,0.08)',color:'#fbbf24',cursor:'pointer',flexShrink:0}}>⚙ 轮训</button>
+            <button onClick={openRotation} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid var(--p-amber-50-a40)',background:'var(--p-amber-50-a08)',color:'var(--p-amber-56)',cursor:'pointer',flexShrink:0}}>⚙ 轮训</button>
           </div>
         );
       })()}
       {/* 批量操作栏 */}
       <div style={{display:'flex',alignItems:'center',gap:6,padding:'4px 12px',marginBottom:4,flexWrap:'wrap'}}>
-        <button onClick={()=>{setBatchMode(m=>!m);clearSelect();}} style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:`1px solid ${batchMode?'var(--blue)':'var(--border)'}`,background:batchMode?'rgba(59,130,246,0.15)':'none',color:batchMode?'var(--blue)':'var(--muted)',cursor:'pointer'}}>
+        <button onClick={()=>{setBatchMode(m=>!m);clearSelect();}} style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:`1px solid ${batchMode?'var(--blue)':'var(--border)'}`,background:batchMode?'var(--p-blue-60-a15)':'none',color:batchMode?'var(--blue)':'var(--muted)',cursor:'pointer'}}>
           {batchMode?'退出批量':'批量编辑'}
         </button>
         {batchMode&&<>
@@ -225,10 +225,10 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
           <button onClick={clearSelect} style={{fontSize:11,padding:'4px 8px',borderRadius:6,border:'1px solid var(--border)',background:'none',color:'var(--muted)',cursor:'pointer'}}>清空</button>
           {batchSelected.size>0&&<span style={{fontSize:11,color:'var(--blue)',marginLeft:2}}>已选{batchSelected.size}人</span>}
           <div style={{display:'flex',gap:5,marginLeft:'auto'}}>
-            <button onClick={()=>batchSetIdentity(false,false)} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid rgba(34,197,94,0.4)',background:'rgba(34,197,94,0.1)',color:'#4ade80',cursor:'pointer',opacity:batchSelected.size?1:0.4}}>正常</button>
-            <button onClick={()=>batchSetIdentity(true,false)} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid rgba(168,85,247,0.4)',background:'rgba(168,85,247,0.1)',color:'#c084fc',cursor:'pointer',opacity:batchSelected.size?1:0.4}}>测试</button>
-            <button onClick={()=>batchSetIdentity(false,true)} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid rgba(100,116,139,0.4)',background:'rgba(100,116,139,0.1)',color:'var(--muted)',cursor:'pointer',opacity:batchSelected.size?1:0.4}}>免答</button>
-            <button onClick={()=>batchSetIdentity(false,false,true)} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid rgba(234,179,8,0.4)',background:'rgba(234,179,8,0.1)',color:'#eab308',cursor:'pointer',opacity:batchSelected.size?1:0.4}}>车峰</button>
+            <button onClick={()=>batchSetIdentity(false,false)} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid var(--p-green-45-a40)',background:'var(--p-green-45-a10)',color:'var(--p-green-58)',cursor:'pointer',opacity:batchSelected.size?1:0.4}}>正常</button>
+            <button onClick={()=>batchSetIdentity(true,false)} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid var(--p-purple-65-a40)',background:'var(--p-purple-65-a10)',color:'var(--p-purple-75)',cursor:'pointer',opacity:batchSelected.size?1:0.4}}>测试</button>
+            <button onClick={()=>batchSetIdentity(false,true)} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid var(--p-blue-47-a40)',background:'var(--p-blue-47-a10)',color:'var(--muted)',cursor:'pointer',opacity:batchSelected.size?1:0.4}}>免答</button>
+            <button onClick={()=>batchSetIdentity(false,false,true)} style={{fontSize:11,padding:'4px 9px',borderRadius:6,border:'1px solid var(--p-amber-47-a40)',background:'var(--p-amber-47-a10)',color:'var(--p-amber-47)',cursor:'pointer',opacity:batchSelected.size?1:0.4}}>车峰</button>
           </div>
         </>}
       </div>
@@ -246,13 +246,13 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
         })().map(m=>{
           const isDup=members.filter(x=>x.real_name===m.real_name).length>1;
           let nameCol,bg,border;
-          if(m.is_instructor){nameCol='#60a5fa';bg='rgba(59,130,246,0.07)';border='rgba(59,130,246,0.28)';}
-          else if(m.is_exempt){nameCol='var(--muted)';bg='rgba(100,116,139,0.07)';border='rgba(100,116,139,0.28)';}
-          else if(m.is_cp){nameCol='#f97316';bg='rgba(249,115,22,0.07)';border='rgba(249,115,22,0.28)';}
-          else if(m.is_tester){nameCol='#c084fc';bg='rgba(168,85,247,0.07)';border='rgba(168,85,247,0.25)';}
-          else{nameCol='var(--text)';bg='rgba(10,25,41,0.8)';border='rgba(27,50,85,0.8)';}
-          if(isDup) nameCol='#fca5a5';
-          if(batchSelected.has(m.id)){bg='rgba(59,130,246,0.15)';border='rgba(59,130,246,0.55)';}
+          if(m.is_instructor){nameCol='var(--p-blue-68)';bg='var(--p-blue-60-a07)';border='var(--p-blue-60-a28)';}
+          else if(m.is_exempt){nameCol='var(--muted)';bg='var(--p-blue-47-a07)';border='var(--p-blue-47-a28)';}
+          else if(m.is_cp){nameCol='var(--p-amber-53)';bg='var(--p-amber-53-a07)';border='var(--p-amber-53-a28)';}
+          else if(m.is_tester){nameCol='var(--p-purple-75)';bg='var(--p-purple-65-a07)';border='var(--p-purple-65-a25)';}
+          else{nameCol='var(--text)';bg='var(--p-navy-10-a80)';border='var(--p-navy-22-a80)';}
+          if(isDup) nameCol='var(--p-red-82)';
+          if(batchSelected.has(m.id)){bg='var(--p-blue-60-a15)';border='var(--p-blue-60-a55)';}
           return (
             <div key={m.id} onClick={()=>batchMode?toggleSelect(m.id):openEdit(m)}
               style={{display:'flex',flexDirection:'column',gap:2,padding:'6px 8px',background:bg,border:`1px solid ${border}`,borderRadius:6,minWidth:0,cursor:'pointer',position:'relative'}}>
@@ -260,12 +260,12 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
               <div style={{fontSize:12,fontWeight:700,color:nameCol,lineHeight:1.3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',paddingRight:batchMode?16:0}}>
                 {m.real_name||'（未设）'}
               </div>
-              <div style={{fontSize:10,color:'var(--muted)',display:'flex',gap:3,flexWrap:'wrap',alignItems:'center'}}>
+              <div style={{fontSize:11,color:'var(--muted)',display:'flex',gap:3,flexWrap:'wrap',alignItems:'center'}}>
                 {!!m.is_instructor&&<Badge label="教员" color="var(--blue)"/>}
                 {!!m.is_leader&&<Badge label="组长" color="var(--amber)"/>}
                 {!!m.is_exempt&&!m.is_leader&&<Badge label="免答" color="var(--muted)"/>}
-                {!!m.is_tester&&<Badge label="测" color="#a855f7"/>}
-                {!!m.is_cp&&<Badge label={m.group_name ? `峰·${(m.group_name.match(/[一二三四五六七八九十\d]+/)||[''])[0]}组` : '峰·未归组'} color={m.group_name ? '#eab308' : '#ef4444'}/>}
+                {!!m.is_tester&&<Badge label="测" color="var(--p-purple-65)"/>}
+                {!!m.is_cp&&<Badge label={m.group_name ? `峰·${(m.group_name.match(/[一二三四五六七八九十\d]+/)||[''])[0]}组` : '峰·未归组'} color={m.group_name ? 'var(--p-amber-47)' : 'var(--red)'}/>}
               </div>
             </div>
           );
@@ -275,8 +275,8 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
       {showRotation && (() => {
         if (rotList.length === 0) return null;
         return (
-          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:230,padding:16}} onClick={()=>setShowRotation(false)}>
-            <div onClick={e=>e.stopPropagation()} style={{background:'#0f2744',borderRadius:12,width:'100%',maxWidth:340,maxHeight:'88vh',display:'flex',flexDirection:'column'}}>
+          <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:230,padding:16}} onClick={()=>setShowRotation(false)}>
+            <div onClick={e=>e.stopPropagation()} style={{background:'var(--p-navy-16)',borderRadius:12,width:'100%',maxWidth:340,maxHeight:'88vh',display:'flex',flexDirection:'column'}}>
               <div style={{padding:'14px 16px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                 <div>
                   <div style={{fontWeight:700,fontSize:14,color:'var(--text)'}}>班组长轮训</div>
@@ -286,24 +286,24 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
               </div>
               <div style={{flex:1,overflowY:'auto',padding:'12px 16px'}}>
                 {rotList.map((x,i)=>(
-                  <div key={x.id} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',borderRadius:7,background:x.on_leave?'rgba(148,163,184,0.08)':'rgba(13,17,23,0.4)',border:`1px solid ${x.on_leave?'rgba(148,163,184,0.3)':'var(--border)'}`,marginBottom:6}}>
+                  <div key={x.id} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',borderRadius:7,background:x.on_leave?'var(--p-blue-65-a08)':'var(--p-navy-07-a40)',border:`1px solid ${x.on_leave?'var(--p-blue-65-a30)':'var(--border)'}`,marginBottom:6}}>
                     <span style={{fontSize:12,color:'var(--muted)',width:16,flexShrink:0}}>{['①','②','③','④'][i]||i+1}</span>
-                    <span style={{flex:1,fontSize:13,color:x.on_leave?'#94a3b8':'var(--text)',fontWeight:x.on_leave?400:600}}>{x.name}</span>
+                    <span style={{flex:1,fontSize:13,color:x.on_leave?'var(--muted)':'var(--text)',fontWeight:x.on_leave?400:600}}>{x.name}</span>
                     <span onClick={()=>rotToggleLeave(i)} style={{display:'inline-flex',alignItems:'center',gap:4,cursor:'pointer',userSelect:'none'}}>
-                      <span style={{fontSize:11,color:x.on_leave?'#94a3b8':'var(--muted)'}}>休假</span>
-                      <span style={{width:30,height:16,borderRadius:8,background:x.on_leave?'#f59e0b':'rgba(71,85,105,0.5)',position:'relative',transition:'background .2s',flexShrink:0}}>
-                        <span style={{position:'absolute',top:2,width:12,height:12,borderRadius:6,background:'#fff',transition:'left .2s',left:x.on_leave?16:2}}/>
+                      <span style={{fontSize:11,color:x.on_leave?'var(--muted)':'var(--muted)'}}>休假</span>
+                      <span style={{width:30,height:16,borderRadius:8,background:x.on_leave?'var(--amber)':'var(--p-blue-35-a50)',position:'relative',transition:'background .2s',flexShrink:0}}>
+                        <span style={{position:'absolute',top:2,width:12,height:12,borderRadius:6,background:'var(--p-white-100)',transition:'left .2s',left:x.on_leave?16:2}}/>
                       </span>
                     </span>
-                    <button onClick={()=>rotMove(i,-1)} disabled={i===0} style={{fontSize:12,color:i===0?'var(--muted)':'#60a5fa',background:'none',border:'none',cursor:i===0?'default':'pointer',padding:'0 3px'}}>↑</button>
-                    <button onClick={()=>rotMove(i,1)} disabled={i===rotList.length-1} style={{fontSize:12,color:i===rotList.length-1?'var(--muted)':'#60a5fa',background:'none',border:'none',cursor:i===rotList.length-1?'default':'pointer',padding:'0 3px'}}>↓</button>
+                    <button onClick={()=>rotMove(i,-1)} disabled={i===0} style={{fontSize:12,color:i===0?'var(--muted)':'var(--p-blue-68)',background:'none',border:'none',cursor:i===0?'default':'pointer',padding:'0 3px'}}>↑</button>
+                    <button onClick={()=>rotMove(i,1)} disabled={i===rotList.length-1} style={{fontSize:12,color:i===rotList.length-1?'var(--muted)':'var(--p-blue-68)',background:'none',border:'none',cursor:i===rotList.length-1?'default':'pointer',padding:'0 3px'}}>↓</button>
                   </div>
                 ))}
-                <div style={{fontSize:10,color:'var(--muted)',lineHeight:1.6,marginTop:8}}>提示：班组长休假时勾「休假」，剩余班组长自动轮流；休假结束取消勾选即自动回岗。</div>
+                <div style={{fontSize:11,color:'var(--muted)',lineHeight:1.6,marginTop:8}}>提示：班组长休假时勾「休假」，剩余班组长自动轮流；休假结束取消勾选即自动回岗。</div>
               </div>
               <div style={{display:'flex',gap:8,padding:'12px 16px',borderTop:'1px solid var(--border)'}}>
                 <button onClick={()=>setShowRotation(false)} style={{flex:1,padding:'9px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
-                <button onClick={saveRotation} style={{flex:2,padding:'9px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#2563eb)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer'}}>保存</button>
+                <button onClick={saveRotation} style={{flex:2,padding:'9px',borderRadius:7,border:'none',background:'linear-gradient(135deg,var(--p-navy-25),var(--p-blue-53))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer'}}>保存</button>
               </div>
             </div>
           </div>
@@ -314,19 +314,19 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
         const m=members.find(x=>x.id===editId);
         if(!m) return null;
         return (
-          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>{setEditId(null);setDelConfirm(null);}}>
-            <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:380}} onClick={e=>e.stopPropagation()}>
+          <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a75)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>{setEditId(null);setDelConfirm(null);}}>
+            <div style={{background:'var(--p-navy-16)',borderRadius:12,padding:20,width:'100%',maxWidth:380}} onClick={e=>e.stopPropagation()}>
               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
                 <div style={{fontWeight:600,color:'var(--text)',fontSize:15}}>编辑人员</div>
                 <div style={{display:'flex',gap:6,alignItems:'center'}}>
                   {delConfirm===m.id?(
                     <>
-                      <span style={{fontSize:11,color:'#fca5a5'}}>确认删除？</span>
+                      <span style={{fontSize:11,color:'var(--p-red-82)'}}>确认删除？</span>
                       <button onClick={()=>setDelConfirm(null)} style={{fontSize:11,padding:'3px 8px',borderRadius:5,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontFamily:'inherit'}}>取消</button>
                       <button onClick={()=>delStaff(m.id)} style={{fontSize:11,padding:'3px 8px',borderRadius:5,border:'none',background:'var(--red)',color:'var(--text)',cursor:'pointer',fontFamily:'inherit'}}>删除</button>
                     </>
                   ):(
-                    <button onClick={()=>setDelConfirm(m.id)} style={{fontSize:11,padding:'3px 8px',borderRadius:5,border:'1px solid rgba(239,68,68,0.4)',background:'transparent',color:'var(--red)',cursor:'pointer',fontFamily:'inherit'}}>删除此人</button>
+                    <button onClick={()=>setDelConfirm(m.id)} style={{fontSize:11,padding:'3px 8px',borderRadius:5,border:'1px solid var(--p-red-60-a40)',background:'transparent',color:'var(--red)',cursor:'pointer',fontFamily:'inherit'}}>删除此人</button>
                   )}
                   <button onClick={()=>{setEditId(null);setDelConfirm(null);}} style={{fontSize:20,lineHeight:1,padding:'0 4px',border:'none',background:'transparent',color:'var(--muted)',cursor:'pointer'}}>×</button>
                 </div>
@@ -344,8 +344,8 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
                   ['ld_'+m.id,'is_leader','班组长（最高权限，免答题，免月度任务）','var(--amber)'],
                   ['inst_'+m.id,'is_instructor','教员（可编辑培训计划）','var(--blue)'],
                   ['ex_'+m.id,'is_exempt','免答（仅免每套班答题）','var(--muted)'],
-                  ['ts_'+m.id,'is_tester','测试员（积分标注测试）','#c084fc'],
-                  ['cp_'+m.id,'is_cp','车峰（不计入答题统计）','#eab308']
+                  ['ts_'+m.id,'is_tester','测试员（积分标注测试）','var(--p-purple-75)'],
+                  ['cp_'+m.id,'is_cp','车峰（不计入答题统计）','var(--p-amber-47)']
                 ].map(([id,key,label,color])=>(
                   <div key={key} style={{display:'flex',alignItems:'center',gap:8}}>
                     <input type="checkbox" id={id} checked={!!editForm[key]} onChange={e=>setEditForm(f=>({...f,[key]:e.target.checked}))} style={{width:15,height:15,accentColor:'var(--blue)'}}/>
@@ -356,7 +356,7 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
               {editErr&&<div style={{color:'var(--red)',fontSize:12,marginBottom:6}}>⚠ {editErr}</div>}
               <div style={{display:'flex',gap:8}}>
                 <button onClick={()=>{setEditId(null);setDelConfirm(null);}} style={{flex:1,padding:'9px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
-                <button onClick={saveEdit} style={{flex:2,padding:'9px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>保存</button>
+                <button onClick={saveEdit} style={{flex:2,padding:'9px',borderRadius:7,border:'none',background:'linear-gradient(135deg,var(--p-navy-25),var(--blue))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>保存</button>
               </div>
             </div>
           </div>
@@ -365,10 +365,10 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
 
       {/* 添加按钮行 */}
       <div style={{display:'flex',gap:8,marginBottom:12}}>
-        <button onClick={()=>{setShowAdd(v=>!v);setShowBatch(false);}} style={{flex:1,padding:'11px',borderRadius:9,border:'1px solid #3b82f6',background:showAdd?'rgba(59,130,246,0.12)':'transparent',color:'var(--blue)',fontFamily:'inherit',fontSize:13,cursor:'pointer',fontWeight:600}}>
+        <button onClick={()=>{setShowAdd(v=>!v);setShowBatch(false);}} style={{flex:1,padding:'11px',borderRadius:9,border:'1px solid var(--blue)',background:showAdd?'var(--p-blue-60-a12)':'transparent',color:'var(--blue)',fontFamily:'inherit',fontSize:13,cursor:'pointer',fontWeight:600}}>
           ＋ 添加人员
         </button>
-        <button onClick={()=>{setShowBatch(v=>!v);setShowAdd(false);}} style={{flex:1,padding:'11px',borderRadius:9,border:'1px solid #22c55e',background:showBatch?'rgba(34,197,94,0.1)':'transparent',color:'var(--green)',fontFamily:'inherit',fontSize:13,cursor:'pointer',fontWeight:600}}>
+        <button onClick={()=>{setShowBatch(v=>!v);setShowAdd(false);}} style={{flex:1,padding:'11px',borderRadius:9,border:'1px solid var(--green)',background:showBatch?'var(--p-green-45-a10)':'transparent',color:'var(--green)',fontFamily:'inherit',fontSize:13,cursor:'pointer',fontWeight:600}}>
           📋 批量导入
         </button>
       </div>
@@ -393,8 +393,8 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
             ['add_ld','is_leader','班组长（最高权限，免答题，免月度任务）','var(--amber)'],
             ['add_inst','is_instructor','教员（可编辑培训计划）','var(--blue)'],
             ['exempt','is_exempt','免答（仅免每套班答题）','var(--muted)'],
-            ['tester','is_tester','测试员（积分标注测试）','#c084fc'],
-            ['add_cp','is_cp','车峰（不计入答题统计）','#eab308'],
+            ['tester','is_tester','测试员（积分标注测试）','var(--p-purple-75)'],
+            ['add_cp','is_cp','车峰（不计入答题统计）','var(--p-amber-47)'],
           ].map(([id,key,label,color])=>(
             <div key={key} style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
               <input type="checkbox" id={id} checked={!!addForm[key]} onChange={e=>setAddForm(f=>({...f,[key]:e.target.checked}))} style={{width:16,height:16}}/>
@@ -404,7 +404,7 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
           {addErr&&<div style={{color:'var(--red)',fontSize:12,marginBottom:8}}>⚠ {addErr}</div>}
           <div style={{display:'flex',gap:8}}>
             <button onClick={()=>setShowAdd(false)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
-            <button onClick={addOne} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>确认添加</button>
+            <button onClick={addOne} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,var(--p-navy-25),var(--blue))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>确认添加</button>
           </div>
         </div>
       )}
@@ -428,7 +428,7 @@ function MembersTab({ members, pwd, onRefresh, selectedMember, setSelectedMember
           {batchErr&&<div style={{color:'var(--red)',fontSize:12,marginTop:6}}>⚠ {batchErr}</div>}
           <div style={{display:'flex',gap:8,marginTop:10}}>
             <button onClick={()=>{setShowBatch(false);setBatchText('');}} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
-            <button onClick={batchImport} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#22c55e88,#22c55e)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>导入 {batchText.trim().split('\n').filter(Boolean).length} 人</button>
+            <button onClick={batchImport} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,var(--p-green-45-a53),var(--green))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>导入 {batchText.trim().split('\n').filter(Boolean).length} 人</button>
           </div>
         </div>
       )}
@@ -543,10 +543,10 @@ function TrainingGroupsSection({ pwd, staff }) {
         <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,fontWeight:600}}>培训小组管理</div>
         <div style={{display:'flex',gap:6}}>
           <button onClick={openFixedEditor}
-            style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:'1px solid rgba(234,179,8,0.5)',background:fixedGlobal.length?'rgba(234,179,8,0.1)':'transparent',color:'#fbbf24',cursor:'pointer',fontFamily:'inherit'}}>
+            style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:'1px solid var(--p-amber-47-a50)',background:fixedGlobal.length?'var(--p-amber-47-a10)':'transparent',color:'var(--p-amber-56)',cursor:'pointer',fontFamily:'inherit'}}>
             固定人员{fixedGlobal.length>0?`（${fixedGlobal.length}）`:''}
           </button>
-          <button onClick={()=>setShowAddGroup(true)} style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:'1px solid #3b82f6',background:'transparent',color:'var(--blue)',cursor:'pointer',fontFamily:'inherit'}}>＋ 新建小组</button>
+          <button onClick={()=>setShowAddGroup(true)} style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:'1px solid var(--blue)',background:'transparent',color:'var(--blue)',cursor:'pointer',fontFamily:'inherit'}}>＋ 新建小组</button>
         </div>
       </div>
 
@@ -556,7 +556,7 @@ function TrainingGroupsSection({ pwd, staff }) {
           <input value={newGroupName} onChange={e=>setNewGroupName(e.target.value)} placeholder="如：第一小组" style={{width:'100%',background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:7,padding:'8px 12px',color:'var(--text)',fontSize:13,fontFamily:'inherit',outline:'none',boxSizing:'border-box'}} />
           <div style={{display:'flex',gap:8,marginTop:8}}>
             <button onClick={()=>{setShowAddGroup(false);setNewGroupName('');}} style={{flex:1,padding:'8px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
-            <button onClick={addGroup} style={{flex:2,padding:'8px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>确认</button>
+            <button onClick={addGroup} style={{flex:2,padding:'8px',borderRadius:7,border:'none',background:'linear-gradient(135deg,var(--p-navy-25),var(--blue))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>确认</button>
           </div>
         </div>
       )}
@@ -574,7 +574,7 @@ function TrainingGroupsSection({ pwd, staff }) {
               </select>
               <div style={{display:'flex',gap:8}}>
                 <button onClick={()=>setEditingGroup(null)} style={{flex:1,padding:'7px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>取消</button>
-                <button onClick={saveGroupEdit} style={{flex:2,padding:'7px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'var(--text)',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer'}}>保存</button>
+                <button onClick={saveGroupEdit} style={{flex:2,padding:'7px',borderRadius:7,border:'none',background:'linear-gradient(135deg,var(--p-navy-25),var(--blue))',color:'var(--text)',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer'}}>保存</button>
               </div>
             </div>
           ) : (
@@ -592,26 +592,26 @@ function TrainingGroupsSection({ pwd, staff }) {
                       : <>
                           {/* 普通成员：过滤掉已是固定人员和已调车峰的 */}
                           {g.members.filter(m=>!fixedSet.has(m.id) && !m.is_cp).map(m => (
-                            <span key={m.id} style={{fontSize:11,padding:'2px 7px',borderRadius:5,background:'rgba(59,130,246,0.12)',border:'1px solid rgba(59,130,246,0.3)',color:'#93c5fd'}}>
+                            <span key={m.id} style={{fontSize:11,padding:'2px 7px',borderRadius:5,background:'var(--p-blue-60-a12)',border:'1px solid var(--p-blue-60-a30)',color:'var(--p-blue-78)'}}>
                               {m.real_name||m.name}
                             </span>
                           ))}
                           {/* 固定人员：始终显示在末尾，无需过滤 */}
                           {fixedGlobal.map(sid=>(
-                            <span key={'fx_'+sid} style={{fontSize:11,padding:'2px 7px',borderRadius:5,background:'rgba(234,179,8,0.12)',border:'1px solid rgba(234,179,8,0.4)',color:'#fbbf24',display:'flex',alignItems:'center',gap:3}}>
-                              <span style={{fontSize:9,fontWeight:700}}>固</span>{staffName(sid)}
+                            <span key={'fx_'+sid} style={{fontSize:11,padding:'2px 7px',borderRadius:5,background:'var(--p-amber-47-a12)',border:'1px solid var(--p-amber-47-a40)',color:'var(--p-amber-56)',display:'flex',alignItems:'center',gap:3}}>
+                              <span style={{fontSize:11,fontWeight:700}}>固</span>{staffName(sid)}
                             </span>
                           ))}
                           {/* 车峰（临时调整跑车方式）：保留组籍、暂不参与培训名单，显出来避免"库里有人、界面看不见" */}
                           {g.members.filter(m=>m.is_cp).map(m => (
-                            <span key={'cp_'+m.id} style={{fontSize:11,padding:'2px 7px',borderRadius:5,background:'rgba(148,163,184,0.08)',border:'1px dashed #64748b',color:'#94a3b8'}}>
-                              {m.real_name||m.name}<span style={{fontSize:9,marginLeft:3}}>车峰</span>
+                            <span key={'cp_'+m.id} style={{fontSize:11,padding:'2px 7px',borderRadius:5,background:'var(--p-blue-65-a08)',border:'1px dashed var(--muted)',color:'var(--muted)'}}>
+                              {m.real_name||m.name}<span style={{fontSize:11,marginLeft:3}}>车峰</span>
                             </span>
                           ))}
                         </>
                     }
                   </div>
-                  <div style={{fontSize:10,color:'var(--muted)',marginTop:5}}>
+                  <div style={{fontSize:11,color:'var(--muted)',marginTop:5}}>
                     {(()=>{
                       // 车峰 = 临时调整跑车方式：在册但不在跑车序列、不参训。
                       // 两个数字分开写，避免"在册总数"和"实际跑车数"被读混。
@@ -620,17 +620,17 @@ function TrainingGroupsSection({ pwd, staff }) {
                       const running = normalCnt + (g.instructor_id?1:0);
                       return <>
                         实际跑车 {running} 人{g.instructor_id&&<span style={{color:'var(--muted)'}}>（含教员1人）</span>}
-                        {cpCnt>0 && <span style={{color:'#94a3b8'}}> · 车峰 {cpCnt} 人（在册，不参训）</span>}
-                        {cpCnt>0 && <span style={{color:'#64748b'}}> · 在册共 {running+cpCnt} 人</span>}
-                        {fixedGlobal.length>0&&<span style={{color:'#78716c'}}> · 另加固定{fixedGlobal.length}人</span>}
+                        {cpCnt>0 && <span style={{color:'var(--muted)'}}> · 车峰 {cpCnt} 人（在册，不参训）</span>}
+                        {cpCnt>0 && <span style={{color:'var(--muted)'}}> · 在册共 {running+cpCnt} 人</span>}
+                        {fixedGlobal.length>0&&<span style={{color:'var(--p-slate-45)'}}> · 另加固定{fixedGlobal.length}人</span>}
                       </>;
                     })()}
                   </div>
                 </div>
                 <div style={{display:'flex',flexDirection:'column',gap:5,marginLeft:10,flexShrink:0}}>
-                  <button onClick={()=>openMemberEdit(g)} style={{fontSize:11,padding:'4px 8px',borderRadius:6,border:'1px solid #475569',background:'transparent',color:'var(--muted)',cursor:'pointer',fontFamily:'inherit'}}>编辑成员</button>
-                  <button onClick={()=>setEditingGroup({id:g.id,name:g.name,instructor_id:g.instructor_id})} style={{fontSize:11,padding:'4px 8px',borderRadius:6,border:'1px solid #475569',background:'transparent',color:'var(--muted)',cursor:'pointer',fontFamily:'inherit'}}>编辑小组</button>
-                  <button onClick={()=>deleteGroup(g.id)} style={{fontSize:11,padding:'4px 8px',borderRadius:6,border:'1px solid #7f1d1d',background:'transparent',color:'var(--red)',cursor:'pointer',fontFamily:'inherit'}}>删除</button>
+                  <button onClick={()=>openMemberEdit(g)} style={{fontSize:11,padding:'4px 8px',borderRadius:6,border:'1px solid var(--p-blue-35)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontFamily:'inherit'}}>编辑成员</button>
+                  <button onClick={()=>setEditingGroup({id:g.id,name:g.name,instructor_id:g.instructor_id})} style={{fontSize:11,padding:'4px 8px',borderRadius:6,border:'1px solid var(--p-blue-35)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontFamily:'inherit'}}>编辑小组</button>
+                  <button onClick={()=>deleteGroup(g.id)} style={{fontSize:11,padding:'4px 8px',borderRadius:6,border:'1px solid var(--p-red-31)',background:'transparent',color:'var(--red)',cursor:'pointer',fontFamily:'inherit'}}>删除</button>
                 </div>
               </div>
             </div>
@@ -647,16 +647,16 @@ function TrainingGroupsSection({ pwd, staff }) {
         <div style={{marginTop:14}}>
           <div style={{fontSize:11,color:'var(--muted)',fontWeight:600,marginBottom:7}}>
             未分配人员（{unassigned.length}人）
-            <span style={{fontSize:10,color:'var(--muted)',fontWeight:400,marginLeft:6}}>点击分配到小组</span>
+            <span style={{fontSize:11,color:'var(--muted)',fontWeight:400,marginLeft:6}}>点击分配到小组</span>
           </div>
           {unassigned.length === 0
             ? <div style={{fontSize:12,color:'var(--green)'}}>全员已分配</div>
             : <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
                 {unassigned.map(s => (
                   <div key={s.id} onClick={()=>setAssigningStaff({id:s.id,name:s.real_name||s.name})}
-                    style={{fontSize:12,padding:'5px 10px',borderRadius:7,border:'1px dashed #475569',color:'var(--muted)',cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>
+                    style={{fontSize:12,padding:'5px 10px',borderRadius:7,border:'1px dashed var(--p-blue-35)',color:'var(--muted)',cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>
                     <span style={{color:'var(--muted)',fontSize:13}}>＋</span>{s.real_name||s.name}
-                    {!!s.is_exempt&&<span style={{fontSize:9,padding:'0 3px',borderRadius:3,background:'rgba(100,116,139,0.2)',color:'var(--muted)'}}>免</span>}
+                    {!!s.is_exempt&&<span style={{fontSize:11,padding:'0 3px',borderRadius:3,background:'var(--p-blue-47-a20)',color:'var(--muted)'}}>免</span>}
                   </div>
                 ))}
               </div>
@@ -666,8 +666,8 @@ function TrainingGroupsSection({ pwd, staff }) {
 
       {/* 编辑小组成员弹窗 */}
       {editingMembers !== null && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>setEditingMembers(null)}>
-          <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:420,maxHeight:'82vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+        <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a75)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>setEditingMembers(null)}>
+          <div style={{background:'var(--p-navy-16)',borderRadius:12,padding:20,width:'100%',maxWidth:420,maxHeight:'82vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4,flexShrink:0}}>
               <div style={{fontWeight:600,color:'var(--text)',fontSize:15}}>
                 编辑成员 — {groups.find(g=>g.id===editingMembers)?.name}
@@ -676,7 +676,7 @@ function TrainingGroupsSection({ pwd, staff }) {
             </div>
             <div style={{fontSize:11,color:'var(--muted)',marginBottom:10,flexShrink:0}}>
               已选 <span style={{color:'var(--blue)'}}>{selectedMembers.size}</span> 人（固定人员自动显示，无需勾选）<br/>
-              <span style={{color:'#94a3b8'}}>「车峰」= 临时调整跑车方式，保留组籍但不参与培训名单；取消勾选即真正退出小组</span>
+              <span style={{color:'var(--muted)'}}>「车峰」= 临时调整跑车方式，保留组籍但不参与培训名单；取消勾选即真正退出小组</span>
             </div>
             <div style={{overflow:'auto',flex:1}}>
               {(() => {
@@ -691,25 +691,25 @@ function TrainingGroupsSection({ pwd, staff }) {
                 return (
                   <div key={s.id} onClick={()=>toggleMember(s.id)}
                     style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',borderRadius:7,marginBottom:4,cursor:'pointer',
-                      background:checked?(isCp?'rgba(148,163,184,0.10)':'#1e3a5f'):'transparent',
-                      border:'1px '+(isCp?'dashed':'solid')+' '+(checked?(isCp?'#64748b':'var(--blue)'):'var(--border)')}}>
-                    <div style={{width:16,height:16,borderRadius:3,border:'2px solid '+(checked?(isCp?'#64748b':'var(--blue)'):'var(--muted)'),background:checked?(isCp?'#64748b':'var(--blue)'):'transparent',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'var(--text)',flexShrink:0}}>
+                      background:checked?(isCp?'var(--p-blue-65-a10)':'var(--p-navy-25)'):'transparent',
+                      border:'1px '+(isCp?'dashed':'solid')+' '+(checked?(isCp?'var(--muted)':'var(--blue)'):'var(--border)')}}>
+                    <div style={{width:16,height:16,borderRadius:3,border:'2px solid '+(checked?(isCp?'var(--muted)':'var(--blue)'):'var(--muted)'),background:checked?(isCp?'var(--muted)':'var(--blue)'):'transparent',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:'var(--text)',flexShrink:0}}>
                       {checked?'✓':''}
                     </div>
                     <span style={{fontSize:13,color:(checked&&!isCp)?'var(--text)':'var(--muted)',flex:1}}>{s.real_name||s.name}</span>
-                    <span style={{fontSize:10,color:'var(--muted)'}}>{s.id}</span>
-                    {isCp&&<span style={{fontSize:9,padding:'1px 4px',borderRadius:3,background:'rgba(148,163,184,0.15)',color:'#94a3b8'}}>车峰</span>}
-                    {!!s.is_exempt&&<span style={{fontSize:9,padding:'1px 4px',borderRadius:3,background:'rgba(100,116,139,0.2)',color:'var(--muted)'}}>免答</span>}
+                    <span style={{fontSize:11,color:'var(--muted)'}}>{s.id}</span>
+                    {isCp&&<span style={{fontSize:11,padding:'1px 4px',borderRadius:3,background:'var(--p-blue-65-a15)',color:'var(--muted)'}}>车峰</span>}
+                    {!!s.is_exempt&&<span style={{fontSize:11,padding:'1px 4px',borderRadius:3,background:'var(--p-blue-47-a20)',color:'var(--muted)'}}>免答</span>}
                   </div>
                 );
               })}
               {fixedGlobal.length > 0 && (
-                <div style={{marginTop:8,paddingTop:8,borderTop:'1px solid rgba(234,179,8,0.2)'}}>
-                  <div style={{fontSize:10,color:'#78716c',marginBottom:6}}>固定人员（自动显示在所有小组末尾）</div>
+                <div style={{marginTop:8,paddingTop:8,borderTop:'1px solid var(--p-amber-47-a20)'}}>
+                  <div style={{fontSize:11,color:'var(--p-slate-45)',marginBottom:6}}>固定人员（自动显示在所有小组末尾）</div>
                   {fixedGlobal.map(sid=>(
-                    <div key={sid} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 10px',borderRadius:7,marginBottom:3,background:'rgba(234,179,8,0.06)',border:'1px solid rgba(234,179,8,0.2)'}}>
-                      <span style={{fontSize:10,color:'#fbbf24',fontWeight:700}}>固</span>
-                      <span style={{fontSize:13,color:'#78716c',flex:1}}>{staffName(sid)}</span>
+                    <div key={sid} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 10px',borderRadius:7,marginBottom:3,background:'var(--p-amber-47-a06)',border:'1px solid var(--p-amber-47-a20)'}}>
+                      <span style={{fontSize:11,color:'var(--p-amber-56)',fontWeight:700}}>固</span>
+                      <span style={{fontSize:13,color:'var(--p-slate-45)',flex:1}}>{staffName(sid)}</span>
                     </div>
                   ))}
                 </div>
@@ -717,7 +717,7 @@ function TrainingGroupsSection({ pwd, staff }) {
             </div>
             <div style={{display:'flex',gap:8,marginTop:12,flexShrink:0}}>
               <button onClick={()=>setEditingMembers(null)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
-              <button onClick={saveMembers} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>保存（{selectedMembers.size}人）</button>
+              <button onClick={saveMembers} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,var(--p-navy-25),var(--blue))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>保存（{selectedMembers.size}人）</button>
             </div>
           </div>
         </div>
@@ -725,8 +725,8 @@ function TrainingGroupsSection({ pwd, staff }) {
 
       {/* 固定人员编辑弹窗 */}
       {showFixedEditor && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>setShowFixedEditor(false)}>
-          <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:400,maxHeight:'80vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+        <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a75)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>setShowFixedEditor(false)}>
+          <div style={{background:'var(--p-navy-16)',borderRadius:12,padding:20,width:'100%',maxWidth:400,maxHeight:'80vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4,flexShrink:0}}>
               <div style={{fontWeight:600,color:'var(--text)',fontSize:15}}>固定培训人员</div>
               <button onClick={()=>setShowFixedEditor(false)} style={{fontSize:20,lineHeight:1,padding:'0 4px',border:'none',background:'transparent',color:'var(--muted)',cursor:'pointer'}}>×</button>
@@ -738,19 +738,19 @@ function TrainingGroupsSection({ pwd, staff }) {
                 return (
                   <div key={s.id} onClick={()=>setPendingFixed(prev=>{const ns=new Set(prev);ns.has(s.id)?ns.delete(s.id):ns.add(s.id);return ns;})}
                     style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',borderRadius:7,marginBottom:4,cursor:'pointer',
-                      background:checked?'rgba(234,179,8,0.1)':'transparent',border:'1px solid '+(checked?'rgba(234,179,8,0.5)':'var(--border)')}}>
-                    <div style={{width:16,height:16,borderRadius:3,border:'2px solid '+(checked?'#fbbf24':'var(--muted)'),background:checked?'#fbbf24':'transparent',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'#0f2744',flexShrink:0,fontWeight:700}}>
+                      background:checked?'var(--p-amber-47-a10)':'transparent',border:'1px solid '+(checked?'var(--p-amber-47-a50)':'var(--border)')}}>
+                    <div style={{width:16,height:16,borderRadius:3,border:'2px solid '+(checked?'var(--p-amber-56)':'var(--muted)'),background:checked?'var(--p-amber-56)':'transparent',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:'var(--p-navy-16)',flexShrink:0,fontWeight:700}}>
                       {checked?'✓':''}
                     </div>
-                    <span style={{fontSize:13,color:checked?'#fbbf24':'var(--muted)',flex:1}}>{s.real_name||s.name}</span>
-                    <span style={{fontSize:10,color:'var(--muted)'}}>{s.id}</span>
+                    <span style={{fontSize:13,color:checked?'var(--p-amber-56)':'var(--muted)',flex:1}}>{s.real_name||s.name}</span>
+                    <span style={{fontSize:11,color:'var(--muted)'}}>{s.id}</span>
                   </div>
                 );
               })}
             </div>
             <div style={{display:'flex',gap:8,marginTop:12,flexShrink:0}}>
               <button onClick={()=>{setShowFixedEditor(false);setFixedSaveMsg('');}} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
-              <button onClick={saveFixed} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#422006,#d97706)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>保存（{pendingFixed.size}人）</button>
+              <button onClick={saveFixed} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,var(--p-amber-14),var(--p-amber-44))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>保存（{pendingFixed.size}人）</button>
             </div>
             {fixedSaveMsg && <div style={{fontSize:12,marginTop:8,color:'var(--red)',textAlign:'center'}}>{fixedSaveMsg}</div>}
           </div>
@@ -759,13 +759,13 @@ function TrainingGroupsSection({ pwd, staff }) {
 
       {/* 分配到小组弹窗 */}
       {assigningStaff && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>setAssigningStaff(null)}>
-          <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:360}} onClick={e=>e.stopPropagation()}>
+        <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a75)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>setAssigningStaff(null)}>
+          <div style={{background:'var(--p-navy-16)',borderRadius:12,padding:20,width:'100%',maxWidth:360}} onClick={e=>e.stopPropagation()}>
             <div style={{fontWeight:600,color:'var(--text)',fontSize:14,marginBottom:4}}>将 {assigningStaff.name} 加入小组</div>
             <div style={{fontSize:11,color:'var(--muted)',marginBottom:14}}>选择要加入的小组</div>
             {groups.map(g => (
               <div key={g.id} onClick={()=>addToGroup(g.id)}
-                style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'11px 14px',borderRadius:8,border:'1px solid var(--border)',marginBottom:7,cursor:'pointer',background:'#0a1929'}}>
+                style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'11px 14px',borderRadius:8,border:'1px solid var(--border)',marginBottom:7,cursor:'pointer',background:'var(--p-navy-10)'}}>
                 <span style={{fontSize:13,color:'var(--text)'}}>{g.name}</span>
                 <span style={{fontSize:11,color:'var(--muted)'}}>{g.members.length}人</span>
               </div>
@@ -826,7 +826,7 @@ function AddQuestionPanel({ pwd, banks, hdrs, onDone }) {
       incident: banks.filter(isIncidentBank),
       theory: banks.filter(b => b.id !== 1 && b.name !== '风险数据库' && b.name !== '人工提问' && !isIncidentBank(b)),
     };
-    const sel = { padding:'6px 8px', borderRadius:6, border:'1px solid var(--border)', background:'#0d1117', color:'var(--text)', fontSize:12, flex:1, minWidth:0 };
+    const sel = { padding:'6px 8px', borderRadius:6, border:'1px solid var(--border)', background:'var(--p-navy-07)', color:'var(--text)', fontSize:12, flex:1, minWidth:0 };
     return (
       <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
         <select value={value} onChange={e=>{onChange(e.target.value);onNewChange('');}} style={sel}>
@@ -928,12 +928,12 @@ function AddQuestionPanel({ pwd, banks, hdrs, onDone }) {
   };
 
 
-  const inp = { background:'#0d1117', border:'1px solid var(--border)', color:'var(--text)', borderRadius:6, padding:'7px 10px', fontSize:12, width:'100%', boxSizing:'border-box', fontFamily:'inherit' };
+  const inp = { background:'var(--p-navy-07)', border:'1px solid var(--border)', color:'var(--text)', borderRadius:6, padding:'7px 10px', fontSize:12, width:'100%', boxSizing:'border-box', fontFamily:'inherit' };
   const divider = <div style={{borderTop:'1px solid var(--border)',margin:'14px 0'}}/>;
   const sectionLabel = (icon, text) => <div style={{fontSize:11,color:'var(--muted)',fontWeight:700,letterSpacing:0.5,marginBottom:8}}>{icon} {text}</div>;
 
   return (
-    <div style={{marginTop:10,padding:'14px',border:'1px solid var(--border)',borderRadius:8,background:'rgba(13,17,23,0.6)'}}>
+    <div style={{marginTop:10,padding:'14px',border:'1px solid var(--border)',borderRadius:8,background:'var(--p-navy-07-a60)'}}>
 
       {/* ── Section 1: AI 辅助出题 ── */}
       {sectionLabel('🤖','AI 辅助出题')}
@@ -946,17 +946,17 @@ function AddQuestionPanel({ pwd, banks, hdrs, onDone }) {
             rows={4} style={{...inp,resize:'vertical'}}/>
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:6,flexShrink:0}}>
-          <label style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4,padding:'8px 10px',border:'1px dashed var(--border)',borderRadius:6,cursor:'pointer',background:srcFile?'rgba(59,130,246,0.1)':'transparent',minWidth:72}}>
+          <label style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4,padding:'8px 10px',border:'1px dashed var(--border)',borderRadius:6,cursor:'pointer',background:srcFile?'var(--p-blue-60-a10)':'transparent',minWidth:72}}>
             <input ref={s1Ref} type="file" accept=".docx,.pdf,.jpg,.jpeg,.png,.gif,.webp" style={{display:'none'}} onChange={e=>{const f=e.target.files?.[0];if(f){setSrcFile(f);setPasteText('');}e.target.value='';}}/>
             <span style={{fontSize:18}}>{srcFile?'📄':'📁'}</span>
-            <span style={{fontSize:10,color:srcFile?'#60a5fa':'var(--muted)',textAlign:'center',lineHeight:1.2}}>{srcFile?srcFile.name.slice(0,12)+(srcFile.name.length>12?'…':''):'上传文件'}</span>
+            <span style={{fontSize:11,color:srcFile?'var(--p-blue-68)':'var(--muted)',textAlign:'center',lineHeight:1.2}}>{srcFile?srcFile.name.slice(0,12)+(srcFile.name.length>12?'…':''):'上传文件'}</span>
           </label>
-          {srcFile&&<button onClick={()=>setSrcFile(null)} style={{fontSize:10,color:'var(--muted)',background:'none',border:'none',cursor:'pointer',padding:0}}>✕ 清除</button>}
+          {srcFile&&<button onClick={()=>setSrcFile(null)} style={{fontSize:11,color:'var(--muted)',background:'none',border:'none',cursor:'pointer',padding:0}}>✕ 清除</button>}
         </div>
       </div>
 
       {/* 智能分块开关 */}
-      <label style={{display:'flex',alignItems:'flex-start',gap:8,marginBottom:10,padding:'8px 10px',borderRadius:6,border:`1px solid ${splitMode?'var(--blue)':'var(--border)'}`,background:splitMode?'rgba(59,130,246,0.08)':'transparent',cursor:'pointer'}}>
+      <label style={{display:'flex',alignItems:'flex-start',gap:8,marginBottom:10,padding:'8px 10px',borderRadius:6,border:`1px solid ${splitMode?'var(--blue)':'var(--border)'}`,background:splitMode?'var(--p-blue-60-a08)':'transparent',cursor:'pointer'}}>
         <input type="checkbox" checked={splitMode} onChange={e=>setSplitMode(e.target.checked)} style={{marginTop:3,accentColor:'var(--blue)',flexShrink:0}}/>
         <div style={{flex:1}}>
           <div style={{fontSize:12,color:'var(--text)',fontWeight:600}}>🧩 智能分块出题（长材料 / 多事件）</div>
@@ -974,8 +974,8 @@ function AddQuestionPanel({ pwd, banks, hdrs, onDone }) {
           {TEMPLATES.map((t,i)=>(
             <label key={i} style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}}>
               <div onClick={()=>setTplSelected(prev=>prev.includes(i)?prev.filter(x=>x!==i):[...prev,i])}
-                style={{width:15,height:15,borderRadius:3,border:`2px solid ${tplSelected.includes(i)?'var(--blue)':'#334155'}`,background:tplSelected.includes(i)?'var(--blue)':'none',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
-                {tplSelected.includes(i)&&<span style={{color:'var(--text)',fontSize:9,lineHeight:1}}>✓</span>}
+                style={{width:15,height:15,borderRadius:3,border:`2px solid ${tplSelected.includes(i)?'var(--blue)':'var(--p-blue-27)'}`,background:tplSelected.includes(i)?'var(--blue)':'none',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                {tplSelected.includes(i)&&<span style={{color:'var(--text)',fontSize:11,lineHeight:1}}>✓</span>}
               </div>
               <span style={{fontSize:12,color:tplSelected.includes(i)?'var(--text)':'var(--muted)'}}>{t}</span>
             </label>
@@ -988,7 +988,7 @@ function AddQuestionPanel({ pwd, banks, hdrs, onDone }) {
 
       {/* AI 识别按钮 */}
       <button onClick={doAiParse} disabled={aiParsing}
-        style={{width:'100%',padding:'9px',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',border:'none',borderRadius:7,color:'var(--text)',fontSize:13,fontWeight:600,cursor:'pointer',opacity:aiParsing?0.6:1,marginBottom:8}}>
+        style={{width:'100%',padding:'9px',background:'linear-gradient(135deg,var(--p-navy-25),var(--blue))',border:'none',borderRadius:7,color:'var(--text)',fontSize:13,fontWeight:600,cursor:'pointer',opacity:aiParsing?0.6:1,marginBottom:8}}>
         {aiParsing?'AI 识别中，请稍候…':'🤖 AI 识别并生成答案'}
       </button>
 
@@ -1003,7 +1003,7 @@ function AddQuestionPanel({ pwd, banks, hdrs, onDone }) {
             </div>
           </div>
           {aiOutline && aiOutline.length>0 && (
-            <div style={{fontSize:11,color:'#60a5fa',marginBottom:8,lineHeight:1.5,padding:'6px 8px',borderRadius:5,background:'rgba(59,130,246,0.08)'}}>
+            <div style={{fontSize:11,color:'var(--p-blue-68)',marginBottom:8,lineHeight:1.5,padding:'6px 8px',borderRadius:5,background:'var(--p-blue-60-a08)'}}>
               🧩 已识别 {aiOutline.length} 个独立条目：{aiOutline.map(o=>o.name).join('、')}
             </div>
           )}
@@ -1015,11 +1015,11 @@ function AddQuestionPanel({ pwd, banks, hdrs, onDone }) {
               return (
                 <>
                 {showGroup && (
-                  <div style={{fontSize:11,color:'#60a5fa',fontWeight:600,marginTop:i===0?0:10,marginBottom:4}}>
+                  <div style={{fontSize:11,color:'var(--p-blue-68)',fontWeight:600,marginTop:i===0?0:10,marginBottom:4}}>
                     📌 {q.group}{q.groupKind==='event'?'':' · 归入 '+(BANK_TYPE_MAP[q.groupCat]?.label||'应知必会')}
                   </div>
                 )}
-                <div key={i} style={{marginBottom:5,borderRadius:6,border:`1px solid ${checkedQs.includes(i)?'var(--blue)':'var(--border)'}`,background:checkedQs.includes(i)?'rgba(59,130,246,0.08)':'transparent'}}>
+                <div key={i} style={{marginBottom:5,borderRadius:6,border:`1px solid ${checkedQs.includes(i)?'var(--blue)':'var(--border)'}`,background:checkedQs.includes(i)?'var(--p-blue-60-a08)':'transparent'}}>
                   <div style={{display:'flex',gap:8,alignItems:'flex-start',padding:'8px 10px',cursor:'pointer'}} onClick={()=>setCheckedQs(prev=>prev.includes(i)?prev.filter(x=>x!==i):[...prev,i])}>
                     <span style={{color:checkedQs.includes(i)?'var(--blue)':'var(--muted)',fontSize:14,flexShrink:0,marginTop:1}}>{checkedQs.includes(i)?'☑':'☐'}</span>
                     <div style={{flex:1,minWidth:0}}>
@@ -1029,18 +1029,18 @@ function AddQuestionPanel({ pwd, banks, hdrs, onDone }) {
                     <button onClick={e=>{e.stopPropagation();setExpandedQsIdx(isExp?null:i);}} style={{flexShrink:0,background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:13,padding:'0 2px'}}>{isExp?'▲':'✏️'}</button>
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:6,paddingLeft:32,paddingRight:10,paddingBottom:isExp?2:8}} onClick={e=>e.stopPropagation()}>
-                    <span style={{fontSize:10,color:'var(--muted)',flexShrink:0}}>评分方式</span>
-                    <select value={normCat} onChange={e=>updateParsedQ(i,'category',e.target.value)} style={{fontSize:11,padding:'3px 8px',borderRadius:4,border:'1px solid var(--border)',background:'#0d1117',color:'#60a5fa',cursor:'pointer',minWidth:90}}>
+                    <span style={{fontSize:11,color:'var(--muted)',flexShrink:0}}>评分方式</span>
+                    <select value={normCat} onChange={e=>updateParsedQ(i,'category',e.target.value)} style={{fontSize:11,padding:'3px 8px',borderRadius:4,border:'1px solid var(--border)',background:'var(--p-navy-07)',color:'var(--p-blue-68)',cursor:'pointer',minWidth:90}}>
                       {STANDARD_CATS.map(c=><option key={c} value={c}>{c}</option>)}
                     </select>
-                    <span style={{fontSize:9,color:'var(--muted)'}}>（与题库分类无关）</span>
+                    <span style={{fontSize:11,color:'var(--muted)'}}>（与题库分类无关）</span>
                   </div>
                   {isExp&&(
                     <div style={{padding:'4px 10px 10px 10px',display:'flex',flexDirection:'column',gap:6}} onClick={e=>e.stopPropagation()}>
                       <div style={{fontSize:11,color:'var(--muted)'}}>题目文本</div>
-                      <textarea value={q.text} onChange={e=>updateParsedQ(i,'text',e.target.value)} rows={2} style={{width:'100%',boxSizing:'border-box',background:'#0d1117',border:'1px solid var(--border)',color:'var(--text)',borderRadius:5,padding:'6px 8px',fontSize:12,fontFamily:'inherit',resize:'vertical'}}/>
+                      <textarea value={q.text} onChange={e=>updateParsedQ(i,'text',e.target.value)} rows={2} style={{width:'100%',boxSizing:'border-box',background:'var(--p-navy-07)',border:'1px solid var(--border)',color:'var(--text)',borderRadius:5,padding:'6px 8px',fontSize:12,fontFamily:'inherit',resize:'vertical'}}/>
                       <div style={{fontSize:11,color:'var(--muted)'}}>参考答案</div>
-                      <textarea value={q.reference||''} onChange={e=>updateParsedQ(i,'reference',e.target.value)} rows={3} style={{width:'100%',boxSizing:'border-box',background:'#0d1117',border:'1px solid var(--border)',color:'var(--text)',borderRadius:5,padding:'6px 8px',fontSize:12,fontFamily:'inherit',resize:'vertical'}}/>
+                      <textarea value={q.reference||''} onChange={e=>updateParsedQ(i,'reference',e.target.value)} rows={3} style={{width:'100%',boxSizing:'border-box',background:'var(--p-navy-07)',border:'1px solid var(--border)',color:'var(--text)',borderRadius:5,padding:'6px 8px',fontSize:12,fontFamily:'inherit',resize:'vertical'}}/>
                     </div>
                   )}
                 </div>
@@ -1067,7 +1067,7 @@ function AddQuestionPanel({ pwd, banks, hdrs, onDone }) {
         </select>
         <textarea value={manQ} onChange={e=>setManQ(e.target.value)} placeholder="输入题目内容…" rows={3} style={{...inp,resize:'vertical'}}/>
         <textarea value={manA} onChange={e=>setManA(e.target.value)} placeholder="输入参考答案（各要点用分号分隔）…" rows={4} style={{...inp,resize:'vertical'}}/>
-        <label style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',border:'1px dashed var(--border)',borderRadius:6,cursor:manAiLoading||!manQ.trim()?'default':'pointer',background:'rgba(59,130,246,0.04)',opacity:!manQ.trim()?0.5:1}}>
+        <label style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',border:'1px dashed var(--border)',borderRadius:6,cursor:manAiLoading||!manQ.trim()?'default':'pointer',background:'var(--p-blue-60-a04)',opacity:!manQ.trim()?0.5:1}}>
           <input ref={s2Ref} type="file" accept=".docx,.pdf,.jpg,.jpeg,.png,.gif,.webp" style={{display:'none'}}
             onChange={()=>{ if(!manQ.trim()){setManMsg('❌ 请先填写题目');return;} doManAiExtract(); }} disabled={manAiLoading||!manQ.trim()}/>
           <span style={{fontSize:14}}>{manAiLoading?'🤖':'📎'}</span>
@@ -1121,7 +1121,7 @@ const DOC_CAT_BTNS = [
   { key: 'incident',  icon: '📋', label: '安全事件',   color: 'var(--amber)' },
   { key: 'theory',    icon: '📖', label: '理论题目',   color: 'var(--blue)' },
   { key: 'emergency', icon: '🚨', label: '应急处置',   color: 'var(--red)' },
-  { key: 'risk',      icon: '⚠️', label: '风险数据库', color: '#a78bfa' },
+  { key: 'risk',      icon: '⚠️', label: '风险数据库', color: 'var(--p-indigo-76)' },
 ];
 
 function DocParseCard({ pwd, banks, onImported }) {
@@ -1241,9 +1241,9 @@ function DocParseCard({ pwd, banks, onImported }) {
 
   /* ── IDLE / PARSING ── */
   if (step === 'idle' || step === 'parsing') return (
-    <div className="card" style={{border:'1px solid #1e3a5f',padding:14,background:'rgba(59,130,246,0.04)'}}>
+    <div className="card" style={{border:'1px solid var(--p-navy-25)',padding:14,background:'var(--p-blue-60-a04)'}}>
       {/* 一步到位：上传 → 自动识别 → 自动归类 */}
-      <label style={{display:'block',textAlign:'center',padding:'18px 16px',border:`1px dashed ${step==='parsing'?'var(--blue)':'#1e3a5f'}`,borderRadius:8,cursor:step==='parsing'?'default':'pointer',background:'rgba(15,23,42,0.4)'}}>
+      <label style={{display:'block',textAlign:'center',padding:'18px 16px',border:`1px dashed ${step==='parsing'?'var(--blue)':'var(--p-navy-25)'}`,borderRadius:8,cursor:step==='parsing'?'default':'pointer',background:'var(--p-navy-11-a40)'}}>
         <input ref={fileRef} type="file" accept=".docx,.pdf,.jpg,.jpeg,.png,.gif,.webp" style={{display:'none'}} onChange={doParse} disabled={step==='parsing'}/>
         <div style={{fontSize:24,marginBottom:5}}>{step==='parsing'?'🤖':'📄'}</div>
         <div style={{fontSize:13,color:'var(--blue)',fontWeight:600}}>{step==='parsing'?'AI 分析中，请稍候…':'点击上传（Word / PDF / 图片）'}</div>
@@ -1260,7 +1260,7 @@ function DocParseCard({ pwd, banks, onImported }) {
   const canSave = step!=='saving' && checked.length>0;
 
   return (
-    <div className="card" style={{border:'1px solid #1e3a5f',padding:'16px'}}>
+    <div className="card" style={{border:'1px solid var(--p-navy-25)',padding:'16px'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
         <div style={{fontSize:13,fontWeight:700,color:'var(--blue)'}}>🤖 AI识别结果</div>
         <button onClick={()=>{setStep('idle');setMsg('');}} style={{background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:12}}>重新上传</button>
@@ -1268,14 +1268,14 @@ function DocParseCard({ pwd, banks, onImported }) {
 
       {/* 识别原文（可展开） */}
       {extractedText && (
-        <div style={{marginBottom:10,borderRadius:7,border:'1px solid rgba(59,130,246,0.2)',overflow:'hidden'}}>
+        <div style={{marginBottom:10,borderRadius:7,border:'1px solid var(--p-blue-60-a20)',overflow:'hidden'}}>
           <button onClick={()=>setShowRawText(v=>!v)}
-            style={{width:'100%',padding:'7px 10px',background:'rgba(59,130,246,0.06)',border:'none',color:'var(--muted)',fontSize:11,cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between'}}>
+            style={{width:'100%',padding:'7px 10px',background:'var(--p-blue-60-a06)',border:'none',color:'var(--muted)',fontSize:11,cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between'}}>
             <span>📄 识别原文（点击查看，可对照核查）</span>
             <span>{showRawText?'▲':'▼'}</span>
           </button>
           {showRawText && (
-            <div style={{padding:'8px 10px',background:'rgba(13,17,23,0.6)',maxHeight:200,overflowY:'auto',fontSize:11,color:'var(--muted)',lineHeight:1.6,whiteSpace:'pre-wrap',wordBreak:'break-all'}}>
+            <div style={{padding:'8px 10px',background:'var(--p-navy-07-a60)',maxHeight:200,overflowY:'auto',fontSize:11,color:'var(--muted)',lineHeight:1.6,whiteSpace:'pre-wrap',wordBreak:'break-all'}}>
               {extractedText}
             </div>
           )}
@@ -1284,7 +1284,7 @@ function DocParseCard({ pwd, banks, onImported }) {
 
       {/* 识别摘要：让操作人一眼看出系统读懂了什么 */}
       {outline && outline.length>0 && (
-        <div style={{fontSize:11,color:'#60a5fa',marginBottom:10,lineHeight:1.6,padding:'7px 10px',borderRadius:6,background:'rgba(59,130,246,0.08)'}}>
+        <div style={{fontSize:11,color:'var(--p-blue-68)',marginBottom:10,lineHeight:1.6,padding:'7px 10px',borderRadius:6,background:'var(--p-blue-60-a08)'}}>
           🧩 已识别 <b>{outline.length}</b> 个独立条目：{outline.map(o=>o.name).join('、')}
         </div>
       )}
@@ -1305,31 +1305,31 @@ function DocParseCard({ pwd, banks, onImported }) {
           return (
             <>
             {showGroup && (
-              <div style={{fontSize:11,color:'#60a5fa',fontWeight:700,marginTop:i===0?0:6,marginBottom:1}}>
+              <div style={{fontSize:11,color:'var(--p-blue-68)',fontWeight:700,marginTop:i===0?0:6,marginBottom:1}}>
                 📌 {q.group}{q.groupKind==='event'?'':' · 归入 '+(BANK_TYPE_MAP[q.groupCat]?.label||'应知必会')}
               </div>
             )}
-            <div key={i} style={{borderRadius:8,border:`1px solid ${sel?'rgba(59,130,246,0.4)':'var(--border)'}`,background:sel?'rgba(59,130,246,0.06)':'rgba(13,17,23,0.4)',padding:'10px 12px'}}>
+            <div key={i} style={{borderRadius:8,border:`1px solid ${sel?'var(--p-blue-60-a40)':'var(--border)'}`,background:sel?'var(--p-blue-60-a06)':'var(--p-navy-07-a40)',padding:'10px 12px'}}>
               {/* 勾选 + 序号 */}
               <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:6,cursor:'pointer'}} onClick={()=>toggleCheck(i)}>
                 <span style={{color:sel?'var(--blue)':'var(--muted)',fontSize:14,flexShrink:0}}>{sel?'☑':'☐'}</span>
-                <span style={{fontSize:10,color:sel?'#60a5fa':'var(--muted)',fontWeight:700}}>第 {i+1} 题</span>
-                <span style={{marginLeft:'auto',fontSize:9,color:'var(--muted)',flexShrink:0}}>评分方式</span>
+                <span style={{fontSize:11,color:sel?'var(--p-blue-68)':'var(--muted)',fontWeight:700}}>第 {i+1} 题</span>
+                <span style={{marginLeft:'auto',fontSize:11,color:'var(--muted)',flexShrink:0}}>评分方式</span>
                 <select value={normCat} onChange={e=>{e.stopPropagation();updateQuestion(i,'category',e.target.value);}}
                   onClick={e=>e.stopPropagation()}
-                  style={{fontSize:10,padding:'2px 6px',borderRadius:4,border:'1px solid var(--border)',background:'#0d1117',color:'#60a5fa',cursor:'pointer'}}>
+                  style={{fontSize:11,padding:'2px 6px',borderRadius:4,border:'1px solid var(--border)',background:'var(--p-navy-07)',color:'var(--p-blue-68)',cursor:'pointer'}}>
                   {STANDARD_CATS.map(c=><option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               {/* 题目文本 */}
               <textarea value={q.text} onChange={e=>updateQuestion(i,'text',e.target.value)}
                 rows={2} placeholder="题目"
-                style={{width:'100%',boxSizing:'border-box',background:'#0d1117',border:'1px solid var(--border)',color:'var(--text)',borderRadius:5,padding:'6px 8px',fontSize:12,fontFamily:'inherit',resize:'vertical',marginBottom:6}}/>
+                style={{width:'100%',boxSizing:'border-box',background:'var(--p-navy-07)',border:'1px solid var(--border)',color:'var(--text)',borderRadius:5,padding:'6px 8px',fontSize:12,fontFamily:'inherit',resize:'vertical',marginBottom:6}}/>
               {/* 参考答案 */}
-              <div style={{fontSize:10,color:'rgba(96,165,250,0.7)',marginBottom:3,fontWeight:600}}>参考答案</div>
+              <div style={{fontSize:11,color:'var(--p-blue-68-a70)',marginBottom:3,fontWeight:600}}>参考答案</div>
               <textarea value={q.reference||''} onChange={e=>updateQuestion(i,'reference',e.target.value)}
                 rows={3} placeholder="参考答案（各要点用分号分隔）"
-                style={{width:'100%',boxSizing:'border-box',background:'#0d1117',border:'1px solid rgba(59,130,246,0.2)',color:'var(--muted)',borderRadius:5,padding:'6px 8px',fontSize:11,fontFamily:'inherit',resize:'vertical'}}/>
+                style={{width:'100%',boxSizing:'border-box',background:'var(--p-navy-07)',border:'1px solid var(--p-blue-60-a20)',color:'var(--muted)',borderRadius:5,padding:'6px 8px',fontSize:11,fontFamily:'inherit',resize:'vertical'}}/>
             </div>
             </>
           );
@@ -1337,10 +1337,10 @@ function DocParseCard({ pwd, banks, onImported }) {
       </div>
 
       {/* 自动归类说明 + 保存 */}
-      <div style={{background:'rgba(13,17,23,0.6)',border:'1px solid var(--border)',borderRadius:8,padding:'10px 12px',marginBottom:10}}>
+      <div style={{background:'var(--p-navy-07-a60)',border:'1px solid var(--border)',borderRadius:8,padding:'10px 12px',marginBottom:10}}>
         <div style={{fontSize:11,color:'var(--muted)',fontWeight:600,marginBottom:6}}>录入后自动归类（每个事件/条目一个题库，同名题库自动合并）</div>
-        <div style={{fontSize:10,color:'var(--muted)',marginBottom:6,lineHeight:1.5}}>题库的分类标签（应急 / 应知必会 / 非正常情况行车 / 违法乱纪）由 AI 按内容自动判定，预览里每条会显示「· 归入 XXX」；题干右侧的「评分方式」只决定 AI 怎么判分（事件复述 / 按得分点 / 按操作步骤），<b style={{color:'#60a5fa'}}>与题库分类无关，一般不用动</b>。</div>
-        <div style={{fontSize:11,color:'#60a5fa',lineHeight:1.7}}>
+        <div style={{fontSize:11,color:'var(--muted)',marginBottom:6,lineHeight:1.5}}>题库的分类标签（应急 / 应知必会 / 非正常情况行车 / 违法乱纪）由 AI 按内容自动判定，预览里每条会显示「· 归入 XXX」；题干右侧的「评分方式」只决定 AI 怎么判分（事件复述 / 按得分点 / 按操作步骤），<b style={{color:'var(--p-blue-68)'}}>与题库分类无关，一般不用动</b>。</div>
+        <div style={{fontSize:11,color:'var(--p-blue-68)',lineHeight:1.7}}>
           {(() => {
             const sel = questions.filter((_,i)=>checked.includes(i));
             const m = {};
@@ -1352,7 +1352,7 @@ function DocParseCard({ pwd, banks, onImported }) {
       </div>
 
       <button onClick={doSave} disabled={!canSave}
-        style={{width:'100%',padding:'10px',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',border:'none',borderRadius:7,color:'var(--text)',fontSize:13,fontWeight:600,cursor:'pointer',opacity:canSave?1:0.4}}>
+        style={{width:'100%',padding:'10px',background:'linear-gradient(135deg,var(--p-navy-25),var(--blue))',border:'none',borderRadius:7,color:'var(--text)',fontSize:13,fontWeight:600,cursor:'pointer',opacity:canSave?1:0.4}}>
         {step==='saving'?'录入中…':`✅ 确认录入选中的 ${checked.length} 题`}
       </button>
       {msg && <div style={{fontSize:12,marginTop:8,color:msg.startsWith('✅')?'var(--green)':'var(--red)'}}>{msg}</div>}
@@ -1384,7 +1384,7 @@ function ManualEntryForm({ pwd, banks, hdrs, onDone }) {
     if (r?.ok) { setText(''); setReference(''); setKeywords(''); setBankId(''); setNewBankName(''); setMsg('✅ 已保存'); onDone?.(); }
     else setMsg('❌ '+(r?.error||'保存失败'));
   };
-  const fi = {width:'100%',padding:'7px 10px',borderRadius:7,border:'1px solid var(--border)',background:'#0d1117',color:'var(--text)',fontSize:12,boxSizing:'border-box',fontFamily:'inherit'};
+  const fi = {width:'100%',padding:'7px 10px',borderRadius:7,border:'1px solid var(--border)',background:'var(--p-navy-07)',color:'var(--text)',fontSize:12,boxSizing:'border-box',fontFamily:'inherit'};
   return (
     <div style={{display:'flex',flexDirection:'column',gap:10,paddingTop:4}}>
       <div>
@@ -1403,7 +1403,7 @@ function ManualEntryForm({ pwd, banks, hdrs, onDone }) {
         <div style={{fontSize:11,color:'var(--muted)',marginBottom:4}}>保存到题库</div>
         <BankTypeSelect banks={banks} bankId={bankId} setBankId={setBankId} newBankName={newBankName} setNewBankName={setNewBankName} newBankType={newBankType} setNewBankType={setNewBankType}/>
       </div>
-      <button disabled={saving} onClick={doSave} style={{padding:'10px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'white',fontSize:13,fontWeight:600,cursor:saving?'not-allowed':'pointer',fontFamily:'inherit',opacity:saving?0.7:1}}>
+      <button disabled={saving} onClick={doSave} style={{padding:'10px',borderRadius:8,border:'none',background:'linear-gradient(135deg,var(--p-navy-25),var(--blue))',color:'white',fontSize:13,fontWeight:600,cursor:saving?'not-allowed':'pointer',fontFamily:'inherit',opacity:saving?0.7:1}}>
         {saving?'保存中…':'保存'}
       </button>
       {msg&&<div style={{fontSize:12,color:msg.startsWith('✅')?'var(--green)':'var(--red)',textAlign:'center'}}>{msg}</div>}
@@ -1439,11 +1439,11 @@ function ExcelImportForm({ pwd, banks, onDone }) {
         <div style={{fontSize:11,color:'var(--muted)',marginBottom:4}}>目标题库</div>
         <BankTypeSelect banks={banks} bankId={bankId} setBankId={setBankId} newBankName={newBankName} setNewBankName={setNewBankName} newBankType={newBankType} setNewBankType={setNewBankType}/>
       </div>
-      <label style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'20px 16px',border:'1px dashed var(--border)',borderRadius:8,cursor:'pointer',background:'rgba(13,17,23,0.4)'}}>
+      <label style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'20px 16px',border:'1px dashed var(--border)',borderRadius:8,cursor:'pointer',background:'var(--p-navy-07-a40)'}}>
         <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}} onChange={doImport}/>
         <div style={{fontSize:28,marginBottom:6}}>{importing?'⏳':'📊'}</div>
         <div style={{fontSize:13,color:'var(--muted)'}}>{importing?'导入中…':'点击上传 Excel / CSV'}</div>
-        <div style={{fontSize:11,color:'#475569',marginTop:4}}>每行：题目, 参考答案, 关键词, 分类</div>
+        <div style={{fontSize:11,color:'var(--p-blue-35)',marginTop:4}}>每行：题目, 参考答案, 关键词, 分类</div>
       </label>
       {msg&&<div style={{fontSize:12,color:msg.startsWith('✅')?'var(--green)':'var(--red)',textAlign:'center'}}>{msg}</div>}
     </div>
@@ -1452,7 +1452,7 @@ function ExcelImportForm({ pwd, banks, onDone }) {
 
 // ── 导入培训计划卡片 ──────────────────────────────────────────────────────────
 const TRAIN_TYPES_YP = ['示范','实操','理论','实践','其他'];
-const TYPE_COLOR_YP = {'示范':'#a78bfa','实操':'#34d399','理论':'#38bdf8','实践':'#fb923c','其他':'var(--muted)'};
+const TYPE_COLOR_YP = {'示范':'var(--p-indigo-76)','实操':'var(--p-green-52)','理论':'var(--p-cyan-60)','实践':'var(--p-amber-61)','其他':'var(--muted)'};
 
 function ImportPlanCard({ hdrs }) {
   const curYear = new Date().getFullYear();
@@ -1544,7 +1544,7 @@ function ImportPlanCard({ hdrs }) {
       {/* ── 文件上传区 ── */}
       <div style={{padding:'14px 16px 12px',borderBottom:'1px solid var(--border)'}}>
         <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,marginBottom:10,fontWeight:600}}>导入培训计划文件</div>
-        <label style={{display:'block',border:'1px dashed rgba(59,130,246,0.4)',borderRadius:8,padding:'12px',textAlign:'center',cursor:'pointer',background:'rgba(59,130,246,0.04)',marginBottom:8}}>
+        <label style={{display:'block',border:'1px dashed var(--p-blue-60-a40)',borderRadius:8,padding:'12px',textAlign:'center',cursor:'pointer',background:'var(--p-blue-60-a04)',marginBottom:8}}>
           <input type="file" multiple accept="image/*,.xlsx,.xls,.csv,.pdf,.doc,.docx" style={{display:'none'}}
             onChange={e=>{upload(e.target.files);e.target.value='';}} disabled={uploading}/>
           <div style={{fontSize:16,marginBottom:2}}>{uploading?'⏳':'＋'}</div>
@@ -1553,21 +1553,21 @@ function ImportPlanCard({ hdrs }) {
         {fileList && fileList.map(f => {
           const b = statusBadge(f.parse_status);
           return (
-            <div key={f.id} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderTop:'1px solid rgba(27,50,85,0.35)'}}>
+            <div key={f.id} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderTop:'1px solid var(--p-navy-22-a35)'}}>
               <span style={{fontSize:14,flexShrink:0}}>{iconFor(f.original_name||f.filename)}</span>
               <div style={{flex:1,overflow:'hidden'}}>
                 <div style={{fontSize:11,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{f.original_name||f.filename}</div>
-                <div style={{fontSize:10,color:'var(--muted)'}}>{(f.uploaded_at||'').slice(0,16)}</div>
+                <div style={{fontSize:11,color:'var(--muted)'}}>{(f.uploaded_at||'').slice(0,16)}</div>
               </div>
-              <span style={{fontSize:10,color:b.c,flexShrink:0}}>{b.t}</span>
+              <span style={{fontSize:11,color:b.c,flexShrink:0}}>{b.t}</span>
               {f.parse_status!=='processing' && (
                 <button onClick={()=>parseFile(f.id)} disabled={!!parsing[f.id]}
-                  style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid rgba(59,130,246,0.4)',background:'rgba(59,130,246,0.1)',color:'#60a5fa',cursor:'pointer',flexShrink:0,opacity:parsing[f.id]?0.5:1}}>
+                  style={{fontSize:11,padding:'3px 8px',borderRadius:5,border:'1px solid var(--p-blue-60-a40)',background:'var(--p-blue-60-a10)',color:'var(--p-blue-68)',cursor:'pointer',flexShrink:0,opacity:parsing[f.id]?0.5:1}}>
                   🤖 {f.parse_status==='done'?'重新识别':'识别'}
                 </button>
               )}
-              <a href={`/training-imports/${f.filename}`} target="_blank" style={{fontSize:10,color:'var(--muted)',textDecoration:'none',flexShrink:0}}>查看</a>
-              <button onClick={()=>delFile(f.id)} style={{background:'none',border:'none',color:'#334155',fontSize:16,cursor:'pointer',padding:0,flexShrink:0}}>×</button>
+              <a href={`/training-imports/${f.filename}`} target="_blank" style={{fontSize:11,color:'var(--muted)',textDecoration:'none',flexShrink:0}}>查看</a>
+              <button onClick={()=>delFile(f.id)} style={{background:'none',border:'none',color:'var(--p-blue-27)',fontSize:16,cursor:'pointer',padding:0,flexShrink:0}}>×</button>
             </div>
           );
         })}
@@ -1575,9 +1575,9 @@ function ImportPlanCard({ hdrs }) {
 
       {/* ── 年度培训计划表 ── */}
       {/* 表头 */}
-      <div style={{display:'grid',gridTemplateColumns:'52px 1fr 64px 80px',background:'rgba(27,50,85,0.6)',borderBottom:'1px solid var(--border)'}}>
+      <div style={{display:'grid',gridTemplateColumns:'52px 1fr 64px 80px',background:'var(--p-navy-22-a60)',borderBottom:'1px solid var(--border)'}}>
         {['月份','培训项点','培训方式','操作'].map(h=>(
-          <div key={h} style={{padding:'7px 8px',fontSize:10,fontWeight:700,color:'var(--muted)',letterSpacing:1,textAlign:'center'}}>{h}</div>
+          <div key={h} style={{padding:'7px 8px',fontSize:11,fontWeight:700,color:'var(--muted)',letterSpacing:1,textAlign:'center'}}>{h}</div>
         ))}
       </div>
 
@@ -1590,39 +1590,39 @@ function ImportPlanCard({ hdrs }) {
         const buf = editBuf[m] || rows;
 
         return (
-          <div key={m} style={{borderBottom:'1px solid rgba(27,50,85,0.4)'}}>
+          <div key={m} style={{borderBottom:'1px solid var(--p-navy-22-a40)'}}>
             {/* 月份折叠标题 */}
             <div onClick={()=>setExpanded(e=>({...e,[m]:!isOpen}))}
               style={{display:'flex',alignItems:'center',padding:'8px 12px',cursor:'pointer',
-                background:isCur?'rgba(59,130,246,0.07)':isPast?'rgba(0,0,0,0.12)':'transparent',
-                borderLeft:`3px solid ${isCur?'var(--blue)':isPast?'#1e3a5f':'transparent'}`}}>
-              <span style={{fontSize:12,fontWeight:isCur?700:400,color:isCur?'#93c5fd':isPast?'var(--muted)':'var(--muted)',minWidth:56}}>
-                {m}月 {isCur&&<span style={{fontSize:9,background:'rgba(59,130,246,0.25)',color:'#60a5fa',borderRadius:3,padding:'0 4px',marginLeft:3}}>本月</span>}
+                background:isCur?'var(--p-blue-60-a07)':isPast?'var(--p-black-00-a12)':'transparent',
+                borderLeft:`3px solid ${isCur?'var(--blue)':isPast?'var(--p-navy-25)':'transparent'}`}}>
+              <span style={{fontSize:12,fontWeight:isCur?700:400,color:isCur?'var(--p-blue-78)':isPast?'var(--muted)':'var(--muted)',minWidth:56}}>
+                {m}月 {isCur&&<span style={{fontSize:11,background:'var(--p-blue-60-a25)',color:'var(--p-blue-68)',borderRadius:3,padding:'0 4px',marginLeft:3}}>本月</span>}
               </span>
-              <span style={{fontSize:10,color:'#334155',flex:1}}>{rows.length>0?`${rows.length}项`:'暂无'}</span>
-              <span style={{fontSize:11,color:'#334155'}}>{isOpen?'▾':'›'}</span>
+              <span style={{fontSize:11,color:'var(--p-blue-27)',flex:1}}>{rows.length>0?`${rows.length}项`:'暂无'}</span>
+              <span style={{fontSize:11,color:'var(--p-blue-27)'}}>{isOpen?'▾':'›'}</span>
             </div>
 
             {/* 展开内容 */}
             {isOpen && (<>
               {/* 数据行 */}
               {(isEditing?buf:rows).map((r,idx)=>(
-                <div key={idx} style={{display:'grid',gridTemplateColumns:'52px 1fr 64px 80px',borderTop:'1px solid rgba(27,50,85,0.25)',background:idx%2===0?'transparent':'rgba(0,0,0,0.08)'}}>
+                <div key={idx} style={{display:'grid',gridTemplateColumns:'52px 1fr 64px 80px',borderTop:'1px solid var(--p-navy-22-a25)',background:idx%2===0?'transparent':'var(--p-black-00-a08)'}}>
                   <div style={{padding:'7px 8px',fontSize:11,color:'var(--muted)',textAlign:'center',alignSelf:'center'}}>{m}/{idx+1}</div>
                   {isEditing ? (
                     <input value={r.item||''} onChange={e=>bufUpdate(m,idx,'item',e.target.value)}
-                      style={{margin:'4px 4px',padding:'4px 6px',background:'var(--input-bg)',border:'1px solid #2a4a7f',borderRadius:4,color:'var(--text)',fontSize:11,fontFamily:'inherit',outline:'none'}}/>
+                      style={{margin:'4px 4px',padding:'4px 6px',background:'var(--input-bg)',border:'1px solid var(--p-blue-33)',borderRadius:4,color:'var(--text)',fontSize:11,fontFamily:'inherit',outline:'none'}}/>
                   ) : (
                     <div style={{padding:'7px 8px',fontSize:11,color:'var(--text)',lineHeight:1.5,alignSelf:'center'}}>{r.item}</div>
                   )}
                   {isEditing ? (
                     <select value={r.trainType||'实操'} onChange={e=>bufUpdate(m,idx,'trainType',e.target.value)}
-                      style={{margin:'4px 2px',padding:'4px 4px',background:'var(--input-bg)',border:'1px solid #2a4a7f',borderRadius:4,color:TYPE_COLOR_YP[r.trainType]||'var(--muted)',fontSize:11,fontFamily:'inherit',outline:'none'}}>
+                      style={{margin:'4px 2px',padding:'4px 4px',background:'var(--input-bg)',border:'1px solid var(--p-blue-33)',borderRadius:4,color:TYPE_COLOR_YP[r.trainType]||'var(--muted)',fontSize:11,fontFamily:'inherit',outline:'none'}}>
                       {TRAIN_TYPES_YP.map(t=><option key={t} value={t}>{t}</option>)}
                     </select>
                   ) : (
                     <div style={{padding:'7px 4px',textAlign:'center',alignSelf:'center'}}>
-                      <span style={{fontSize:10,padding:'2px 6px',borderRadius:4,border:`1px solid ${TYPE_COLOR_YP[r.trainType]||'var(--muted)'}44`,color:TYPE_COLOR_YP[r.trainType]||'var(--muted)',background:`${TYPE_COLOR_YP[r.trainType]||'var(--muted)'}11`}}>{r.trainType||'—'}</span>
+                      <span style={{fontSize:11,padding:'2px 6px',borderRadius:4,border:`1px solid ${TYPE_COLOR_YP[r.trainType]||'var(--muted)'}44`,color:TYPE_COLOR_YP[r.trainType]||'var(--muted)',background:`${TYPE_COLOR_YP[r.trainType]||'var(--muted)'}11`}}>{r.trainType||'—'}</span>
                     </div>
                   )}
                   <div style={{padding:'4px 6px',display:'flex',alignItems:'center',justifyContent:'center'}}>
@@ -1633,13 +1633,13 @@ function ImportPlanCard({ hdrs }) {
 
               {/* 空提示 */}
               {!isEditing && rows.length===0 && (
-                <div style={{padding:'10px 12px',fontSize:11,color:'#334155',textAlign:'center'}}>暂无培训项点</div>
+                <div style={{padding:'10px 12px',fontSize:11,color:'var(--p-blue-27)',textAlign:'center'}}>暂无培训项点</div>
               )}
 
               {/* 编辑模式：添加行 + 保存取消 */}
               {isEditing && (
-                <div style={{padding:'6px 12px',borderTop:'1px solid rgba(27,50,85,0.3)',display:'flex',gap:8,alignItems:'center',background:'rgba(0,0,0,0.1)'}}>
-                  <button onClick={()=>bufAdd(m)} style={{fontSize:11,padding:'4px 10px',borderRadius:5,border:'1px dashed rgba(59,130,246,0.4)',background:'rgba(59,130,246,0.06)',color:'#60a5fa',cursor:'pointer',fontFamily:'inherit'}}>＋ 添加</button>
+                <div style={{padding:'6px 12px',borderTop:'1px solid var(--p-navy-22-a30)',display:'flex',gap:8,alignItems:'center',background:'var(--p-black-00-a10)'}}>
+                  <button onClick={()=>bufAdd(m)} style={{fontSize:11,padding:'4px 10px',borderRadius:5,border:'1px dashed var(--p-blue-60-a40)',background:'var(--p-blue-60-a06)',color:'var(--p-blue-68)',cursor:'pointer',fontFamily:'inherit'}}>＋ 添加</button>
                   <span style={{flex:1}}/>
                   <button onClick={()=>cancelEdit(m)} style={{fontSize:11,padding:'4px 10px',borderRadius:5,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontFamily:'inherit'}}>取消</button>
                   <button onClick={()=>saveEdit(m)} disabled={saving} style={{fontSize:11,padding:'4px 12px',borderRadius:5,border:'none',background:'var(--blue)',color:'var(--text)',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
@@ -1650,8 +1650,8 @@ function ImportPlanCard({ hdrs }) {
 
               {/* 非编辑模式：修改按钮 */}
               {!isEditing && (
-                <div style={{padding:'5px 12px',borderTop:'1px solid rgba(27,50,85,0.2)',background:'rgba(0,0,0,0.08)',display:'flex',justifyContent:'flex-end'}}>
-                  <button onClick={()=>startEdit(m)} style={{fontSize:10,padding:'3px 10px',borderRadius:5,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontFamily:'inherit'}}>✎ 修改</button>
+                <div style={{padding:'5px 12px',borderTop:'1px solid var(--p-navy-22-a20)',background:'var(--p-black-00-a08)',display:'flex',justifyContent:'flex-end'}}>
+                  <button onClick={()=>startEdit(m)} style={{fontSize:11,padding:'3px 10px',borderRadius:5,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontFamily:'inherit'}}>✎ 修改</button>
                 </div>
               )}
             </>)}
@@ -1806,7 +1806,7 @@ function AdminScreen({ onBack }) {
           {/* ── 本套班完成情况 ── */}
           <div className="card" style={{padding:0,overflow:'hidden'}}>
             <div style={{padding:'14px 16px 12px'}}>
-              <div style={{fontSize:10,color:'var(--muted)',letterSpacing:2,fontWeight:600,marginBottom:10,textTransform:'uppercase'}}>本套班完成情况</div>
+              <div style={{fontSize:11,color:'var(--muted)',letterSpacing:2,fontWeight:600,marginBottom:10,textTransform:'uppercase'}}>本套班完成情况</div>
               <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:10}}>
                 <div style={{flex:1}}>
                   <div style={{fontSize:30,fontWeight:900,color:'var(--text)',lineHeight:1}}>{overview.todayComplete}<span style={{fontSize:12,color:'var(--muted)',fontWeight:400,marginLeft:5}}>/ {overview.totalStaff} 人</span></div>
@@ -1816,14 +1816,14 @@ function AdminScreen({ onBack }) {
                   }
                 </div>
                 <ScoreRing score={Math.round((overview.todayComplete/Math.max(overview.totalStaff,1))*100)} size={62}/>
-                <button onClick={pushDingtalk} disabled={dingtalkLoading} style={{flexShrink:0,display:'flex',flexDirection:'column',alignItems:'center',gap:3,padding:'8px 10px',background:dingtalkLoading?'rgba(59,130,246,0.1)':'rgba(59,130,246,0.15)',border:'1px solid rgba(59,130,246,0.35)',borderRadius:10,color:dingtalkLoading?'var(--muted)':'#60a5fa',fontSize:10,cursor:dingtalkLoading?'not-allowed':'pointer',lineHeight:1.3,minWidth:48}}>
+                <button onClick={pushDingtalk} disabled={dingtalkLoading} style={{flexShrink:0,display:'flex',flexDirection:'column',alignItems:'center',gap:3,padding:'8px 10px',background:dingtalkLoading?'var(--p-blue-60-a10)':'var(--p-blue-60-a15)',border:'1px solid var(--p-blue-60-a35)',borderRadius:10,color:dingtalkLoading?'var(--muted)':'var(--p-blue-68)',fontSize:11,cursor:dingtalkLoading?'not-allowed':'pointer',lineHeight:1.3,minWidth:48}}>
                   <span style={{fontSize:18}}>{dingtalkLoading?'⏳':'📤'}</span>
                   <span>推送</span>
                   <span>钉钉</span>
                 </button>
               </div>
-              <div style={{height:5,background:'#1e293b',borderRadius:3,overflow:'hidden'}}>
-                <div style={{height:'100%',width:`${(overview.todayComplete/Math.max(overview.totalStaff,1))*100}%`,background:'linear-gradient(90deg,#3b82f6,#22c55e)',borderRadius:3,transition:'width 0.8s ease'}}/>
+              <div style={{height:5,background:'var(--p-navy-17)',borderRadius:3,overflow:'hidden'}}>
+                <div style={{height:'100%',width:`${(overview.todayComplete/Math.max(overview.totalStaff,1))*100}%`,background:'linear-gradient(90deg,var(--blue),var(--green))',borderRadius:3,transition:'width 0.8s ease'}}/>
               </div>
             </div>
             {overview.allStaff?.length>0&&(()=>{
@@ -1846,9 +1846,9 @@ function AdminScreen({ onBack }) {
                       const hasRemediationPending=p.remediation_result==='pending'&&p.has_remediation; // 已授权复查(进行中)，独立于是否已完成(原始session被删后仍可识别)
                       const hasRemediationFail=isDone&&p.remediation_result==='fail';
                       const hasRemediationPass=isDone&&p.remediation_result==='pass';
-                      const nameCol=needsRemediation&&!hasRemediationPending?'#dc2626':hasRemediationPending?'#a855f7':hasRemediationFail?'#dc2626':hasRemediationPass?'var(--green)':isDone?'var(--green)':isAnswering?'var(--blue)':isInt||isBrowse?'var(--amber)':isOverdue?'#f97316':'var(--red)';
-                      const bg=needsRemediation&&!hasRemediationPending?'rgba(220,38,38,0.08)':hasRemediationPending?'rgba(168,85,247,0.08)':hasRemediationFail?'rgba(220,38,38,0.08)':isDone?'rgba(34,197,94,0.06)':isAnswering?'rgba(59,130,246,0.08)':isInt||isBrowse?'rgba(245,158,11,0.06)':isOverdue?'rgba(249,115,22,0.07)':'rgba(239,68,68,0.05)';
-                      const border=needsRemediation&&!hasRemediationPending?'rgba(220,38,38,0.3)':hasRemediationPending?'rgba(168,85,247,0.35)':hasRemediationFail?'rgba(220,38,38,0.3)':isDone?'rgba(34,197,94,0.18)':isAnswering?'rgba(59,130,246,0.35)':isInt||isBrowse?'rgba(245,158,11,0.2)':isOverdue?'rgba(249,115,22,0.25)':'rgba(239,68,68,0.12)';
+                      const nameCol=needsRemediation&&!hasRemediationPending?'var(--p-red-51)':hasRemediationPending?'var(--p-purple-65)':hasRemediationFail?'var(--p-red-51)':hasRemediationPass?'var(--green)':isDone?'var(--green)':isAnswering?'var(--blue)':isInt||isBrowse?'var(--amber)':isOverdue?'var(--p-amber-53)':'var(--red)';
+                      const bg=needsRemediation&&!hasRemediationPending?'var(--p-red-51-a08)':hasRemediationPending?'var(--p-purple-65-a08)':hasRemediationFail?'var(--p-red-51-a08)':isDone?'var(--p-green-45-a06)':isAnswering?'var(--p-blue-60-a08)':isInt||isBrowse?'var(--p-amber-50-a06)':isOverdue?'var(--p-amber-53-a07)':'var(--p-red-60-a05)';
+                      const border=needsRemediation&&!hasRemediationPending?'var(--p-red-51-a30)':hasRemediationPending?'var(--p-purple-65-a35)':hasRemediationFail?'var(--p-red-51-a30)':isDone?'var(--p-green-45-a18)':isAnswering?'var(--p-blue-60-a35)':isInt||isBrowse?'var(--p-amber-50-a20)':isOverdue?'var(--p-amber-53-a25)':'var(--p-red-60-a12)';
                       const clickable=isDone||hasRemediationPending||isAnswering||isInt||isBrowse||isOverdue;
                       const subLabel=needsRemediation&&!hasRemediationPending?`${p.score??'—'}分 需复查 ›`:hasRemediationPending?`${p.original_score??'—'}分 复查中 ›`:hasRemediationFail?`复查${Math.round(p.score??0)}分❌ ›`:hasRemediationPass?`复查${Math.round(p.score??0)}分✅ ›`:isDone?`${p.score??'—'}分 ›`:isAnswering?'答题中 ›':isInt?'中断 ›':isBrowse?'浏览 ›':isOverdue?'逾期 ›':'未答';
                       return(
@@ -1862,22 +1862,22 @@ function AdminScreen({ onBack }) {
                         }}
                           style={{display:'flex',flexDirection:'column',gap:1,padding:'5px 7px',background:bg,border:`1px solid ${border}`,borderRadius:6,minWidth:0,cursor:clickable?'pointer':'default'}}>
                           <div style={{fontSize:11,color:nameCol,fontWeight:700,lineHeight:1.3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
-                          <div style={{fontSize:8,color:'var(--muted)',lineHeight:1.2}}>{subLabel}</div>
+                          <div style={{fontSize:11,color:'var(--muted)',lineHeight:1.2}}>{subLabel}</div>
                         </div>
                       );
                     })}
                   </div>
-                  <div style={{display:'flex',gap:10,marginTop:8,fontSize:9,color:'var(--muted)',flexWrap:'wrap'}}>
+                  <div style={{display:'flex',gap:10,marginTop:8,fontSize:11,color:'var(--muted)',flexWrap:'wrap'}}>
                     <span style={{color:'var(--green)'}}>● 已完成</span>
                     <span style={{color:'var(--blue)'}}>● 答题中（10分钟内有动作）</span>
                     <span style={{color:'var(--amber)'}}>● 中断/浏览（可点击重置）</span>
                     <span style={{color:'var(--red)'}}>● 未答题</span>
-                    <span style={{color:'#f97316'}}>● 逾期（可点击补答）</span>
-                    <span style={{color:'#dc2626'}}>● 不合格（可点击授权复查）</span>
-                    <span style={{color:'#a855f7'}}>● 复查进行中</span>
+                    <span style={{color:'var(--p-amber-53)'}}>● 逾期（可点击补答）</span>
+                    <span style={{color:'var(--p-red-51)'}}>● 不合格（可点击授权复查）</span>
+                    <span style={{color:'var(--p-purple-65)'}}>● 复查进行中</span>
                   </div>
                   {sorted.length>12&&(
-                    <div onClick={()=>setStaffListCollapsed(c=>!c)} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,marginTop:8,padding:'7px 0',cursor:'pointer',borderTop:'1px solid rgba(27,50,85,0.4)',color:'#60a5fa',fontSize:12,fontWeight:600}}>
+                    <div onClick={()=>setStaffListCollapsed(c=>!c)} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,marginTop:8,padding:'7px 0',cursor:'pointer',borderTop:'1px solid var(--p-navy-22-a40)',color:'var(--p-blue-68)',fontSize:12,fontWeight:600}}>
                       <span style={{display:'inline-block',transform:staffListCollapsed?'none':'rotate(180deg)',transition:'transform 0.2s',fontSize:14}}>⌄</span>
                       {staffListCollapsed?`展开全部 (共 ${sorted.length} 人)`:'收起'}
                     </div>
@@ -1958,16 +1958,16 @@ function AdminScreen({ onBack }) {
               else alert('推送失败：'+(r?.error||'网络错误'));
             };
             return(
-              <div style={{background:'var(--card)',borderRadius:10,padding:'12px 14px',marginBottom:14,border:'1px solid rgba(168,85,247,0.2)'}}>
+              <div style={{background:'var(--card)',borderRadius:10,padding:'12px 14px',marginBottom:14,border:'1px solid var(--p-purple-65-a20)'}}>
                 <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
-                  <span style={{fontSize:12,fontWeight:700,color:'#a855f7'}}>⚠️ 复查台账</span>
+                  <span style={{fontSize:12,fontWeight:700,color:'var(--p-purple-65)'}}>⚠️ 复查台账</span>
                   <div style={{display:'flex',gap:6,alignItems:'center'}}>
                     <input type="month" value={remMonth} onChange={e=>setRemMonth(e.target.value)}
-                      style={{background:'var(--card-deep)',border:'1px solid var(--border)',borderRadius:5,color:'var(--text)',fontSize:10,padding:'2px 6px',fontFamily:'inherit'}}/>
+                      style={{background:'var(--card-deep)',border:'1px solid var(--border)',borderRadius:5,color:'var(--text)',fontSize:11,padding:'2px 6px',fontFamily:'inherit'}}/>
                     {remRecords.some(r=>r.result!=='pending')&&(
-                      <button onClick={doPushRemediation} style={{padding:'3px 10px',borderRadius:5,border:'1px solid rgba(34,197,94,0.4)',background:'rgba(34,197,94,0.08)',color:'var(--green)',cursor:'pointer',fontSize:10,fontWeight:600,fontFamily:'inherit'}}>📣 推送结果</button>
+                      <button onClick={doPushRemediation} style={{padding:'3px 10px',borderRadius:5,border:'1px solid var(--p-green-45-a40)',background:'var(--p-green-45-a08)',color:'var(--green)',cursor:'pointer',fontSize:11,fontWeight:600,fontFamily:'inherit'}}>📣 推送结果</button>
                     )}
-                    <button onClick={doExport} style={{padding:'3px 10px',borderRadius:5,border:'1px solid rgba(168,85,247,0.4)',background:'rgba(168,85,247,0.1)',color:'#a855f7',cursor:'pointer',fontSize:10,fontWeight:600,fontFamily:'inherit'}}>↓ 导出</button>
+                    <button onClick={doExport} style={{padding:'3px 10px',borderRadius:5,border:'1px solid var(--p-purple-65-a40)',background:'var(--p-purple-65-a10)',color:'var(--p-purple-65)',cursor:'pointer',fontSize:11,fontWeight:600,fontFamily:'inherit'}}>↓ 导出</button>
                   </div>
                 </div>
                 {remRecords.length===0
@@ -1976,16 +1976,16 @@ function AdminScreen({ onBack }) {
                     <div key={i} style={{padding:'8px 0',borderTop:i>0?'1px solid var(--border)':undefined}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}}>
                         <span style={{fontSize:12,fontWeight:700,color:'var(--text)'}}>{r.name}</span>
-                        <span style={{fontSize:10,color:'var(--muted)'}}>{r.authorized_at?.slice(5,16)}</span>
+                        <span style={{fontSize:11,color:'var(--muted)'}}>{r.authorized_at?.slice(5,16)}</span>
                       </div>
-                      <div style={{fontSize:10,color:'var(--muted)',marginTop:3,lineHeight:1.6}}>
-                        初试 <span style={{color:'#f87171',fontWeight:600}}>{Math.round(r.original_score)}分</span>
+                      <div style={{fontSize:11,color:'var(--muted)',marginTop:3,lineHeight:1.6}}>
+                        初试 <span style={{color:'var(--p-red-71)',fontWeight:600}}>{Math.round(r.original_score)}分</span>
                         {' → '}
                         {r.result==='pending'
-                          ? <span style={{color:'#a855f7'}}>待复查</span>
+                          ? <span style={{color:'var(--p-purple-65)'}}>待复查</span>
                           : r.result==='pass'
                           ? <span style={{color:'var(--green)',fontWeight:600}}>复查{Math.round(r.remediation_score)}分 ✅合格</span>
-                          : <span style={{color:'#f87171',fontWeight:600}}>复查{Math.round(r.remediation_score)}分 ❌不合格</span>
+                          : <span style={{color:'var(--p-red-71)',fontWeight:600}}>复查{Math.round(r.remediation_score)}分 ❌不合格</span>
                         }
                         {' · 授权：'}{r.authorized_by||'—'}
                       </div>
@@ -2009,10 +2009,10 @@ function AdminScreen({ onBack }) {
                     <span style={{fontSize:11,color:dimmed?'var(--border)':'var(--border)',flex:1,lineHeight:1.6}}>{q.question_text.length>42?q.question_text.slice(0,42)+'…':q.question_text}</span>
                     <span style={{fontSize:14,fontWeight:800,color:col,flexShrink:0}}>{q.error_rate}%</span>
                   </div>
-                  <div style={{height:5,background:'#1e293b',borderRadius:3,overflow:'hidden',marginBottom:4}}>
+                  <div style={{height:5,background:'var(--p-navy-17)',borderRadius:3,overflow:'hidden',marginBottom:4}}>
                     <div style={{height:'100%',width:`${q.error_rate}%`,background:`linear-gradient(90deg,${col}55,${col})`,borderRadius:3,transition:'width 0.8s ease'}}/>
                   </div>
-                  <div style={{fontSize:9,color:'var(--muted)'}}>
+                  <div style={{fontSize:11,color:'var(--muted)'}}>
                     {q.total} 次作答 · 均分 {q.avg_score} 分 · {q.wrong} 人错误
                     {q.wrong_names?.length>0&&<span style={{color:'var(--muted)'}}> （{q.wrong_names.join('、')}）</span>}
                   </div>
@@ -2021,9 +2021,9 @@ function AdminScreen({ onBack }) {
             };
             const shownHighError=highErrorCollapsed?highError.slice(0,3):highError;
             return(
-              <div className="card" style={{borderColor:'rgba(239,68,68,0.3)'}}>
+              <div className="card" style={{borderColor:'var(--p-red-60-a30)'}}>
                 <div onClick={()=>setHighErrorCollapsed(c=>!c)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',marginBottom:highErrorCollapsed?8:14}}>
-                  <div style={{fontSize:10,color:'var(--red)',letterSpacing:2,fontWeight:600,textTransform:'uppercase'}}>本期高错误率题目{highError.length>0?` (${highError.length})`:''}</div>
+                  <div style={{fontSize:11,color:'var(--red)',letterSpacing:2,fontWeight:600,textTransform:'uppercase'}}>本期高错误率题目{highError.length>0?` (${highError.length})`:''}</div>
                   <span style={{fontSize:15,color:'var(--red)',display:'inline-block',transform:highErrorCollapsed?'none':'rotate(180deg)',transition:'transform 0.2s'}}>⌄</span>
                 </div>
                 {highErrorCollapsed&&highError.length>0&&(
@@ -2034,7 +2034,7 @@ function AdminScreen({ onBack }) {
                         <span style={{fontSize:12,fontWeight:700,color:q.error_rate>=70?'var(--red)':'var(--amber)',flexShrink:0}}>{q.error_rate}%</span>
                       </div>
                     ))}
-                    {highError.length>3&&<div style={{fontSize:10,color:'var(--muted)',marginTop:2}}>还有 {highError.length-3} 道 · 点击展开</div>}
+                    {highError.length>3&&<div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>还有 {highError.length-3} 道 · 点击展开</div>}
                   </div>
                 )}
                 {highErrorCollapsed&&highError.length===0&&<div style={{fontSize:12,color:'var(--green)'}}>✓ 暂无高错误率题目</div>}
@@ -2042,10 +2042,10 @@ function AdminScreen({ onBack }) {
                 {highError.length===0&&<div style={{fontSize:12,color:'var(--green)',marginBottom:8}}>✓ 暂无错误率 ≥40% 的题目</div>}
                 {shownHighError.map((q,qi)=>renderQ(q,qi,shownHighError))}
                 {highError.length>3&&(
-                  <div onClick={e=>{e.stopPropagation();setHighErrorCollapsed(false);}} style={{textAlign:'center',color:'#60a5fa',fontSize:11,marginTop:8,cursor:'pointer'}}>{highErrorCollapsed?`展开全部 ${highError.length} 道`:'收起'}</div>
+                  <div onClick={e=>{e.stopPropagation();setHighErrorCollapsed(false);}} style={{textAlign:'center',color:'var(--p-blue-68)',fontSize:11,marginTop:8,cursor:'pointer'}}>{highErrorCollapsed?`展开全部 ${highError.length} 道`:'收起'}</div>
                 )}
                 {lowError.length>0&&(
-                  <div style={{borderTop:highError.length>0?'1px solid rgba(27,50,85,0.5)':'none',paddingTop:highError.length>0?12:0,marginTop:highError.length>0?2:0}}>
+                  <div style={{borderTop:highError.length>0?'1px solid var(--p-navy-22-a50)':'none',paddingTop:highError.length>0?12:0,marginTop:highError.length>0?2:0}}>
                     <div onClick={()=>setLowErrorExpanded(e=>!e)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',marginBottom:lowErrorExpanded?10:0}}>
                       <span style={{fontSize:13,color:'var(--amber)',letterSpacing:0.5,fontWeight:700}}>⚠ 低错误率题目（{lowError.length} 道，1%–39%）</span>
                       <span style={{fontSize:16,color:'var(--amber)',display:'inline-block',transform:lowErrorExpanded?'rotate(180deg)':'none',transition:'transform 0.2s'}}>⌄</span>
@@ -2054,13 +2054,13 @@ function AdminScreen({ onBack }) {
                   </div>
                 )}
                 {allCorrect.length>0&&(
-                  <div style={{borderTop:(highError.length>0||lowError.length>0)?'1px solid rgba(27,50,85,0.5)':'none',paddingTop:(highError.length>0||lowError.length>0)?12:0,marginTop:2}}>
+                  <div style={{borderTop:(highError.length>0||lowError.length>0)?'1px solid var(--p-navy-22-a50)':'none',paddingTop:(highError.length>0||lowError.length>0)?12:0,marginTop:2}}>
                     <div onClick={()=>setAllCorrectExpanded(e=>!e)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',marginBottom:allCorrectExpanded?10:0}}>
                       <span style={{fontSize:13,color:'var(--green)',letterSpacing:0.5,fontWeight:700}}>✓ 全部答对的题目（{allCorrect.length} 道）</span>
                       <span style={{fontSize:16,color:'var(--green)',display:'inline-block',transform:allCorrectExpanded?'rotate(180deg)':'none',transition:'transform 0.2s'}}>⌄</span>
                     </div>
                     {allCorrectExpanded&&allCorrect.map((q,qi)=>(
-                      <div key={qi} style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,padding:'6px 0',borderTop:'1px solid rgba(27,50,85,0.3)'}}>
+                      <div key={qi} style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,padding:'6px 0',borderTop:'1px solid var(--p-navy-22-a30)'}}>
                         <span style={{fontSize:11,color:'var(--muted)',flex:1,lineHeight:1.5}}>{q.question_text.length>42?q.question_text.slice(0,42)+'…':q.question_text}</span>
                         <span style={{fontSize:11,fontWeight:700,color:'var(--green)',flexShrink:0}}>100%</span>
                       </div>
@@ -2084,7 +2084,7 @@ function AdminScreen({ onBack }) {
             return(
               <div className="card" style={{padding:0,overflow:'hidden'}}>
                 <div style={{padding:'14px 16px 10px'}}>
-                  <div style={{fontSize:10,color:'var(--muted)',letterSpacing:2,fontWeight:600,marginBottom:10,textTransform:'uppercase'}}>本月培训完成情况</div>
+                  <div style={{fontSize:11,color:'var(--muted)',letterSpacing:2,fontWeight:600,marginBottom:10,textTransform:'uppercase'}}>本月培训完成情况</div>
                   {(()=>{
                     const notStarted = allMembers.filter(m=>m.total>0 && m.done===0);
                     const ringCol = totalPeople===0 ? 'var(--muted)' : donePeople>=totalPeople ? 'var(--green)' : donePeople===0 ? 'var(--red)' : 'var(--amber)';
@@ -2099,14 +2099,14 @@ function AdminScreen({ onBack }) {
                             ? <div style={{fontSize:12,color:'var(--green)'}}>✓ 无</div>
                             : <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
                                 {notStarted.map(m=>(
-                                  <span key={m.id} style={{fontSize:10,color:'var(--red)',padding:'1px 6px',borderRadius:4,background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.3)',whiteSpace:'nowrap'}}>
+                                  <span key={m.id} style={{fontSize:11,color:'var(--red)',padding:'1px 6px',borderRadius:4,background:'var(--p-red-60-a08)',border:'1px solid var(--p-red-60-a30)',whiteSpace:'nowrap'}}>
                                     {m.name}
                                   </span>
                                 ))}
                               </div>}
                         </div>
                         <svg width={ringSize} height={ringSize} viewBox={`0 0 ${ringSize} ${ringSize}`} style={{flexShrink:0}}>
-                          <circle cx={ringSize/2} cy={ringSize/2} r={r} fill="none" stroke="#1e293b" strokeWidth={ringSize*0.1}/>
+                          <circle cx={ringSize/2} cy={ringSize/2} r={r} fill="none" stroke="var(--p-navy-17)" strokeWidth={ringSize*0.1}/>
                           <circle cx={ringSize/2} cy={ringSize/2} r={r} fill="none" stroke={ringCol} strokeWidth={ringSize*0.1}
                             strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
                             transform={`rotate(-90 ${ringSize/2} ${ringSize/2})`} style={{transition:'stroke-dasharray 0.8s'}}/>
@@ -2117,15 +2117,15 @@ function AdminScreen({ onBack }) {
                       </div>
                     );
                   })()}
-                  <div style={{height:5,background:'#1e293b',borderRadius:3,overflow:'hidden'}}>
-                    <div style={{height:'100%',width:`${pct}%`,background:'linear-gradient(90deg,#3b82f6,#22c55e)',borderRadius:3,transition:'width 0.8s ease'}}/>
+                  <div style={{height:5,background:'var(--p-navy-17)',borderRadius:3,overflow:'hidden'}}>
+                    <div style={{height:'100%',width:`${pct}%`,background:'linear-gradient(90deg,var(--blue),var(--green))',borderRadius:3,transition:'width 0.8s ease'}}/>
                   </div>
                 </div>
                 <div style={{borderTop:'1px solid var(--border)',padding:'10px 12px 12px'}}>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:8}}>
                     {allGroups.map(g=>(
-                      <div key={g.id} style={{background:'rgba(15,33,56,0.6)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px'}}>
-                        <div style={{fontSize:10,color:'#60a5fa',fontWeight:700,marginBottom:6,letterSpacing:0.5}}>{g.name}{g.instructor_name?<span style={{color:'var(--muted)',fontWeight:400,marginLeft:4}}>· {g.instructor_name}</span>:null}</div>
+                      <div key={g.id} style={{background:'var(--p-navy-14-a60)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px'}}>
+                        <div style={{fontSize:11,color:'var(--p-blue-68)',fontWeight:700,marginBottom:6,letterSpacing:0.5}}>{g.name}{g.instructor_name?<span style={{color:'var(--muted)',fontWeight:400,marginLeft:4}}>· {g.instructor_name}</span>:null}</div>
                         <div style={{display:'flex',flexDirection:'column',gap:4}}>
                           {g.members.map(m=>{
                             const isDone=m.total>0&&m.done>=m.total;
@@ -2147,9 +2147,9 @@ function AdminScreen({ onBack }) {
                             return(
                               <div key={m.id} onClick={openMemberModal} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:4,cursor:'pointer',borderRadius:4,padding:'1px 2px',margin:'-1px -2px'}}>
                                 <span style={{fontSize:11,color:isDone?'var(--muted)':'var(--muted)',fontWeight:isDone?400:500,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                                  {m.name}{dateLabel&&<span style={{fontSize:9,color:'var(--muted)',marginLeft:3}}>{dateLabel}</span>}
+                                  {m.name}{dateLabel&&<span style={{fontSize:11,color:'var(--muted)',marginLeft:3}}>{dateLabel}</span>}
                                 </span>
-                                <span style={{fontSize:10,color:scoreCol,fontWeight:700,flexShrink:0}}>
+                                <span style={{fontSize:11,color:scoreCol,fontWeight:700,flexShrink:0}}>
                                   {isNone?'—':`${m.done}/${m.total}`}
                                 </span>
                               </div>
@@ -2160,8 +2160,8 @@ function AdminScreen({ onBack }) {
                     ))}
                   </div>
                   {fixedMembers.length>0&&(
-                    <div style={{marginTop:8,background:'rgba(15,33,56,0.6)',border:'1px solid rgba(196,181,253,0.2)',borderRadius:8,padding:'8px 10px'}}>
-                      <div style={{fontSize:10,color:'#c4b5fd',fontWeight:700,marginBottom:6,letterSpacing:0.5}}>固定成员</div>
+                    <div style={{marginTop:8,background:'var(--p-navy-14-a60)',border:'1px solid var(--p-indigo-85-a20)',borderRadius:8,padding:'8px 10px'}}>
+                      <div style={{fontSize:11,color:'var(--p-indigo-85)',fontWeight:700,marginBottom:6,letterSpacing:0.5}}>固定成员</div>
                       <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
                         {fixedMembers.map(m=>{
                           const isDone=m.total>0&&m.done>=m.total;
@@ -2182,15 +2182,15 @@ function AdminScreen({ onBack }) {
                           const dateLabel=dates.length>0?dates.map(d=>{const p=d.split('-');return`${parseInt(p[1])}/${parseInt(p[2])}`}).join('·'):'';
                           return(
                             <div key={m.id} onClick={openMemberModal} style={{display:'flex',alignItems:'center',gap:4,cursor:'pointer'}}>
-                              <span style={{fontSize:11,color:'var(--muted)'}}>{m.name}{dateLabel&&<span style={{fontSize:9,color:'var(--muted)',marginLeft:3}}>{dateLabel}</span>}</span>
-                              <span style={{fontSize:10,color:scoreCol,fontWeight:700}}>{isNone?'—':`${m.done}/${m.total}`}</span>
+                              <span style={{fontSize:11,color:'var(--muted)'}}>{m.name}{dateLabel&&<span style={{fontSize:11,color:'var(--muted)',marginLeft:3}}>{dateLabel}</span>}</span>
+                              <span style={{fontSize:11,color:scoreCol,fontWeight:700}}>{isNone?'—':`${m.done}/${m.total}`}</span>
                             </div>
                           );
                         })}
                       </div>
                     </div>
                   )}
-                  <div style={{display:'flex',gap:10,marginTop:8,fontSize:9,color:'var(--muted)',flexWrap:'wrap'}}>
+                  <div style={{display:'flex',gap:10,marginTop:8,fontSize:11,color:'var(--muted)',flexWrap:'wrap'}}>
                     <span style={{color:'var(--green)'}}>● 全部完成</span>
                     <span style={{color:'var(--amber)'}}>● 部分完成</span>
                     <span style={{color:'var(--red)'}}>● 未开始</span>
@@ -2203,8 +2203,8 @@ function AdminScreen({ onBack }) {
 
           {/* ── 成员培训评价详情弹窗 ── */}
           {memberEvalModal&&(
-            <div onClick={()=>setMemberEvalModal(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-              <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'var(--input-bg)',border:'1px solid rgba(59,130,246,0.3)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'70vh',overflowY:'auto'}}>
+            <div onClick={()=>setMemberEvalModal(null)} style={{position:'fixed',inset:0,background:'var(--p-black-00-a70)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+              <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'var(--input-bg)',border:'1px solid var(--p-blue-60-a30)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'70vh',overflowY:'auto'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
                   <div>
                     <div style={{fontWeight:700,fontSize:15,color:'var(--text)'}}>{memberEvalModal.name}</div>
@@ -2222,18 +2222,18 @@ function AdminScreen({ onBack }) {
                       {items.map((it,i)=>{
                         const mm_dd = it.done && it.shift_date ? (()=>{const[,mm,dd]=it.shift_date.split('-');return`${parseInt(mm)}/${parseInt(dd)}`;})() : null;
                         return(
-                          <div key={i} style={{padding:'10px 12px',background:it.done?'rgba(34,197,94,0.06)':'rgba(239,68,68,0.04)',border:`1px solid ${it.done?'rgba(34,197,94,0.2)':'rgba(239,68,68,0.15)'}`,borderRadius:8}}>
+                          <div key={i} style={{padding:'10px 12px',background:it.done?'var(--p-green-45-a06)':'var(--p-red-60-a04)',border:`1px solid ${it.done?'var(--p-green-45-a20)':'var(--p-red-60-a15)'}`,borderRadius:8}}>
                             <div style={{display:'flex',alignItems:'center',gap:8}}>
                               <span style={{fontSize:13,flexShrink:0}}>{it.done?'✅':'❌'}</span>
                               <span style={{flex:1,fontSize:12,color:it.done?'var(--text)':'var(--red)',fontWeight:it.done?500:600}}>{it.item}</span>
-                              <span style={{fontSize:10,color:'var(--muted)',flexShrink:0}}>{it.trainType}</span>
-                              {mm_dd&&<span style={{fontSize:10,color:'var(--muted)',flexShrink:0}}>（{mm_dd}）</span>}
+                              <span style={{fontSize:11,color:'var(--muted)',flexShrink:0}}>{it.trainType}</span>
+                              {mm_dd&&<span style={{fontSize:11,color:'var(--muted)',flexShrink:0}}>（{mm_dd}）</span>}
                             </div>
                             {it.done&&it.comment&&(
-                              <div style={{marginTop:5,fontSize:11,color:'var(--muted)',lineHeight:1.6,borderLeft:'2px solid rgba(34,197,94,0.35)',paddingLeft:8}}>评价：{it.comment}</div>
+                              <div style={{marginTop:5,fontSize:11,color:'var(--muted)',lineHeight:1.6,borderLeft:'2px solid var(--p-green-45-a35)',paddingLeft:8}}>评价：{it.comment}</div>
                             )}
                             {it.done&&!it.comment&&(
-                              <div style={{marginTop:3,fontSize:10,color:'var(--muted)',paddingLeft:10}}>（无评语）</div>
+                              <div style={{marginTop:3,fontSize:11,color:'var(--muted)',paddingLeft:10}}>（无评语）</div>
                             )}
                           </div>
                         );
@@ -2247,8 +2247,8 @@ function AdminScreen({ onBack }) {
 
           {/* ── 本月项点详情弹窗 ── */}
           {planDetailModal&&(
-            <div onClick={()=>setPlanDetailModal(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-              <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'var(--input-bg)',border:'1px solid rgba(59,130,246,0.3)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'70vh',overflowY:'auto'}}>
+            <div onClick={()=>setPlanDetailModal(null)} style={{position:'fixed',inset:0,background:'var(--p-black-00-a70)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+              <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'var(--input-bg)',border:'1px solid var(--p-blue-60-a30)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'70vh',overflowY:'auto'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
                   <div>
                     <div style={{fontWeight:700,fontSize:15,color:'var(--text)'}}>{(()=>{const[,m,d]=planDetailModal.shift_date.split('-');return`${parseInt(m)}月${parseInt(d)}日`;})()}</div>
@@ -2260,14 +2260,14 @@ function AdminScreen({ onBack }) {
                   {planDetailModal.members.length===0
                     ? <div style={{color:'var(--muted)',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无成员数据</div>
                     : planDetailModal.members.map((m,i)=>(
-                      <div key={i} style={{padding:'8px 12px',background:m.evaluated?'rgba(34,197,94,0.06)':'rgba(239,68,68,0.05)',border:`1px solid ${m.evaluated?'rgba(34,197,94,0.18)':'rgba(239,68,68,0.12)'}`,borderRadius:8}}>
+                      <div key={i} style={{padding:'8px 12px',background:m.evaluated?'var(--p-green-45-a06)':'var(--p-red-60-a05)',border:`1px solid ${m.evaluated?'var(--p-green-45-a18)':'var(--p-red-60-a12)'}`,borderRadius:8}}>
                         <div style={{display:'flex',alignItems:'center',gap:10}}>
                           <div style={{width:8,height:8,borderRadius:'50%',background:m.evaluated?'var(--green)':'var(--red)',flexShrink:0}}/>
                           <div style={{flex:1,fontSize:13,color:'var(--text)',fontWeight:600}}>{m.name}</div>
                           <div style={{fontSize:11,color:m.evaluated?'var(--green)':'var(--red)'}}>{m.evaluated?'已评价':'未评价'}</div>
                         </div>
                         {m.evaluated&&m.comment&&(
-                          <div style={{marginTop:5,marginLeft:18,fontSize:11,color:'var(--muted)',lineHeight:1.5,borderLeft:'2px solid rgba(34,197,94,0.3)',paddingLeft:8}}>{m.comment}</div>
+                          <div style={{marginTop:5,marginLeft:18,fontSize:11,color:'var(--muted)',lineHeight:1.5,borderLeft:'2px solid var(--p-green-45-a30)',paddingLeft:8}}>{m.comment}</div>
                         )}
                       </div>
                     ))
@@ -2279,20 +2279,20 @@ function AdminScreen({ onBack }) {
 
           {/* ── 班组各类题均分 ── */}
           <div className="card">
-            <div style={{fontSize:10,color:'var(--muted)',letterSpacing:2,fontWeight:600,marginBottom:10,textTransform:'uppercase'}}>班组各类题均分</div>
+            <div style={{fontSize:11,color:'var(--muted)',letterSpacing:2,fontWeight:600,marginBottom:10,textTransform:'uppercase'}}>班组各类题均分</div>
             {overview.catAvg?.map((c,i)=><MiniBar key={i} label={c.category} value={c.avg}/>)}
           </div>
 
           {/* ── 管理员详情 modal（底部弹出） ── */}
           {adminDrillModal&&(
-            <div onClick={()=>setAdminDrillModal(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-              <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'var(--input-bg)',border:'1px solid rgba(59,130,246,0.3)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'75vh',overflowY:'auto'}}>
+            <div onClick={()=>setAdminDrillModal(null)} style={{position:'fixed',inset:0,background:'var(--p-black-00-a70)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+              <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'var(--input-bg)',border:'1px solid var(--p-blue-60-a30)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'75vh',overflowY:'auto'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
                   <div style={{display:'flex',gap:10,alignItems:'flex-start'}}>
-                    <div style={{width:44,height:44,borderRadius:'50%',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'var(--text)',flexShrink:0}}>{adminDrillModal.staffName?.[0]}</div>
+                    <div style={{width:44,height:44,borderRadius:'50%',background:'linear-gradient(135deg,var(--p-navy-25),var(--blue))',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'var(--text)',flexShrink:0}}>{adminDrillModal.staffName?.[0]}</div>
                     <div>
                       <div style={{fontSize:15,fontWeight:700,color:'var(--text)'}}>{adminDrillModal.staffName}</div>
-                      <div style={{fontSize:10,color:'var(--muted)',marginTop:2}}>{adminDrillModal.mode==='cycle'?'本轮答题记录':'本月套班汇总'}</div>
+                      <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{adminDrillModal.mode==='cycle'?'本轮答题记录':'本月套班汇总'}</div>
                     </div>
                   </div>
                   <button onClick={()=>setAdminDrillModal(null)} style={{background:'none',border:'1px solid var(--border)',color:'var(--muted)',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontSize:12,flexShrink:0}}>关闭</button>
@@ -2302,19 +2302,19 @@ function AdminScreen({ onBack }) {
                 {!adminDrillModal.loading&&adminDrillModal.mode==='cycle'&&(<>
                   {adminDrillModal.sessions?.length===0&&<div style={{color:'var(--muted)',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无答题记录</div>}
                   {adminDrillModal.sessions?.map((s,si)=>(
-                    <div key={si} style={{marginBottom:12,background:'rgba(15,38,66,0.6)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px'}}>
+                    <div key={si} style={{marginBottom:12,background:'var(--p-navy-16-a60)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px'}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                         <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
                           <span style={{fontSize:11,color:'var(--muted)'}}>{s.created_at?.slice(5,10)}{s.created_at?.length>=16?` ${s.created_at.slice(11,16)}`:''}{s.cycle_label?` · ${s.cycle_label}`:''}</span>
-                          {s.tab_switch_count>0&&<span style={{fontSize:10,color:'var(--red)',background:'rgba(239,68,68,0.12)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
+                          {s.tab_switch_count>0&&<span style={{fontSize:11,color:'var(--red)',background:'var(--p-red-60-a12)',border:'1px solid var(--p-red-60-a30)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
                         </div>
                         <div style={{display:'flex',gap:8,alignItems:'center'}}>
                           <span style={{fontSize:12,fontWeight:700,color:'var(--text)'}}>{Math.round(s.total_score)}分</span>
-                          <button onClick={async()=>{if(!window.confirm(`确认删除这条成绩？`))return;const r=await apiJson(`/api/admin/sessions/staff/${adminDrillModal.staffId}?cycle_id=${overview.cycle?.id}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);if(r?.ok){apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});setAdminDrillModal(null);}}} style={{fontSize:9,padding:'2px 6px',borderRadius:4,border:'1px solid rgba(239,68,68,0.3)',background:'none',color:'var(--red)',cursor:'pointer'}}>删除</button>
+                          <button onClick={async()=>{if(!window.confirm(`确认删除这条成绩？`))return;const r=await apiJson(`/api/admin/sessions/staff/${adminDrillModal.staffId}?cycle_id=${overview.cycle?.id}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);if(r?.ok){apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});setAdminDrillModal(null);}}} style={{fontSize:11,padding:'2px 6px',borderRadius:4,border:'1px solid var(--p-red-60-a30)',background:'none',color:'var(--red)',cursor:'pointer'}}>删除</button>
                         </div>
                       </div>
                       {s.answers?.map((a,ai)=>(
-                        <div key={ai} style={{padding:'6px 0',borderTop:'1px solid rgba(27,50,85,0.5)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                        <div key={ai} style={{padding:'6px 0',borderTop:'1px solid var(--p-navy-22-a50)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
                           <span style={{fontSize:11,color:'var(--text)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
                           <span style={{fontSize:12,fontWeight:700,flexShrink:0,color:a.score>=99?'var(--green)':a.score>=67?'var(--amber)':'var(--red)'}}>{Math.round(a.score/(s.answers.length||3))}</span>
                         </div>
@@ -2328,29 +2328,29 @@ function AdminScreen({ onBack }) {
                   {adminDrillModal.cycles?.map((cy,ci)=>{
                     const cyExp=adminDrillModal.expandedCycleId===cy.cycle_id;
                     return(
-                      <div key={ci} style={{marginBottom:10,background:'rgba(15,38,66,0.6)',border:'1px solid var(--border)',borderRadius:10,overflow:'hidden'}}>
+                      <div key={ci} style={{marginBottom:10,background:'var(--p-navy-16-a60)',border:'1px solid var(--border)',borderRadius:10,overflow:'hidden'}}>
                         <div onClick={()=>setAdminDrillModal(m=>({...m,expandedCycleId:cyExp?null:cy.cycle_id}))} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',cursor:'pointer'}}>
                           <div style={{flex:1}}>
                             <div style={{fontSize:13,fontWeight:600,color:'var(--text)'}}>{cy.cycle_label||cy.cycle_id||'—'}</div>
-                            <div style={{fontSize:9,color:'var(--muted)',marginTop:2}}>{cy.sessions_count}次答题</div>
+                            <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{cy.sessions_count}次答题</div>
                           </div>
                           <span style={{fontSize:13,fontWeight:700,color:'var(--gold)'}}>{cy.total_points}分</span>
-                          <span style={{fontSize:15,color:'#60a5fa',display:'inline-block',transform:cyExp?'rotate(180deg)':'none',transition:'transform 0.2s'}}>⌄</span>
+                          <span style={{fontSize:15,color:'var(--p-blue-68)',display:'inline-block',transform:cyExp?'rotate(180deg)':'none',transition:'transform 0.2s'}}>⌄</span>
                         </div>
                         {cyExp&&cy.sessions?.map((s,si)=>(
-                          <div key={si} style={{borderTop:'1px solid rgba(27,50,85,0.4)',padding:'10px 14px',background:'rgba(7,20,40,0.4)'}}>
+                          <div key={si} style={{borderTop:'1px solid var(--p-navy-22-a40)',padding:'10px 14px',background:'var(--p-navy-09-a40)'}}>
                             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                               <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
-                                <span style={{fontSize:10,color:'var(--muted)'}}>{s.created_at?.slice(5,10)}{s.created_at?.length>=16?` ${s.created_at.slice(11,16)}`:''}</span>
-                                {s.tab_switch_count>0&&<span style={{fontSize:10,color:'var(--red)',background:'rgba(239,68,68,0.12)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
+                                <span style={{fontSize:11,color:'var(--muted)'}}>{s.created_at?.slice(5,10)}{s.created_at?.length>=16?` ${s.created_at.slice(11,16)}`:''}</span>
+                                {s.tab_switch_count>0&&<span style={{fontSize:11,color:'var(--red)',background:'var(--p-red-60-a12)',border:'1px solid var(--p-red-60-a30)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
                               </div>
                               <div style={{display:'flex',gap:6,alignItems:'center'}}>
                                 <span style={{fontSize:11,fontWeight:700,color:'var(--text)'}}>{Math.round(s.total_score)}分</span>
                               </div>
                             </div>
                             {s.answers?.map((a,ai)=>(
-                              <div key={ai} style={{padding:'5px 0',borderTop:'1px solid rgba(27,50,85,0.4)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
-                                <span style={{fontSize:10,color:'var(--muted)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
+                              <div key={ai} style={{padding:'5px 0',borderTop:'1px solid var(--p-navy-22-a40)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                                <span style={{fontSize:11,color:'var(--muted)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
                                 <span style={{fontSize:11,fontWeight:700,flexShrink:0,color:a.score>=99?'var(--green)':a.score>=67?'var(--amber)':'var(--red)'}}>{Math.round(a.score/(s.answers.length||3))}</span>
                               </div>
                             ))}
@@ -2369,13 +2369,13 @@ function AdminScreen({ onBack }) {
             const AdminLbCol = ({title, rows, mode, collapsed, setCollapsed})=>{
               const shown = collapsed ? rows.slice(0,3) : rows;
               const badges = r => (<>
-                {r.is_leader?<span style={{fontSize:8,padding:'1px 4px',borderRadius:6,background:'rgba(234,179,8,0.15)',border:'1px solid rgba(234,179,8,0.4)',color:'#fbbf24',flexShrink:0}}>组长</span>:null}
-                {r.is_exempt&&!r.is_leader?<span style={{fontSize:8,padding:'1px 4px',borderRadius:6,background:'rgba(245,158,11,0.15)',border:'1px solid rgba(245,158,11,0.4)',color:'var(--amber)',flexShrink:0}}>免答</span>:null}
-                {r.is_instructor?<span style={{fontSize:8,padding:'1px 4px',borderRadius:6,background:'rgba(99,102,241,0.15)',border:'1px solid rgba(99,102,241,0.4)',color:'#a5b4fc',flexShrink:0}}>教员</span>:null}
+                {r.is_leader?<span style={{fontSize:11,padding:'1px 4px',borderRadius:6,background:'var(--p-amber-47-a15)',border:'1px solid var(--p-amber-47-a40)',color:'var(--p-amber-56)',flexShrink:0}}>组长</span>:null}
+                {r.is_exempt&&!r.is_leader?<span style={{fontSize:11,padding:'1px 4px',borderRadius:6,background:'var(--p-amber-50-a15)',border:'1px solid var(--p-amber-50-a40)',color:'var(--amber)',flexShrink:0}}>免答</span>:null}
+                {r.is_instructor?<span style={{fontSize:11,padding:'1px 4px',borderRadius:6,background:'var(--p-indigo-67-a15)',border:'1px solid var(--p-indigo-67-a40)',color:'var(--p-blue-82)',flexShrink:0}}>教员</span>:null}
               </>);
               return (
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:10,color:'var(--muted)',fontWeight:600,letterSpacing:1,marginBottom:8}}>{title}</div>
+                  <div style={{fontSize:11,color:'var(--muted)',fontWeight:600,letterSpacing:1,marginBottom:8}}>{title}</div>
                   {shown.map((r,i)=>{
                     const pts=r.total_points??0;
                     return(
@@ -2388,8 +2388,8 @@ function AdminScreen({ onBack }) {
                           const d=await apiJson(`/api/admin/leaderboard/alltime/cycles/${r.staff_id}`,{headers:hdrs()}).catch(()=>null);
                           setAdminDrillModal(m=>({...m,loading:false,cycles:d?.cycles||[]}));
                         }
-                      }} style={{display:'flex',alignItems:'center',gap:5,padding:'5px 0',borderBottom:i<shown.length-1?'1px solid rgba(27,50,85,0.5)':'none',cursor:'pointer'}}>
-                        <span style={{fontSize:i<3?12:10,width:16,textAlign:'center',flexShrink:0,color:['#ffd700','#b0b8c8','#cd7f32'][i]||'var(--muted)'}}>
+                      }} style={{display:'flex',alignItems:'center',gap:5,padding:'5px 0',borderBottom:i<shown.length-1?'1px solid var(--p-navy-22-a50)':'none',cursor:'pointer'}}>
+                        <span style={{fontSize:i<3?12:10,width:16,textAlign:'center',flexShrink:0,color:['var(--p-amber-50-h051)','var(--p-blue-74)','var(--p-amber-50)'][i]||'var(--muted)'}}>
                           {['🥇','🥈','🥉'][i]||(i+1)}
                         </span>
                         <span style={{flex:1,fontSize:11,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.staff_name}</span>
@@ -2399,7 +2399,7 @@ function AdminScreen({ onBack }) {
                     );
                   })}
                   {rows.length>3&&(
-                    <div onClick={()=>setCollapsed(c=>!c)} style={{textAlign:'center',marginTop:6,fontSize:11,color:'#60a5fa',cursor:'pointer',fontWeight:600}}>
+                    <div onClick={()=>setCollapsed(c=>!c)} style={{textAlign:'center',marginTop:6,fontSize:11,color:'var(--p-blue-68)',cursor:'pointer',fontWeight:600}}>
                       {collapsed?`全部 ${rows.length} 人 ▼`:'收起 ▲'}
                     </div>
                   )}
@@ -2408,10 +2408,10 @@ function AdminScreen({ onBack }) {
             };
             return (
               <div className="card">
-                <div style={{fontSize:10,color:'var(--muted)',letterSpacing:2,fontWeight:600,marginBottom:12}}>积分榜</div>
+                <div style={{fontSize:11,color:'var(--muted)',letterSpacing:2,fontWeight:600,marginBottom:12}}>积分榜</div>
                 <div style={{display:'flex',gap:12}}>
                   <AdminLbCol title="本轮" rows={lbSessions} mode="cycle" collapsed={lbCollapsed} setCollapsed={setLbCollapsed}/>
-                  <div style={{width:1,background:'rgba(27,50,85,0.6)'}}/>
+                  <div style={{width:1,background:'var(--p-navy-22-a60)'}}/>
                   <AdminLbCol title="本月" rows={lbSessionsAlltime} mode="alltime" collapsed={lbCollapsed} setCollapsed={setLbCollapsed}/>
                 </div>
               </div>
@@ -2426,8 +2426,8 @@ function AdminScreen({ onBack }) {
 
           {/* 导出弹窗 */}
           {showExportMenu==='open'&&(
-            <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={()=>{setShowExportMenu(null);setExportWsModal(null);setWsMultiMonthSel(null);}}>
-              <div style={{background:'#0a1929',borderRadius:'14px 14px 0 0',width:'100%',maxWidth:480,maxHeight:'80vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+            <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a75)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={()=>{setShowExportMenu(null);setExportWsModal(null);setWsMultiMonthSel(null);}}>
+              <div style={{background:'var(--p-navy-10)',borderRadius:'14px 14px 0 0',width:'100%',maxWidth:480,maxHeight:'80vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
                 {/* 顶栏 */}
                 <div style={{padding:'14px 16px 10px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
                   <span style={{fontWeight:700,color:'var(--text)',fontSize:15}}>📊 导出记录</span>
@@ -2441,28 +2441,28 @@ function AdminScreen({ onBack }) {
                       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
                         <span style={{fontSize:11,color:'var(--muted)',fontWeight:600,letterSpacing:1}}>📋 抽问记录</span>
                         <div style={{display:'flex',gap:6,alignItems:'center'}}>
-                          <button onClick={()=>{const allM=new Set(exportMonths);setQuizExportSel(quizExportSel.size===exportMonths.length?new Set():allM);}} style={{padding:'3px 8px',borderRadius:4,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontSize:10,fontFamily:'inherit'}}>
+                          <button onClick={()=>{const allM=new Set(exportMonths);setQuizExportSel(quizExportSel.size===exportMonths.length?new Set():allM);}} style={{padding:'3px 8px',borderRadius:4,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>
                             {quizExportSel.size===exportMonths.length&&exportMonths.length>0?'取消全选':'全选'}
                           </button>
                           <button onClick={()=>{if(!quizExportSel.size)return;const ms=[...quizExportSel].sort().join(',');window.open(`/api/export/multi?password=${encodeURIComponent(pwd)}&months=${ms}`,'_blank');}}
                             disabled={!quizExportSel.size}
-                            style={{padding:'3px 10px',borderRadius:4,border:'none',background:quizExportSel.size?'var(--blue)':'var(--border)',color:quizExportSel.size?'white':'var(--muted)',cursor:quizExportSel.size?'pointer':'default',fontSize:10,fontWeight:600,fontFamily:'inherit'}}>
+                            style={{padding:'3px 10px',borderRadius:4,border:'none',background:quizExportSel.size?'var(--blue)':'var(--border)',color:quizExportSel.size?'white':'var(--muted)',cursor:quizExportSel.size?'pointer':'default',fontSize:11,fontWeight:600,fontFamily:'inherit'}}>
                             ↓ 合并导出{quizExportSel.size?` (${quizExportSel.size}月)`:''}
                           </button>
                         </div>
                       </div>
-                      <div style={{background:'var(--input-bg)',border:'1px solid rgba(59,130,246,0.25)',borderRadius:8,overflow:'hidden'}}>
+                      <div style={{background:'var(--input-bg)',border:'1px solid var(--p-blue-60-a25)',borderRadius:8,overflow:'hidden'}}>
                         {exportMonths.length===0&&<div style={{padding:'12px 14px',fontSize:12,color:'var(--muted)'}}>暂无数据</div>}
                         {exportMonths.map(m=>{
                           const sel=quizExportSel.has(m);
                           return (
                             <div key={m} onClick={()=>{const next=new Set(quizExportSel);sel?next.delete(m):next.add(m);setQuizExportSel(next);}}
-                              style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderTop:'1px solid rgba(27,50,85,0.5)',cursor:'pointer',background:sel?'rgba(59,130,246,0.08)':'transparent'}}>
-                              <div style={{width:15,height:15,borderRadius:3,border:`2px solid ${sel?'var(--blue)':'#334155'}`,background:sel?'var(--blue)':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-                                {sel&&<span style={{color:'var(--text)',fontSize:9,fontWeight:700,lineHeight:1}}>✓</span>}
+                              style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderTop:'1px solid var(--p-navy-22-a50)',cursor:'pointer',background:sel?'var(--p-blue-60-a08)':'transparent'}}>
+                              <div style={{width:15,height:15,borderRadius:3,border:`2px solid ${sel?'var(--blue)':'var(--p-blue-27)'}`,background:sel?'var(--blue)':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                                {sel&&<span style={{color:'var(--text)',fontSize:11,fontWeight:700,lineHeight:1}}>✓</span>}
                               </div>
                               <span style={{fontSize:13,color:'var(--text)',flex:1}}>{m}</span>
-                              <a href={`/api/export?password=${encodeURIComponent(pwd)}&month=${m}`} target="_blank" onClick={e=>e.stopPropagation()} style={{fontSize:10,color:'var(--muted)',textDecoration:'none',padding:'2px 6px',borderRadius:3,border:'1px solid var(--border)'}}>单月↓</a>
+                              <a href={`/api/export?password=${encodeURIComponent(pwd)}&month=${m}`} target="_blank" onClick={e=>e.stopPropagation()} style={{fontSize:11,color:'var(--muted)',textDecoration:'none',padding:'2px 6px',borderRadius:3,border:'1px solid var(--border)'}}>单月↓</a>
                             </div>
                           );
                         })}
@@ -2481,14 +2481,14 @@ function AdminScreen({ onBack }) {
                           const active=months.includes(curMonth)?curMonth:(months[0]||curMonth);
                           const mp=allPlans.filter(p=>p.year_month===active);
                           setExportWsModal({plans:allPlans,months,activeMonth:active,selected:new Set(mp.map(p=>p.id)),showMonthPicker:false,loading:false});
-                        }} style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid rgba(34,197,94,0.3)',background:'rgba(34,197,94,0.06)',color:'#4ade80',cursor:'pointer',fontSize:13,fontWeight:600,fontFamily:'inherit'}}>
+                        }} style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid var(--p-green-45-a30)',background:'var(--p-green-45-a06)',color:'var(--p-green-58)',cursor:'pointer',fontSize:13,fontWeight:600,fontFamily:'inherit'}}>
                           按场次导出 →
                         </button>
                         <button onClick={async()=>{
                           const wsMths=await apiJson('/api/export/workshop/months',{headers:hdrs()}).catch(()=>[]);
                           const ms=Array.isArray(wsMths)?wsMths:[];
                           setWsMultiMonthSel({months:ms,selected:new Set()});
-                        }} style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid rgba(251,191,36,0.3)',background:'rgba(251,191,36,0.06)',color:'#fbbf24',cursor:'pointer',fontSize:13,fontWeight:600,fontFamily:'inherit'}}>
+                        }} style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid var(--p-amber-56-a30)',background:'var(--p-amber-56-a06)',color:'var(--p-amber-56)',cursor:'pointer',fontSize:13,fontWeight:600,fontFamily:'inherit'}}>
                           跨月合并 →
                         </button>
                       </div>
@@ -2503,18 +2503,18 @@ function AdminScreen({ onBack }) {
                   const doExport=()=>{if(!sel.size)return;const ms=[...sel].sort().join(',');window.open(`/api/export/workshop?password=${encodeURIComponent(pwd)}&months=${ms}`,'_blank');};
                   return (<>
                     <div style={{padding:'8px 14px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
-                      <button onClick={()=>setWsMultiMonthSel(null)} style={{background:'none',border:'none',color:'#60a5fa',fontSize:13,cursor:'pointer',padding:0,marginRight:4}}>← 返回</button>
+                      <button onClick={()=>setWsMultiMonthSel(null)} style={{background:'none',border:'none',color:'var(--p-blue-68)',fontSize:13,cursor:'pointer',padding:0,marginRight:4}}>← 返回</button>
                       <span style={{fontSize:13,color:'var(--text)',flex:1,fontWeight:600}}>培训记录跨月合并</span>
                       <button onClick={()=>setWsMultiMonthSel(prev=>({...prev,selected:allSel?new Set():new Set(months)}))} style={{padding:'5px 8px',borderRadius:5,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>{allSel?'取消全选':'全选'}</button>
-                      <button onClick={doExport} disabled={!sel.size} style={{padding:'5px 12px',borderRadius:5,border:'none',background:sel.size?'#fbbf24':'var(--border)',color:sel.size?'#1a1000':'var(--muted)',cursor:sel.size?'pointer':'default',fontSize:11,fontWeight:600,fontFamily:'inherit'}}>↓ 导出{sel.size?` (${sel.size}月)`:''}</button>
+                      <button onClick={doExport} disabled={!sel.size} style={{padding:'5px 12px',borderRadius:5,border:'none',background:sel.size?'var(--p-amber-56)':'var(--border)',color:sel.size?'var(--p-amber-05)':'var(--muted)',cursor:sel.size?'pointer':'default',fontSize:11,fontWeight:600,fontFamily:'inherit'}}>↓ 导出{sel.size?` (${sel.size}月)`:''}</button>
                     </div>
                     <div style={{flex:1,overflowY:'auto'}}>
                       <div style={{padding:'8px 14px',fontSize:11,color:'var(--muted)'}}>每个月生成一个 Sheet，含培训日程和出勤人数</div>
                       {months.length===0&&<div style={{textAlign:'center',color:'var(--muted)',padding:'28px 0',fontSize:13}}>暂无数据</div>}
                       {months.map(m=>(
-                        <div key={m} onClick={()=>toggleM(m)} style={{display:'flex',alignItems:'center',gap:10,padding:'11px 14px',borderBottom:'1px solid rgba(27,50,85,0.35)',cursor:'pointer',background:sel.has(m)?'rgba(251,191,36,0.06)':'transparent'}}>
-                          <div style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel.has(m)?'#fbbf24':'#334155'}`,background:sel.has(m)?'#fbbf24':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-                            {sel.has(m)&&<span style={{color:'#1a1000',fontSize:10,fontWeight:700,lineHeight:1}}>✓</span>}
+                        <div key={m} onClick={()=>toggleM(m)} style={{display:'flex',alignItems:'center',gap:10,padding:'11px 14px',borderBottom:'1px solid var(--p-navy-22-a35)',cursor:'pointer',background:sel.has(m)?'var(--p-amber-56-a06)':'transparent'}}>
+                          <div style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel.has(m)?'var(--p-amber-56)':'var(--p-blue-27)'}`,background:sel.has(m)?'var(--p-amber-56)':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                            {sel.has(m)&&<span style={{color:'var(--p-amber-05)',fontSize:11,fontWeight:700,lineHeight:1}}>✓</span>}
                           </div>
                           <span style={{fontSize:13,color:'var(--text)'}}>{m}</span>
                         </div>
@@ -2531,33 +2531,33 @@ function AdminScreen({ onBack }) {
                   const toggleAll=()=>{const next=new Set(sel);if(allSel)monthPlans.forEach(p=>next.delete(p.id));else monthPlans.forEach(p=>next.add(p.id));setExportWsModal(prev=>({...prev,selected:next}));};
                   const toggleOne=id=>{const next=new Set(sel);next.has(id)?next.delete(id):next.add(id);setExportWsModal(prev=>({...prev,selected:next}));};
                   const doExport=()=>{if(!sel.size)return;const ids=[...sel].join(',');window.open(`/api/export/workshop?password=${encodeURIComponent(pwd)}&ids=${ids}`,'_blank');};
-                  const typeColor=t=>t==='中旬会'?'var(--amber)':t==='理论'?'#38bdf8':'#34d399';
+                  const typeColor=t=>t==='中旬会'?'var(--amber)':t==='理论'?'var(--p-cyan-60)':'var(--p-green-52)';
                   return (<>
                     <div style={{padding:'8px 14px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
-                      <button onClick={()=>setExportWsModal(null)} style={{background:'none',border:'none',color:'#60a5fa',fontSize:13,cursor:'pointer',padding:0,marginRight:4}}>← 返回</button>
+                      <button onClick={()=>setExportWsModal(null)} style={{background:'none',border:'none',color:'var(--p-blue-68)',fontSize:13,cursor:'pointer',padding:0,marginRight:4}}>← 返回</button>
                       <div style={{position:'relative',flex:1}}>
                         <button onClick={()=>setExportWsModal(prev=>({...prev,showMonthPicker:!prev.showMonthPicker}))} style={{padding:'5px 10px',borderRadius:5,border:`1px solid ${showMonthPicker?'var(--blue)':'var(--border)'}`,background:'transparent',color:'var(--text)',cursor:'pointer',fontSize:12,fontFamily:'inherit'}}>
                           {activeMonth||'…'} ▾
                         </button>
                         {showMonthPicker&&(
-                          <div style={{position:'absolute',top:'calc(100% + 4px)',left:0,background:'#0a1929',border:'1px solid rgba(59,130,246,0.4)',borderRadius:7,overflow:'hidden',zIndex:20,boxShadow:'0 4px 20px rgba(0,0,0,0.6)',minWidth:110}}>
-                            {months.map(m=><div key={m} onClick={()=>switchMonth(m)} style={{padding:'8px 12px',fontSize:12,color:m===activeMonth?'#60a5fa':'var(--text)',background:m===activeMonth?'rgba(59,130,246,0.1)':'transparent',cursor:'pointer',borderTop:'1px solid rgba(27,50,85,0.4)'}}>{m}</div>)}
+                          <div style={{position:'absolute',top:'calc(100% + 4px)',left:0,background:'var(--p-navy-10)',border:'1px solid var(--p-blue-60-a40)',borderRadius:7,overflow:'hidden',zIndex:20,boxShadow:'0 4px 20px var(--p-black-00-a60)',minWidth:110}}>
+                            {months.map(m=><div key={m} onClick={()=>switchMonth(m)} style={{padding:'8px 12px',fontSize:12,color:m===activeMonth?'var(--p-blue-68)':'var(--text)',background:m===activeMonth?'var(--p-blue-60-a10)':'transparent',cursor:'pointer',borderTop:'1px solid var(--p-navy-22-a40)'}}>{m}</div>)}
                           </div>
                         )}
                       </div>
                       <button onClick={toggleAll} style={{padding:'5px 8px',borderRadius:5,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>{allSel?'取消全选':'全选'}</button>
-                      <button onClick={doExport} disabled={!sel.size} style={{padding:'5px 12px',borderRadius:5,border:'none',background:sel.size?'var(--green)':'var(--border)',color:sel.size?'#022c16':'var(--muted)',cursor:sel.size?'pointer':'default',fontSize:11,fontWeight:600,fontFamily:'inherit'}}>↓ 导出{sel.size?` (${sel.size})`:''}</button>
+                      <button onClick={doExport} disabled={!sel.size} style={{padding:'5px 12px',borderRadius:5,border:'none',background:sel.size?'var(--green)':'var(--border)',color:sel.size?'var(--p-green-09)':'var(--muted)',cursor:sel.size?'pointer':'default',fontSize:11,fontWeight:600,fontFamily:'inherit'}}>↓ 导出{sel.size?` (${sel.size})`:''}</button>
                     </div>
                     <div style={{flex:1,overflowY:'auto'}}>
                       {loading&&<div style={{textAlign:'center',color:'var(--muted)',padding:'28px 0',fontSize:13}}>加载中…</div>}
                       {!loading&&monthPlans.length===0&&<div style={{textAlign:'center',color:'var(--muted)',padding:'28px 0',fontSize:13}}>该月暂无培训计划</div>}
                       {monthPlans.map(p=>(
-                        <div key={p.id} onClick={()=>toggleOne(p.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderBottom:'1px solid rgba(27,50,85,0.35)',cursor:'pointer',background:sel.has(p.id)?'rgba(34,197,94,0.05)':'transparent'}}>
-                          <div style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel.has(p.id)?'var(--green)':'#334155'}`,background:sel.has(p.id)?'var(--green)':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-                            {sel.has(p.id)&&<span style={{color:'#022c16',fontSize:10,fontWeight:700,lineHeight:1}}>✓</span>}
+                        <div key={p.id} onClick={()=>toggleOne(p.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderBottom:'1px solid var(--p-navy-22-a35)',cursor:'pointer',background:sel.has(p.id)?'var(--p-green-45-a05)':'transparent'}}>
+                          <div style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel.has(p.id)?'var(--green)':'var(--p-blue-27)'}`,background:sel.has(p.id)?'var(--green)':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                            {sel.has(p.id)&&<span style={{color:'var(--p-green-09)',fontSize:11,fontWeight:700,lineHeight:1}}>✓</span>}
                           </div>
                           <span style={{fontSize:12,color:'var(--muted)',width:36,flexShrink:0}}>{p.shift_date?.slice(5)}</span>
-                          <span style={{fontSize:10,padding:'1px 5px',borderRadius:3,border:`1px solid ${typeColor(p.plan_type)}55`,color:typeColor(p.plan_type),flexShrink:0}}>{p.plan_type}</span>
+                          <span style={{fontSize:11,padding:'1px 5px',borderRadius:3,border:`1px solid ${typeColor(p.plan_type)}55`,color:typeColor(p.plan_type),flexShrink:0}}>{p.plan_type}</span>
                           <span style={{fontSize:12,color:'var(--muted)',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.group_name||''}{p.instructor_name?` · ${p.instructor_name}`:''}</span>
                         </div>
                       ))}
@@ -2572,7 +2572,7 @@ function AdminScreen({ onBack }) {
             const r=await apiJson('/api/admin/sessions/today',{method:'DELETE',headers:hdrs()}).catch(()=>null);
             if(r?.ok){alert(`已清除今日 ${r.deleted} 条记录`);apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/weak-questions',{headers:hdrs()}).then(setWeakQuestions).catch(()=>{});const ep=lbMode==='alltime'?'/api/admin/leaderboard/alltime':'/api/admin/leaderboard/cycle';apiJson(ep,{headers:hdrs()}).then(d=>setLbSessions(d.rows||d||[])).catch(()=>{});}
             else alert('清除失败');
-          }} style={{width:'100%',marginTop:8,padding:'13px',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:8,color:'var(--red)',fontSize:13,fontWeight:600,cursor:'pointer'}}>🗑 清除今日答题数据</button>
+          }} style={{width:'100%',marginTop:8,padding:'13px',background:'var(--p-red-60-a10)',border:'1px solid var(--p-red-60-a30)',borderRadius:8,color:'var(--red)',fontSize:13,fontWeight:600,cursor:'pointer'}}>🗑 清除今日答题数据</button>
         </>}
 
         {tab==='members'&&<MembersTab members={members} pwd={pwd} onRefresh={()=>apiJson('/api/admin/members',{headers:hdrs()}).then(setMembers).catch(()=>{})} selectedMember={selectedMember} setSelectedMember={setSelectedMember} memberDetail={memberDetail} loadMemberDetail={loadMemberDetail}/>}
@@ -2580,9 +2580,9 @@ function AdminScreen({ onBack }) {
         {tab==='banks'&&<>
 
           {/* 子导航 */}
-          <div style={{display:'flex',gap:3,marginBottom:12,background:'rgba(13,17,23,0.6)',borderRadius:9,padding:3,border:'1px solid var(--border)'}}>
+          <div style={{display:'flex',gap:3,marginBottom:12,background:'var(--p-navy-07-a60)',borderRadius:9,padding:3,border:'1px solid var(--border)'}}>
             {[['quiz','📋 本套班选题'],['manage','📚 题库管理']].map(([k,label])=>(
-              <button key={k} onClick={()=>setBankSubTab(k)} style={{flex:1,padding:'8px 4px',borderRadius:7,border:'none',background:bankSubTab===k?'var(--card)':'transparent',color:bankSubTab===k?'var(--text)':'var(--muted)',fontSize:12,fontWeight:bankSubTab===k?700:400,cursor:'pointer',fontFamily:'inherit',boxShadow:bankSubTab===k?'0 1px 4px rgba(0,0,0,0.4)':'none'}}>
+              <button key={k} onClick={()=>setBankSubTab(k)} style={{flex:1,padding:'8px 4px',borderRadius:7,border:'none',background:bankSubTab===k?'var(--card)':'transparent',color:bankSubTab===k?'var(--text)':'var(--muted)',fontSize:12,fontWeight:bankSubTab===k?700:400,cursor:'pointer',fontFamily:'inherit',boxShadow:bankSubTab===k?'0 1px 4px var(--p-black-00-a40)':'none'}}>
                 {label}
               </button>
             ))}
@@ -2634,17 +2634,17 @@ function AdminScreen({ onBack }) {
               <div className="card">
                 <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,fontWeight:600,marginBottom:6,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <span>📌 本套班抽问题目</span>
-                  {qPinned.cycle?.label && <span style={{fontSize:10,color:'rgba(96,165,250,0.7)',fontWeight:400}}>本套班：{qPinned.cycle.label}</span>}
+                  {qPinned.cycle?.label && <span style={{fontSize:11,color:'var(--p-blue-68-a70)',fontWeight:400}}>本套班：{qPinned.cycle.label}</span>}
                 </div>
                 {!isActive && (
-                  <div style={{marginBottom:12,padding:'8px 12px',background:'rgba(148,163,184,0.06)',border:'1px solid rgba(148,163,184,0.18)',borderRadius:8,fontSize:11,color:'var(--muted)'}}>
+                  <div style={{marginBottom:12,padding:'8px 12px',background:'var(--p-blue-65-a06)',border:'1px solid var(--p-blue-65-a18)',borderRadius:8,fontSize:11,color:'var(--muted)'}}>
                     ⏳ 本套班尚未发布抽问题目{qPinned.stale && <span style={{color:'var(--muted)',marginLeft:6}}>（上套班 {qPinned.stale.created_date} 设置已失效）</span>}
                   </div>
                 )}
 
                 {/* 当前生效状态 */}
                 {isActive&&(
-                  <div style={{marginBottom:12,padding:'8px 12px',background:isCycleOver?'rgba(100,116,139,0.07)':'rgba(34,197,94,0.07)',border:`1px solid ${isCycleOver?'rgba(100,116,139,0.25)':'rgba(34,197,94,0.2)'}`,borderRadius:8,fontSize:11,color:isCycleOver?'var(--muted)':'#86efac'}}>
+                  <div style={{marginBottom:12,padding:'8px 12px',background:isCycleOver?'var(--p-blue-47-a07)':'var(--p-green-45-a07)',border:`1px solid ${isCycleOver?'var(--p-blue-47-a25)':'var(--p-green-45-a20)'}`,borderRadius:8,fontSize:11,color:isCycleOver?'var(--muted)':'var(--p-green-73)'}}>
                     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:6}}>
                       <span>
                         {isCycleOver?'🔒 本套班已结束：':'✅ 当前已设置：'}
@@ -2652,7 +2652,7 @@ function AdminScreen({ onBack }) {
                       </span>
                       {!isCycleOver&&(
                         <span style={{display:'flex',gap:10,flexShrink:0}}>
-                          <button onClick={()=>setPinFormOpen(o=>!o)} style={{background:'none',border:'none',color:'#60a5fa',cursor:'pointer',fontSize:11,padding:0}}>{pinFormOpen?'▲ 收起':'修改设置'}</button>
+                          <button onClick={()=>setPinFormOpen(o=>!o)} style={{background:'none',border:'none',color:'var(--p-blue-68)',cursor:'pointer',fontSize:11,padding:0}}>{pinFormOpen?'▲ 收起':'修改设置'}</button>
                           <button onClick={()=>setPinCancelModal(true)} style={{background:'none',border:'none',color:'var(--red)',cursor:'pointer',fontSize:11,padding:0}}>取消发布</button>
                         </span>
                       )}
@@ -2661,7 +2661,7 @@ function AdminScreen({ onBack }) {
                       const stamp = qPinned.created_at || qPinned.created_date;
                       const isToday = stamp.startsWith(todayStr);
                       return (
-                        <div style={{marginTop:4,fontSize:10,color:isCycleOver?'var(--muted)':isToday?'rgba(134,239,172,0.7)':'var(--amber)'}}>
+                        <div style={{marginTop:4,fontSize:11,color:isCycleOver?'var(--muted)':isToday?'var(--p-green-73-a70)':'var(--amber)'}}>
                           📅 发布于 {stamp}{!isCycleOver&&!isToday&&' （非今日设置，注意核对）'}
                         </div>
                       );
@@ -2676,13 +2676,13 @@ function AdminScreen({ onBack }) {
                   return (
                     <div style={{marginBottom:4}}>
                       {qs.map((q,i)=>(
-                        <div key={q.id||i} style={{marginBottom:10,padding:'10px 12px',background:'rgba(13,17,23,0.5)',border:'1px solid rgba(59,130,246,0.15)',borderRadius:8}}>
+                        <div key={q.id||i} style={{marginBottom:10,padding:'10px 12px',background:'var(--p-navy-07-a50)',border:'1px solid var(--p-blue-60-a15)',borderRadius:8}}>
                           <div style={{display:'flex',gap:8,alignItems:'flex-start'}}>
-                            <span style={{width:20,height:20,borderRadius:'50%',background:'rgba(59,130,246,0.2)',border:'1px solid rgba(59,130,246,0.4)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:11,color:'#60a5fa',fontWeight:700,marginTop:1}}>{i+1}</span>
+                            <span style={{width:20,height:20,borderRadius:'50%',background:'var(--p-blue-60-a20)',border:'1px solid var(--p-blue-60-a40)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:11,color:'var(--p-blue-68)',fontWeight:700,marginTop:1}}>{i+1}</span>
                             <div style={{flex:1,minWidth:0}}>
                               <div style={{fontSize:12,color:'var(--text)',lineHeight:1.5,marginBottom:6}}>{q.text}</div>
-                              <div style={{fontSize:11,color:'var(--muted)',lineHeight:1.5,borderTop:'1px solid rgba(59,130,246,0.1)',paddingTop:6}}>
-                                <span style={{color:'rgba(96,165,250,0.6)',fontWeight:600,marginRight:4}}>参考：</span>{q.reference}
+                              <div style={{fontSize:11,color:'var(--muted)',lineHeight:1.5,borderTop:'1px solid var(--p-blue-60-a10)',paddingTop:6}}>
+                                <span style={{color:'var(--p-blue-68-a60)',fontWeight:600,marginRight:4}}>参考：</span>{q.reference}
                               </div>
                             </div>
                           </div>
@@ -2703,7 +2703,7 @@ function AdminScreen({ onBack }) {
                       <button key={m} onClick={()=>{
                         if(m==='manual'){setPinMode('manual');setQuizCat(null);}
                         else {setPinMode(quizCat==='emergency'?'emergency':'random');setQSelected([]);}
-                      }} style={{flex:1,padding:'9px',borderRadius:7,border:`2px solid ${active?'var(--blue)':'var(--border)'}`,background:active?'rgba(59,130,246,0.15)':'rgba(13,17,23,0.4)',color:active?'#60a5fa':'var(--muted)',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>
+                      }} style={{flex:1,padding:'9px',borderRadius:7,border:`2px solid ${active?'var(--blue)':'var(--border)'}`,background:active?'var(--p-blue-60-a15)':'var(--p-navy-07-a40)',color:active?'var(--p-blue-68)':'var(--muted)',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>
                         {label}
                       </button>
                     );
@@ -2722,37 +2722,37 @@ function AdminScreen({ onBack }) {
                       const totalQ = (bankGroups2[t.key]||[]).reduce((s,b)=>s+(b.q_count||0),0);
                       return (
                         <button key={t.key} onClick={()=>{setQuizCat(t.key);setQuizBankId(null);}}
-                          style={{flex:1,minWidth:58,padding:'8px 2px',borderRadius:8,border:`2px solid ${active?t.color:'var(--border)'}`,background:active?`${t.color}22`:'rgba(13,17,23,0.4)',color:active?t.color:'var(--muted)',cursor:'pointer',fontWeight:active?700:400,textAlign:'center',lineHeight:1.3}}>
+                          style={{flex:1,minWidth:58,padding:'8px 2px',borderRadius:8,border:`2px solid ${active?t.color:'var(--border)'}`,background:active?`${t.color}22`:'var(--p-navy-07-a40)',color:active?t.color:'var(--muted)',cursor:'pointer',fontWeight:active?700:400,textAlign:'center',lineHeight:1.3}}>
                           <div style={{fontSize:16}}>{t.icon}</div>
-                          <div style={{fontSize:10,marginTop:2}}>{t.label}</div>
-                          <div style={{fontSize:9,opacity:0.6,marginTop:1}}>{totalQ}题</div>
+                          <div style={{fontSize:11,marginTop:2}}>{t.label}</div>
+                          <div style={{fontSize:11,opacity:0.6,marginTop:1}}>{totalQ}题</div>
                         </button>
                       );
                     })}
                   </div>
                   {quizCat && quizCat!=='emergency' && quizBanksInCat.length > 0 && (
-                    <div style={{marginTop:8,padding:'8px 10px',background:'rgba(13,17,23,0.5)',border:'1px solid var(--border)',borderRadius:8}}>
+                    <div style={{marginTop:8,padding:'8px 10px',background:'var(--p-navy-07-a50)',border:'1px solid var(--border)',borderRadius:8}}>
                       <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
                         {quizBanksInCat.length > 1 && (
                           <button onClick={()=>setQuizBankId(null)}
-                            style={{padding:'5px 10px',borderRadius:6,border:`1px solid ${!quizBankId?'var(--blue)':'var(--border)'}`,background:!quizBankId?'rgba(59,130,246,0.15)':'none',color:!quizBankId?'#60a5fa':'var(--muted)',fontSize:11,cursor:'pointer',fontWeight:!quizBankId?700:400}}>
+                            style={{padding:'5px 10px',borderRadius:6,border:`1px solid ${!quizBankId?'var(--blue)':'var(--border)'}`,background:!quizBankId?'var(--p-blue-60-a15)':'none',color:!quizBankId?'var(--p-blue-68)':'var(--muted)',fontSize:11,cursor:'pointer',fontWeight:!quizBankId?700:400}}>
                             🎲 全类随机
                           </button>
                         )}
                         {quizBanksInCat.map(b=>(
                           <button key={b.id} onClick={()=>setQuizBankId(String(b.id))}
-                            style={{padding:'5px 10px',borderRadius:6,border:`1px solid ${quizBankId===String(b.id)?'var(--blue)':'var(--border)'}`,background:quizBankId===String(b.id)?'rgba(59,130,246,0.15)':'none',color:quizBankId===String(b.id)?'#60a5fa':'var(--muted)',fontSize:11,cursor:'pointer',maxWidth:'100%',textAlign:'left'}}>
-                            {b.name} <span style={{opacity:0.6,fontSize:10}}>({b.q_count||0}题)</span>
+                            style={{padding:'5px 10px',borderRadius:6,border:`1px solid ${quizBankId===String(b.id)?'var(--blue)':'var(--border)'}`,background:quizBankId===String(b.id)?'var(--p-blue-60-a15)':'none',color:quizBankId===String(b.id)?'var(--p-blue-68)':'var(--muted)',fontSize:11,cursor:'pointer',maxWidth:'100%',textAlign:'left'}}>
+                            {b.name} <span style={{opacity:0.6,fontSize:11}}>({b.q_count||0}题)</span>
                           </button>
                         ))}
                       </div>
-                      {quizBankId && <div style={{marginTop:6,fontSize:10,color:'var(--muted)'}}>已选：{banks.find(b=>String(b.id)===quizBankId)?.name}</div>}
-                      {!quizBankId && quizBanksInCat.length > 1 && <div style={{marginTop:6,fontSize:10,color:'var(--muted)'}}>将从该分类 {quizBanksInCat.length} 个题库混合随机出题</div>}
+                      {quizBankId && <div style={{marginTop:6,fontSize:11,color:'var(--muted)'}}>已选：{banks.find(b=>String(b.id)===quizBankId)?.name}</div>}
+                      {!quizBankId && quizBanksInCat.length > 1 && <div style={{marginTop:6,fontSize:11,color:'var(--muted)'}}>将从该分类 {quizBanksInCat.length} 个题库混合随机出题</div>}
                       {!quizBankId && quizBanksInCat.length === 1 && (()=>{setQuizBankId(String(quizBanksInCat[0].id));return null;})()}
                     </div>
                   )}
                   {quizCat==='emergency' && (
-                    <div style={{marginTop:8,fontSize:11,color:'#fca5a5',padding:'7px 10px',background:'rgba(239,68,68,0.06)',borderRadius:7,border:'1px solid rgba(239,68,68,0.15)'}}>
+                    <div style={{marginTop:8,fontSize:11,color:'var(--p-red-82)',padding:'7px 10px',background:'var(--p-red-60-a06)',borderRadius:7,border:'1px solid var(--p-red-60-a15)'}}>
                       🚨 从应急故障处置 + 风险数据库随机抽取
                     </div>
                   )}
@@ -2764,7 +2764,7 @@ function AdminScreen({ onBack }) {
                   <div style={{display:'flex',gap:6}}>
                     {[1,2,3,4,5].map(n=>(
                       <button key={n} onClick={()=>setPinCount(n)}
-                        style={{flex:1,padding:'10px 0',borderRadius:7,border:`2px solid ${pinCount===n?'var(--blue)':'var(--border)'}`,background:pinCount===n?'rgba(59,130,246,0.18)':'rgba(13,17,23,0.4)',color:pinCount===n?'#60a5fa':'var(--muted)',cursor:'pointer',fontSize:16,fontWeight:700}}>
+                        style={{flex:1,padding:'10px 0',borderRadius:7,border:`2px solid ${pinCount===n?'var(--blue)':'var(--border)'}`,background:pinCount===n?'var(--p-blue-60-a18)':'var(--p-navy-07-a40)',color:pinCount===n?'var(--p-blue-68)':'var(--muted)',cursor:'pointer',fontSize:16,fontWeight:700}}>
                         {n}
                       </button>
                     ))}
@@ -2778,14 +2778,14 @@ function AdminScreen({ onBack }) {
 
                 {/* 已选题目汇总 */}
                 {qSelected.length>0&&(
-                  <div style={{marginBottom:10,padding:'8px 10px',background:'rgba(59,130,246,0.06)',border:'1px solid rgba(59,130,246,0.25)',borderRadius:8}}>
-                    <div style={{fontSize:10,color:'#60a5fa',fontWeight:600,marginBottom:6}}>已选 {qSelected.length} 题</div>
+                  <div style={{marginBottom:10,padding:'8px 10px',background:'var(--p-blue-60-a06)',border:'1px solid var(--p-blue-60-a25)',borderRadius:8}}>
+                    <div style={{fontSize:11,color:'var(--p-blue-68)',fontWeight:600,marginBottom:6}}>已选 {qSelected.length} 题</div>
                     <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
                       {qSelected.map(id=>{
                         const q=Object.values(bankQsCache).flat().find(x=>x.id===id);
                         return (
-                          <div key={id} style={{display:'flex',alignItems:'center',gap:3,background:'rgba(59,130,246,0.12)',border:'1px solid rgba(59,130,246,0.3)',borderRadius:4,padding:'3px 7px',maxWidth:'100%'}}>
-                            <span style={{fontSize:10,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:170}}>{q?.text||`题目#${id}`}</span>
+                          <div key={id} style={{display:'flex',alignItems:'center',gap:3,background:'var(--p-blue-60-a12)',border:'1px solid var(--p-blue-60-a30)',borderRadius:4,padding:'3px 7px',maxWidth:'100%'}}>
+                            <span style={{fontSize:11,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:170}}>{q?.text||`题目#${id}`}</span>
                             <button onClick={()=>setQSelected(s=>s.filter(x=>x!==id))} style={{background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:12,padding:'0 2px',lineHeight:1,flexShrink:0}}>×</button>
                           </div>
                         );
@@ -2802,14 +2802,14 @@ function AdminScreen({ onBack }) {
                     if(bks.length===0) return null;
                     return (
                       <div key={t.key} style={{marginBottom:6}}>
-                        <div style={{fontSize:10,color:t.color,fontWeight:600,padding:'4px 0 4px 2px',letterSpacing:0.5}}>{t.icon} {t.label}</div>
+                        <div style={{fontSize:11,color:t.color,fontWeight:600,padding:'4px 0 4px 2px',letterSpacing:0.5}}>{t.icon} {t.label}</div>
                         {bks.map(b=>{
                           const exp=!!manualPickExpanded[b.id];
                           const qs=bankQsCache[b.id]||null;
                           const selInBank=qSelected.filter(id=>(qs||[]).some(q=>q.id===id)).length;
                           return (
-                            <div key={b.id} style={{marginBottom:3,border:`1px solid ${exp?'rgba(59,130,246,0.3)':'var(--border)'}`,borderRadius:7,overflow:'hidden'}}>
-                              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 10px',cursor:'pointer',background:exp?'rgba(59,130,246,0.08)':'rgba(13,17,23,0.5)'}}
+                            <div key={b.id} style={{marginBottom:3,border:`1px solid ${exp?'var(--p-blue-60-a30)':'var(--border)'}`,borderRadius:7,overflow:'hidden'}}>
+                              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 10px',cursor:'pointer',background:exp?'var(--p-blue-60-a08)':'var(--p-navy-07-a50)'}}
                                 onClick={async()=>{
                                   if(!exp&&qs===null){
                                     const d=await apiJson(`/api/admin/questions/all?bank_id=${b.id}`,{headers:hdrs()}).catch(()=>null);
@@ -2818,13 +2818,13 @@ function AdminScreen({ onBack }) {
                                   setManualPickExpanded(prev=>({...prev,[b.id]:!exp}));
                                 }}>
                                 <span style={{fontSize:11,color:'var(--text)',flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{b.name}</span>
-                                <span style={{fontSize:10,color:'var(--muted)',flexShrink:0,marginLeft:8}}>
-                                  {selInBank>0&&<span style={{color:'#60a5fa',fontWeight:700,marginRight:4}}>已选{selInBank}</span>}
+                                <span style={{fontSize:11,color:'var(--muted)',flexShrink:0,marginLeft:8}}>
+                                  {selInBank>0&&<span style={{color:'var(--p-blue-68)',fontWeight:700,marginRight:4}}>已选{selInBank}</span>}
                                   {b.q_count||0}题 {exp?'▲':'▼'}
                                 </span>
                               </div>
                               {exp&&qs!==null&&(
-                                <div style={{maxHeight:240,overflowY:'auto',background:'rgba(8,10,14,0.6)'}}>
+                                <div style={{maxHeight:240,overflowY:'auto',background:'var(--p-navy-04-a60)'}}>
                                   {qs.length===0
                                     ? <div style={{fontSize:11,color:'var(--muted)',padding:'8px 12px'}}>暂无题目</div>
                                     : qs.map(q=>{
@@ -2833,9 +2833,9 @@ function AdminScreen({ onBack }) {
                                           <div key={q.id} onClick={()=>{
                                             if(sel){setQSelected(s=>s.filter(x=>x!==q.id));}
                                             else{setQSelected(s=>[...s,q.id]);}
-                                          }} style={{display:'flex',alignItems:'flex-start',gap:8,padding:'7px 10px',borderBottom:'1px solid rgba(27,50,85,0.3)',cursor:'pointer',background:sel?'rgba(59,130,246,0.07)':'none'}}>
-                                            <div style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel?'var(--blue)':'#334155'}`,background:sel?'var(--blue)':'none',flexShrink:0,marginTop:2,display:'flex',alignItems:'center',justifyContent:'center'}}>
-                                              {sel&&<span style={{color:'white',fontSize:9,lineHeight:1}}>✓</span>}
+                                          }} style={{display:'flex',alignItems:'flex-start',gap:8,padding:'7px 10px',borderBottom:'1px solid var(--p-navy-22-a30)',cursor:'pointer',background:sel?'var(--p-blue-60-a07)':'none'}}>
+                                            <div style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel?'var(--blue)':'var(--p-blue-27)'}`,background:sel?'var(--blue)':'none',flexShrink:0,marginTop:2,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                                              {sel&&<span style={{color:'white',fontSize:11,lineHeight:1}}>✓</span>}
                                             </div>
                                             <div style={{flex:1,fontSize:11,color:sel?'var(--text)':'var(--muted)',lineHeight:1.5}}>{q.text}</div>
                                           </div>
@@ -2857,23 +2857,23 @@ function AdminScreen({ onBack }) {
                   <div style={{marginBottom:12}}>
                     <div style={{fontSize:11,color:'var(--muted)',fontWeight:600,marginBottom:6}}>
                       ② 每人随机答几题
-                      {qSelected.length > 1 && <span style={{fontWeight:400,color:'rgba(148,163,184,0.6)',marginLeft:4}}>（从已选 {qSelected.length} 题中随机）</span>}
+                      {qSelected.length > 1 && <span style={{fontWeight:400,color:'var(--p-blue-65-a60)',marginLeft:4}}>（从已选 {qSelected.length} 题中随机）</span>}
                     </div>
                     <div style={{display:'flex',gap:6}}>
                       {Array.from({length:Math.min(qSelected.length,5)},(_,i)=>i+1).map(n=>(
                         <button key={n} onClick={()=>setPinCount(n)}
-                          style={{flex:1,padding:'10px 0',borderRadius:7,border:`2px solid ${pinCount===n?'var(--blue)':'var(--border)'}`,background:pinCount===n?'rgba(59,130,246,0.18)':'rgba(13,17,23,0.4)',color:pinCount===n?'#60a5fa':'var(--muted)',cursor:'pointer',fontSize:16,fontWeight:700}}>
+                          style={{flex:1,padding:'10px 0',borderRadius:7,border:`2px solid ${pinCount===n?'var(--blue)':'var(--border)'}`,background:pinCount===n?'var(--p-blue-60-a18)':'var(--p-navy-07-a40)',color:pinCount===n?'var(--p-blue-68)':'var(--muted)',cursor:'pointer',fontSize:16,fontWeight:700}}>
                           {n}
                         </button>
                       ))}
                     </div>
                     {qSelected.length > pinCount && (
-                      <div style={{marginTop:5,fontSize:10,color:'var(--amber)'}}>
+                      <div style={{marginTop:5,fontSize:11,color:'var(--amber)'}}>
                         每人从 {qSelected.length} 题中随机抽 {pinCount} 题，不同人顺序不同
                       </div>
                     )}
                     {qSelected.length === pinCount && (
-                      <div style={{marginTop:5,fontSize:10,color:'var(--muted)'}}>
+                      <div style={{marginTop:5,fontSize:11,color:'var(--muted)'}}>
                         所有人答相同的 {pinCount} 题
                       </div>
                     )}
@@ -2887,7 +2887,7 @@ function AdminScreen({ onBack }) {
                   <span style={{color:'var(--muted)',flexShrink:0}}>{pinMode==='manual'?'② 生效范围：':'生效范围：'}</span>
                   {[['shift','本套班'],['today','今天']].map(([s,label])=>(
                     <button key={s} onClick={()=>setPinScope(s)}
-                      style={{padding:'5px 12px',borderRadius:6,border:`1px solid ${pinScope===s?'var(--blue)':'var(--border)'}`,background:pinScope===s?'rgba(59,130,246,0.15)':'none',color:pinScope===s?'#60a5fa':'var(--muted)',fontSize:11,cursor:'pointer'}}>
+                      style={{padding:'5px 12px',borderRadius:6,border:`1px solid ${pinScope===s?'var(--blue)':'var(--border)'}`,background:pinScope===s?'var(--p-blue-60-a15)':'none',color:pinScope===s?'var(--p-blue-68)':'var(--muted)',fontSize:11,cursor:'pointer'}}>
                       {label}
                     </button>
                   ))}
@@ -2895,7 +2895,7 @@ function AdminScreen({ onBack }) {
 
                 {/* 发布按钮 */}
                 <button disabled={!canSave} onClick={()=>setPinSaveModal(true)}
-                  style={{width:'100%',padding:'12px',borderRadius:8,border:'none',background:canSave?'linear-gradient(135deg,#1e3a5f,#3b82f6)':'var(--border)',color:canSave?'white':'var(--muted)',fontSize:13,fontWeight:600,cursor:canSave?'pointer':'not-allowed',fontFamily:'inherit'}}>
+                  style={{width:'100%',padding:'12px',borderRadius:8,border:'none',background:canSave?'linear-gradient(135deg,var(--p-navy-25),var(--blue))':'var(--border)',color:canSave?'white':'var(--muted)',fontSize:13,fontWeight:600,cursor:canSave?'pointer':'not-allowed',fontFamily:'inherit'}}>
                   {canSave
                     ? pinMode==='manual'
                       ? `发布 · 选${qSelected.length}题答${Math.min(pinCount,qSelected.length)}题 · 手动选题`
@@ -2905,19 +2905,19 @@ function AdminScreen({ onBack }) {
 
                 {/* 保存确认弹窗 */}
                 {pinSaveModal&&(
-                  <div onClick={()=>setPinSaveModal(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
-                    <div onClick={e=>e.stopPropagation()} style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:320,border:'1px solid rgba(59,130,246,0.3)'}}>
+                  <div onClick={()=>setPinSaveModal(false)} style={{position:'fixed',inset:0,background:'var(--p-black-00-a75)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+                    <div onClick={e=>e.stopPropagation()} style={{background:'var(--p-navy-16)',borderRadius:12,padding:20,width:'100%',maxWidth:320,border:'1px solid var(--p-blue-60-a30)'}}>
                       <div style={{fontWeight:700,color:'var(--text)',fontSize:15,marginBottom:8}}>📣 发布抽问</div>
                       <div style={{fontSize:13,color:'var(--muted)',marginBottom:6,lineHeight:1.6}}>
                         {pinMode==='manual'
-                          ? <>将发布手动选题：从 <span style={{color:'#60a5fa',fontWeight:600}}>{qSelected.length} 道题</span>中随机抽 <span style={{color:'#60a5fa',fontWeight:600}}>{Math.min(pinCount,qSelected.length)} 题</span>，{pinScope==='today'?'今天':'本套班'}生效</>
-                          : <>将设置 <span style={{color:'#60a5fa',fontWeight:600}}>{pinCount}题 · {BANK_TYPE_MAP[quizCat]?.icon} {quizBankId?banks.find(b=>String(b.id)===quizBankId)?.name:quizCat==='emergency'?'应急/风险':BANK_TYPE_MAP[quizCat]?.label+'全类'} · {pinScope==='today'?'今天生效':'本套班生效'}</span></>
+                          ? <>将发布手动选题：从 <span style={{color:'var(--p-blue-68)',fontWeight:600}}>{qSelected.length} 道题</span>中随机抽 <span style={{color:'var(--p-blue-68)',fontWeight:600}}>{Math.min(pinCount,qSelected.length)} 题</span>，{pinScope==='today'?'今天':'本套班'}生效</>
+                          : <>将设置 <span style={{color:'var(--p-blue-68)',fontWeight:600}}>{pinCount}题 · {BANK_TYPE_MAP[quizCat]?.icon} {quizBankId?banks.find(b=>String(b.id)===quizBankId)?.name:quizCat==='emergency'?'应急/风险':BANK_TYPE_MAP[quizCat]?.label+'全类'} · {pinScope==='today'?'今天生效':'本套班生效'}</span></>
                         }
                       </div>
                       <div style={{fontSize:12,color:'var(--amber)',marginBottom:16}}>⚠️ 同时将在钉钉群内发出答题提醒通知</div>
                       <div style={{display:'flex',gap:8}}>
                         <button onClick={()=>setPinSaveModal(false)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
-                        <button onClick={doSave} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>确认发布</button>
+                        <button onClick={doSave} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,var(--p-navy-25),var(--blue))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>确认发布</button>
                       </div>
                     </div>
                   </div>
@@ -2926,8 +2926,8 @@ function AdminScreen({ onBack }) {
 
                 {/* 取消发布确认弹窗 — 放在折叠块外，始终可渲染 */}
                 {pinCancelModal&&(
-                  <div onClick={()=>setPinCancelModal(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
-                    <div onClick={e=>e.stopPropagation()} style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:300,border:'1px solid rgba(239,68,68,0.3)'}}>
+                  <div onClick={()=>setPinCancelModal(false)} style={{position:'fixed',inset:0,background:'var(--p-black-00-a75)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+                    <div onClick={e=>e.stopPropagation()} style={{background:'var(--p-navy-16)',borderRadius:12,padding:20,width:'100%',maxWidth:300,border:'1px solid var(--p-red-60-a30)'}}>
                       <div style={{fontWeight:700,color:'var(--text)',fontSize:15,marginBottom:8}}>⚠️ 取消本套班抽问？</div>
                       <div style={{fontSize:13,color:'var(--muted)',marginBottom:16,lineHeight:1.6}}>取消后本套班答题按钮将变灰，已完成的成绩记录不受影响。</div>
                       <div style={{display:'flex',gap:8}}>
@@ -2936,7 +2936,7 @@ function AdminScreen({ onBack }) {
                           await apiJson('/api/admin/pinned-questions',{method:'PUT',headers:hdrs(),body:JSON.stringify({ids:[],scope:'none',mode:'emergency',count:3,bank_id:null,bank_ids:[]})}).catch(()=>null);
                           setQPinned({ids:[],scope:'none',mode:'emergency',count:3,bank_id:null,bank_ids:[],questions:[]});
                           setQuizCat(null);setQuizBankId(null);setPinCount(3);setPinFormOpen(false);setPinCancelModal(false);
-                        }} style={{flex:1,padding:'10px',borderRadius:7,border:'none',background:'#dc2626',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>确认取消</button>
+                        }} style={{flex:1,padding:'10px',borderRadius:7,border:'none',background:'var(--p-red-51)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>确认取消</button>
                       </div>
                     </div>
                   </div>
@@ -2966,23 +2966,23 @@ function AdminScreen({ onBack }) {
               };
               const canCheck = false; // 管理 tab 不需要勾选题目
               return (
-                <div key={b.id} style={{borderBottom:'1px solid rgba(27,50,85,0.4)'}}>
+                <div key={b.id} style={{borderBottom:'1px solid var(--p-navy-22-a40)'}}>
                   <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',padding:'9px 12px',cursor:'pointer'}} onClick={toggleExpand}>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:12,color:'var(--text)',fontWeight:600,marginBottom:2,lineHeight:1.4,display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
                         {renamingBank?.id===b.id ? (
                           <form style={{display:'flex',gap:4,alignItems:'center',flex:1}} onSubmit={async e=>{e.preventDefault();e.stopPropagation();const nm=renamingBank.name.trim();if(!nm)return;await apiJson(`/api/banks/${b.id}`,{method:'PUT',headers:hdrs(),body:JSON.stringify({name:nm})}).catch(()=>null);setBanks(prev=>prev.map(x=>x.id===b.id?{...x,name:nm}:x));setRenamingBank(null);}}>
-                            <input autoFocus value={renamingBank.name} onChange={e=>setRenamingBank(prev=>({...prev,name:e.target.value}))} onClick={e=>e.stopPropagation()} style={{flex:1,fontSize:12,padding:'3px 6px',borderRadius:4,border:'1px solid #3b82f6',background:'#0d1117',color:'var(--text)'}}/>
+                            <input autoFocus value={renamingBank.name} onChange={e=>setRenamingBank(prev=>({...prev,name:e.target.value}))} onClick={e=>e.stopPropagation()} style={{flex:1,fontSize:12,padding:'3px 6px',borderRadius:4,border:'1px solid var(--blue)',background:'var(--p-navy-07)',color:'var(--text)'}}/>
                             <button type="submit" onClick={e=>e.stopPropagation()} style={{fontSize:11,padding:'3px 8px',borderRadius:4,border:'none',background:'var(--blue)',color:'var(--text)',cursor:'pointer'}}>保存</button>
-                            <button type="button" onClick={e=>{e.stopPropagation();setRenamingBank(null);}} style={{fontSize:11,padding:'3px 8px',borderRadius:4,border:'1px solid #334155',background:'none',color:'var(--muted)',cursor:'pointer'}}>取消</button>
+                            <button type="button" onClick={e=>{e.stopPropagation();setRenamingBank(null);}} style={{fontSize:11,padding:'3px 8px',borderRadius:4,border:'1px solid var(--p-blue-27)',background:'none',color:'var(--muted)',cursor:'pointer'}}>取消</button>
                           </form>
                         ) : (
                           <><span>{b.name}</span><button onClick={e=>{e.stopPropagation();setRenamingBank({id:b.id,name:b.name});}} style={{flexShrink:0,background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:12,padding:'0 2px',lineHeight:1}} title="改名">✏️</button>{(b.q_count||0)===0&&<button onClick={async e=>{e.stopPropagation();if(!confirm(`确认删除题库「${b.name}」？此操作不可恢复。`))return;const r=await apiJson(`/api/banks/${b.id}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);if(r?.ok){setBanks(prev=>prev.filter(x=>x.id!==b.id));}else{alert('删除失败');}}} style={{flexShrink:0,background:'none',border:'none',color:'var(--red)',cursor:'pointer',fontSize:12,padding:'0 2px',lineHeight:1,opacity:0.7}} title="删除空题库">🗑️</button>}</>
                         )}
                         {b.bank_type_summary && b.bank_type_summary !== 'empty' && (() => {
-                          const map = { choice:{label:'选择',color:'#60a5fa'}, fill:{label:'填空',color:'var(--amber)'}, short:{label:'简答',color:'var(--green)'}, mixed:{label:'混合',color:'#a78bfa'} };
+                          const map = { choice:{label:'选择',color:'var(--p-blue-68)'}, fill:{label:'填空',color:'var(--amber)'}, short:{label:'简答',color:'var(--green)'}, mixed:{label:'混合',color:'var(--p-indigo-76)'} };
                           const m = map[b.bank_type_summary];
-                          return m && <span style={{fontSize:9,color:m.color,background:m.color+'22',border:`1px solid ${m.color}44`,borderRadius:4,padding:'1px 5px',fontWeight:600}}>{m.label}</span>;
+                          return m && <span style={{fontSize:11,color:m.color,background:m.color+'22',border:`1px solid ${m.color}44`,borderRadius:4,padding:'1px 5px',fontWeight:600}}>{m.label}</span>;
                         })()}
                       </div>
                       <div style={{fontSize:11,color:'var(--muted)'}}>
@@ -2994,23 +2994,23 @@ function AdminScreen({ onBack }) {
                           const parts = ORDER.filter(t=>d[t]).map(t=>`${TLAB[t]}${d[t]}`);
                           return parts.length>0 ? <span style={{marginLeft:6,color:'var(--muted)'}}>· {parts.join('/')}</span> : null;
                         })()}
-                        <span style={{color:'#334155',marginLeft:4}}>{expanded?'▲':'▼'}</span>
+                        <span style={{color:'var(--p-blue-27)',marginLeft:4}}>{expanded?'▲':'▼'}</span>
                       </div>
                     </div>
                   </div>
                   {expanded&&qs!==null&&(
-                    <div style={{padding:'0 12px 10px',background:'rgba(13,17,23,0.5)',maxHeight:320,overflowY:'auto'}}>
+                    <div style={{padding:'0 12px 10px',background:'var(--p-navy-07-a50)',maxHeight:320,overflowY:'auto'}}>
                       {qs.length===0?<div style={{fontSize:11,color:'var(--muted)',textAlign:'center',padding:'8px 0'}}>暂无题目</div>:qs.map(q=>{
                         const sel=qSelected.includes(q.id);
                         const maxReached=!sel&&(pinMode==='manual'?qSelected.length>=pinCount:false);
                         return (
-                          <div key={q.id} style={{display:'flex',alignItems:'flex-start',gap:8,padding:'7px 0',borderBottom:'1px solid rgba(27,50,85,0.3)'}}>
-                            {canCheck&&<div onClick={e=>{e.stopPropagation();if(sel){setQSelected(s=>s.filter(id=>id!==q.id));}else if(!maxReached){setQSelected(s=>[...s,q.id]);}}} style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel?'var(--blue)':'#334155'}`,background:sel?'var(--blue)':'none',flexShrink:0,marginTop:2,display:'flex',alignItems:'center',justifyContent:'center',cursor:maxReached?'not-allowed':'pointer',opacity:maxReached?0.4:1}}>
-                              {sel&&<span style={{color:'var(--text)',fontSize:9}}>✓</span>}
+                          <div key={q.id} style={{display:'flex',alignItems:'flex-start',gap:8,padding:'7px 0',borderBottom:'1px solid var(--p-navy-22-a30)'}}>
+                            {canCheck&&<div onClick={e=>{e.stopPropagation();if(sel){setQSelected(s=>s.filter(id=>id!==q.id));}else if(!maxReached){setQSelected(s=>[...s,q.id]);}}} style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel?'var(--blue)':'var(--p-blue-27)'}`,background:sel?'var(--blue)':'none',flexShrink:0,marginTop:2,display:'flex',alignItems:'center',justifyContent:'center',cursor:maxReached?'not-allowed':'pointer',opacity:maxReached?0.4:1}}>
+                              {sel&&<span style={{color:'var(--text)',fontSize:11}}>✓</span>}
                             </div>}
                             <div style={{flex:1,fontSize:11,color:'var(--muted)',lineHeight:1.5}}>{q.text}</div>
-                            <button onClick={e=>{e.stopPropagation();setEditQModal({id:q.id,bankId:b.id,text:q.text,reference:q.reference||'',keywords:q.keywords||'',category:q.category||''});}} style={{flexShrink:0,background:'none',border:'1px solid rgba(59,130,246,0.3)',color:'#60a5fa',borderRadius:4,padding:'2px 8px',fontSize:11,cursor:'pointer',marginRight:4}}>编辑</button>
-                            <button onClick={e=>{e.stopPropagation();deleteQ(q.id);}} style={{flexShrink:0,background:'none',border:'1px solid rgba(239,68,68,0.3)',color:'var(--red)',borderRadius:4,padding:'2px 8px',fontSize:11,cursor:'pointer'}}>删除</button>
+                            <button onClick={e=>{e.stopPropagation();setEditQModal({id:q.id,bankId:b.id,text:q.text,reference:q.reference||'',keywords:q.keywords||'',category:q.category||''});}} style={{flexShrink:0,background:'none',border:'1px solid var(--p-blue-60-a30)',color:'var(--p-blue-68)',borderRadius:4,padding:'2px 8px',fontSize:11,cursor:'pointer',marginRight:4}}>编辑</button>
+                            <button onClick={e=>{e.stopPropagation();deleteQ(q.id);}} style={{flexShrink:0,background:'none',border:'1px solid var(--p-red-60-a30)',color:'var(--red)',borderRadius:4,padding:'2px 8px',fontSize:11,cursor:'pointer'}}>删除</button>
                           </div>
                         );
                       })}
@@ -3045,19 +3045,19 @@ function AdminScreen({ onBack }) {
 
                 {/* ── 录题入口 ── */}
                 <div style={{marginTop:8}}>
-                  <button onClick={()=>setAddMode(m=>m?null:'media')} style={{width:'100%',padding:'10px',borderRadius:8,border:`1px solid ${addMode?'rgba(59,130,246,0.5)':'var(--border)'}`,background:addMode?'rgba(59,130,246,0.08)':'var(--input-bg)',color:addMode?'#60a5fa':'var(--muted)',fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}>
+                  <button onClick={()=>setAddMode(m=>m?null:'media')} style={{width:'100%',padding:'10px',borderRadius:8,border:`1px solid ${addMode?'var(--p-blue-60-a50)':'var(--border)'}`,background:addMode?'var(--p-blue-60-a08)':'var(--input-bg)',color:addMode?'var(--p-blue-68)':'var(--muted)',fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}>
                     {addMode?'▲ 收起录题':'＋ 录题'}
                   </button>
 
                   {addMode&&(
-                    <div style={{marginTop:10,padding:'12px',background:'rgba(13,17,23,0.5)',border:'1px solid var(--border)',borderRadius:8}}>
+                    <div style={{marginTop:10,padding:'12px',background:'var(--p-navy-07-a50)',border:'1px solid var(--border)',borderRadius:8}}>
                       {/* 来源选择 */}
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:12}}>
                         {[['media','📸','AI 解析','图片或文档'],['manual','✏️','手动录入','逐题输入'],['excel','📊','Excel','批量导入']].map(([m,icon,label,sub])=>(
-                          <button key={m} onClick={()=>setAddMode(m)} style={{padding:'10px 4px',borderRadius:8,border:`2px solid ${addMode===m?'rgba(59,130,246,0.6)':'var(--border)'}`,background:addMode===m?'rgba(59,130,246,0.12)':'rgba(13,17,23,0.4)',color:'var(--text)',cursor:'pointer',textAlign:'center',fontFamily:'inherit',transition:'border-color .15s'}}>
+                          <button key={m} onClick={()=>setAddMode(m)} style={{padding:'10px 4px',borderRadius:8,border:`2px solid ${addMode===m?'var(--p-blue-60-a60)':'var(--border)'}`,background:addMode===m?'var(--p-blue-60-a12)':'var(--p-navy-07-a40)',color:'var(--text)',cursor:'pointer',textAlign:'center',fontFamily:'inherit',transition:'border-color .15s'}}>
                             <div style={{fontSize:18,marginBottom:2}}>{icon}</div>
-                            <div style={{fontSize:11,fontWeight:700,color:addMode===m?'#93c5fd':'var(--muted)'}}>{label}</div>
-                            <div style={{fontSize:10,color:'#475569',marginTop:1}}>{sub}</div>
+                            <div style={{fontSize:11,fontWeight:700,color:addMode===m?'var(--p-blue-78)':'var(--muted)'}}>{label}</div>
+                            <div style={{fontSize:11,color:'var(--p-blue-35)',marginTop:1}}>{sub}</div>
                           </button>
                         ))}
                       </div>
@@ -3075,23 +3075,23 @@ function AdminScreen({ onBack }) {
 
         {/* 题目编辑弹窗 */}
         {editQModal&&(
-          <div onClick={()=>setEditQModal(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',zIndex:400,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
-            <div onClick={e=>e.stopPropagation()} style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:400,border:'1px solid rgba(59,130,246,0.3)',display:'flex',flexDirection:'column',gap:12}}>
+          <div onClick={()=>setEditQModal(null)} style={{position:'fixed',inset:0,background:'var(--p-black-00-a80)',zIndex:400,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:'var(--p-navy-16)',borderRadius:12,padding:20,width:'100%',maxWidth:400,border:'1px solid var(--p-blue-60-a30)',display:'flex',flexDirection:'column',gap:12}}>
               <div style={{fontWeight:700,color:'var(--text)',fontSize:15}}>编辑题目</div>
               <div>
                 <div style={{fontSize:11,color:'var(--muted)',marginBottom:4}}>题目</div>
                 <textarea value={editQModal.text} onChange={e=>setEditQModal(m=>({...m,text:e.target.value}))}
-                  rows={3} style={{width:'100%',padding:'8px 10px',borderRadius:7,border:'1px solid var(--border)',background:'#0d1117',color:'var(--text)',fontSize:12,fontFamily:'inherit',resize:'vertical',boxSizing:'border-box'}}/>
+                  rows={3} style={{width:'100%',padding:'8px 10px',borderRadius:7,border:'1px solid var(--border)',background:'var(--p-navy-07)',color:'var(--text)',fontSize:12,fontFamily:'inherit',resize:'vertical',boxSizing:'border-box'}}/>
               </div>
               <div>
                 <div style={{fontSize:11,color:'var(--muted)',marginBottom:4}}>参考答案（各要点用分号分隔）</div>
                 <textarea value={editQModal.reference} onChange={e=>setEditQModal(m=>({...m,reference:e.target.value}))}
-                  rows={4} style={{width:'100%',padding:'8px 10px',borderRadius:7,border:'1px solid var(--border)',background:'#0d1117',color:'var(--text)',fontSize:12,fontFamily:'inherit',resize:'vertical',boxSizing:'border-box'}}/>
+                  rows={4} style={{width:'100%',padding:'8px 10px',borderRadius:7,border:'1px solid var(--border)',background:'var(--p-navy-07)',color:'var(--text)',fontSize:12,fontFamily:'inherit',resize:'vertical',boxSizing:'border-box'}}/>
               </div>
               <div>
                 <div style={{fontSize:11,color:'var(--muted)',marginBottom:4}}>关键词（逗号分隔，用于关键词评分）</div>
                 <input value={editQModal.keywords} onChange={e=>setEditQModal(m=>({...m,keywords:e.target.value}))}
-                  style={{width:'100%',padding:'7px 10px',borderRadius:7,border:'1px solid var(--border)',background:'#0d1117',color:'var(--text)',fontSize:12,boxSizing:'border-box'}}/>
+                  style={{width:'100%',padding:'7px 10px',borderRadius:7,border:'1px solid var(--border)',background:'var(--p-navy-07)',color:'var(--text)',fontSize:12,boxSizing:'border-box'}}/>
               </div>
               <div style={{display:'flex',gap:8,marginTop:4}}>
                 <button onClick={()=>setEditQModal(null)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
@@ -3101,7 +3101,7 @@ function AdminScreen({ onBack }) {
                     setBankQsCache(prev=>({...prev,[editQModal.bankId]:(prev[editQModal.bankId]||[]).map(q=>q.id===editQModal.id?{...q,text:editQModal.text,reference:editQModal.reference,keywords:editQModal.keywords}:q)}));
                     setEditQModal(null);
                   } else { alert('保存失败'); }
-                }} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>保存</button>
+                }} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,var(--p-navy-25),var(--blue))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>保存</button>
               </div>
             </div>
           </div>
@@ -3113,7 +3113,7 @@ function AdminScreen({ onBack }) {
             <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,marginBottom:12,fontWeight:600}}>题库与答题设置</div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'1px solid var(--border)',fontSize:13}}>
               <span style={{color:'var(--muted)'}}>考试模式</span>
-              <div style={{width:38,height:22,borderRadius:11,background:settings.exam_mode==='1'?'var(--green)':'#1e293b',position:'relative',cursor:'pointer'}} onClick={()=>{const nv=settings.exam_mode==='1'?'0':'1';api('/api/settings',{method:'PUT',headers:hdrs(),body:JSON.stringify({exam_mode:nv})}).then(()=>setSettings(s=>({...s,exam_mode:nv})));}}>
+              <div style={{width:38,height:22,borderRadius:11,background:settings.exam_mode==='1'?'var(--green)':'var(--p-navy-17)',position:'relative',cursor:'pointer'}} onClick={()=>{const nv=settings.exam_mode==='1'?'0':'1';api('/api/settings',{method:'PUT',headers:hdrs(),body:JSON.stringify({exam_mode:nv})}).then(()=>setSettings(s=>({...s,exam_mode:nv})));}}>
                 <div style={{width:18,height:18,borderRadius:9,background:'white',position:'absolute',top:2,transition:'transform .2s',transform:settings.exam_mode==='1'?'translateX(18px)':'translateX(2px)'}}/>
               </div>
             </div>
@@ -3148,15 +3148,15 @@ function AdminScreen({ onBack }) {
             </div>
             {logs.length===0&&<div style={{textAlign:'center',color:'var(--muted)',padding:'24px 0',fontSize:13}}>暂无操作记录</div>}
             {logs.map((l,i)=>(
-              <div key={l.id} style={{display:'flex',alignItems:'flex-start',gap:10,padding:'9px 14px',borderBottom:i<logs.length-1?'1px solid rgba(27,50,85,0.6)':'none'}}>
+              <div key={l.id} style={{display:'flex',alignItems:'flex-start',gap:10,padding:'9px 14px',borderBottom:i<logs.length-1?'1px solid var(--p-navy-22-a60)':'none'}}>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:2}}>
                     <span style={{fontSize:13,fontWeight:600,color:'var(--text)'}}>{l.action}</span>
-                    <span style={{fontSize:10,color:'var(--muted)',background:'var(--border)',borderRadius:3,padding:'1px 5px'}}>{l.operator}</span>
+                    <span style={{fontSize:11,color:'var(--muted)',background:'var(--border)',borderRadius:3,padding:'1px 5px'}}>{l.operator}</span>
                   </div>
                   {l.detail&&<div style={{fontSize:11,color:'var(--muted)',lineHeight:1.5}}>{l.detail}</div>}
                 </div>
-                <div style={{fontSize:10,color:'var(--muted)',flexShrink:0,whiteSpace:'nowrap'}}>{l.created_at?.slice(5,16)}</div>
+                <div style={{fontSize:11,color:'var(--muted)',flexShrink:0,whiteSpace:'nowrap'}}>{l.created_at?.slice(5,16)}</div>
               </div>
             ))}
           </div>

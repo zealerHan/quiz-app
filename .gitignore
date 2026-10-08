@@ -24,3 +24,11 @@ app/deploy_2300.sh
 deploy_2300.sh
 *.bak-*
 cf-*-backup-*.json
+
+# UI 改版临时产物（预览构建/对比图/源码备份）
+app/dist-before*/
+app/dist-preview*/
+ui-compare/
+backup-ui-*/
+backup-dist-*.tgz
+backup-b-*/

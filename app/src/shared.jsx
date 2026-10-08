@@ -6,8 +6,8 @@ export const adminHeaders = pwd => ({ "x-admin-password": pwd });
 // ─── Shared Micro UI ─────────────────────────────────────────────────────────
 export function AppModal({ icon, title, body, buttons }) {
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:"0 32px"}}>
-      <div style={{background:"var(--modal-bg,rgba(28,32,48,0.96))",borderRadius:18,width:"100%",maxWidth:320,overflow:"hidden",boxShadow:"0 24px 60px rgba(0,0,0,0.3)",border:"1px solid var(--border)"}}>
+    <div style={{position:"fixed",inset:0,background:"var(--p-black-00-a50)",backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:"0 32px"}}>
+      <div style={{background:"var(--modal-bg,var(--modal-bg))",borderRadius:18,width:"100%",maxWidth:320,overflow:"hidden",boxShadow:"0 24px 60px var(--p-black-00-a30)",border:"1px solid var(--border)"}}>
         <div style={{padding:"24px 20px 16px",textAlign:"center"}}>
           {icon&&<div style={{fontSize:32,marginBottom:10}}>{icon}</div>}
           <div style={{fontSize:17,fontWeight:700,color:"var(--text)",marginBottom:8,letterSpacing:0.3}}>{title}</div>
@@ -30,7 +30,7 @@ export function ScoreRing({ score, size=80 }) {
   const col=score>=85?"var(--green)":score>=60?"var(--amber)":"var(--red)";
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#1e293b" strokeWidth={size*.1}/>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--p-navy-17)" strokeWidth={size*.1}/>
       <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={col} strokeWidth={size*.1}
         strokeDasharray={`${dash} ${c}`} strokeLinecap="round"
         transform={`rotate(-90 ${size/2} ${size/2})`} style={{transition:"stroke-dasharray 1s"}}/>
@@ -44,10 +44,10 @@ export function MiniBar({ label, value, max=100 }) {
   return (
     <div style={{marginBottom:9}}>
       <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}>
-        <span style={{color:"#94a3b8"}}>{label}</span>
+        <span style={{color:"var(--muted)"}}>{label}</span>
         <span style={{color:col,fontWeight:700}}>{value}</span>
       </div>
-      <div style={{height:5,background:"#1e293b",borderRadius:3,overflow:"hidden"}}>
+      <div style={{height:5,background:"var(--p-navy-17)",borderRadius:3,overflow:"hidden"}}>
         <div style={{height:"100%",width:`${(value/max)*100}%`,background:`linear-gradient(90deg,${col}88,${col})`,borderRadius:3,transition:"width 1s ease"}}/>
       </div>
     </div>
@@ -61,7 +61,7 @@ export function MiniTrend({ data }) {
   return (
     <svg width={w} height={h}>
       <polyline points={pts} fill="none" stroke="var(--blue)" strokeWidth="2" strokeLinejoin="round"/>
-      {data.map((v,i)=><circle key={i} cx={i*(w/(data.length-1))} cy={h-((v-min)/(max-min||1))*h} r={i===data.length-1?4:2} fill={i===data.length-1?"var(--blue)":"#1e3a5f"} stroke="var(--blue)" strokeWidth="1"/>)}
+      {data.map((v,i)=><circle key={i} cx={i*(w/(data.length-1))} cy={h-((v-min)/(max-min||1))*h} r={i===data.length-1?4:2} fill={i===data.length-1?"var(--blue)":"var(--p-navy-25)"} stroke="var(--blue)" strokeWidth="1"/>)}
     </svg>
   );
 }
@@ -74,7 +74,7 @@ export function Chip({ label, value, unit="" }) {
   return (
     <div style={{flex:1,textAlign:"center",background:"var(--input-bg)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 6px"}}>
       <div style={{fontSize:20,fontWeight:900,color:"var(--text)"}}>{value}<span style={{fontSize:11,color:"var(--muted)"}}>{unit}</span></div>
-      <div style={{fontSize:10,color:"var(--muted)",marginTop:2}}>{label}</div>
+      <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{label}</div>
     </div>
   );
 }

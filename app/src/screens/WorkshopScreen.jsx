@@ -258,7 +258,7 @@ function WorkshopScreen({ user, onBack }) {
       const x = padding;
       const y = canvas.height - boxH - padding;
       // 半透明背景（更透明）
-      ctx.fillStyle = 'rgba(0,0,0,0.32)';
+      ctx.fillStyle = 'var(--p-black-00-a32)';
       ctx.beginPath();
       ctx.roundRect(x - 2, y - 2, boxW + 4, boxH + 4, 6);
       ctx.fill();
@@ -430,9 +430,9 @@ function WorkshopScreen({ user, onBack }) {
   };
 
   const typeStyle = (t) => {
-    if (t === '轮空')  return { text:'var(--muted)', bg:'rgba(71,85,105,0.1)',  border:'rgba(71,85,105,0.3)' };
-    if (t === '中旬会') return { text:'var(--amber)', bg:'rgba(245,158,11,0.1)', border:'rgba(245,158,11,0.35)' };
-    return { text:'var(--blue)', bg:'rgba(59,130,246,0.1)', border:'rgba(59,130,246,0.28)' };
+    if (t === '轮空')  return { text:'var(--muted)', bg:'var(--p-blue-35-a10)',  border:'var(--p-blue-35-a30)' };
+    if (t === '中旬会') return { text:'var(--amber)', bg:'var(--p-amber-50-a10)', border:'var(--p-amber-50-a35)' };
+    return { text:'var(--blue)', bg:'var(--p-blue-60-a10)', border:'var(--p-blue-60-a28)' };
   };
 
   // 我的相关培训 sessions（本月）
@@ -466,7 +466,7 @@ function WorkshopScreen({ user, onBack }) {
       <div style={{padding:'14px 14px',display:'flex',flexDirection:'column',gap:16}}>
 
         {/* ══ 板块一：个人培训视图 ══ */}
-        <div style={{background:'#0a1929',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
+        <div style={{background:'var(--p-navy-10)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
           {/* 问候标题 */}
           <div style={{padding:'14px 16px 12px',borderBottom:'1px solid var(--border)'}}>
             <div style={{fontSize:15,fontWeight:700,color:'var(--text)',marginBottom:10}}>{user?.name}，你好：</div>
@@ -486,7 +486,7 @@ function WorkshopScreen({ user, onBack }) {
                   } else if (isPast) {
                     statusNode = <span style={{color:'var(--muted)',fontSize:11}}>未确认</span>;
                   } else {
-                    statusNode = <span style={{color:'#f97316',fontSize:11}}>待确认</span>;
+                    statusNode = <span style={{color:'var(--p-amber-53)',fontSize:11}}>待确认</span>;
                   }
                   return (
                     <div key={s.plan_id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
@@ -506,7 +506,7 @@ function WorkshopScreen({ user, onBack }) {
               if (!nextTraining) return null;
               return (
                 <div style={{marginTop:10,fontSize:11,color:'var(--muted)',borderTop:'1px solid var(--border)',paddingTop:8}}>
-                  下次实操培训时间：<span style={{color:'#93c5fd',fontWeight:600}}>{dateShort(nextTraining.shift_date)}</span>
+                  下次实操培训时间：<span style={{color:'var(--p-blue-78)',fontWeight:600}}>{dateShort(nextTraining.shift_date)}</span>
                   <span style={{color:'var(--muted)'}}> · {nextTraining.location}</span>
                 </div>
               );
@@ -516,18 +516,18 @@ function WorkshopScreen({ user, onBack }) {
           {/* 教员确认状态（针对最近一次待完成培训）*/}
           {!loading && nextSession && nextSession.plan_type !== '中旬会' && (
             <div style={{padding:'12px 16px',borderBottom:'1px solid var(--border)'}}>
-              <div style={{fontSize:10,color:'var(--muted)',marginBottom:8}}>
+              <div style={{fontSize:11,color:'var(--muted)',marginBottom:8}}>
                 下次实操培训：
                 <span style={{color:'var(--text)',fontWeight:600}}>{dateShort(nextSession.shift_date)}</span>
                 <span style={{color:'var(--muted)'}}> · {nextSession.location}</span>
               </div>
               {nextSession.instructor_confirmed ? (
-                <div style={{padding:'10px',borderRadius:8,border:'1px solid rgba(34,197,94,0.35)',background:'rgba(34,197,94,0.07)',color:'var(--green)',fontSize:12,fontWeight:600,textAlign:'center'}}>
+                <div style={{padding:'10px',borderRadius:8,border:'1px solid var(--p-green-45-a35)',background:'var(--p-green-45-a07)',color:'var(--green)',fontSize:12,fontWeight:600,textAlign:'center'}}>
                   ☑ 教员已确认完成
                 </div>
               ) : isInstructor ? (
                 <button onClick={()=>doConfirm(nextSession.plan_id, user.staffId)} disabled={confirmingId!=null}
-                  style={{width:'100%',padding:'10px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#3b1f6e,#7c3aed)',color:'var(--text)',fontSize:12,fontWeight:700,fontFamily:'inherit',cursor:'pointer',opacity:confirmingId?0.6:1}}>
+                  style={{width:'100%',padding:'10px',borderRadius:8,border:'none',background:'linear-gradient(135deg,var(--p-purple-28),var(--p-purple-58))',color:'var(--text)',fontSize:12,fontWeight:700,fontFamily:'inherit',cursor:'pointer',opacity:confirmingId?0.6:1}}>
                   已到现场
                 </button>
               ) : (
@@ -542,10 +542,10 @@ function WorkshopScreen({ user, onBack }) {
         {/* ══ 板块二：实操前巩固 ══ */}
         <div>
           <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,fontWeight:600,marginBottom:8}}>实操前巩固</div>
-          <div style={{background:'#0a1929',border:'1px solid var(--border)',borderRadius:10,padding:'14px'}}>
+          <div style={{background:'var(--p-navy-10)',border:'1px solid var(--border)',borderRadius:10,padding:'14px'}}>
             <div style={{fontSize:12,color:'var(--muted)',marginBottom:10,lineHeight:1.7}}>培训前先用语音答题巩固业务知识，提高实操质量。</div>
             <button onClick={()=>onBack()} style={{
-              width:'100%',padding:'11px',borderRadius:9,border:'1px dashed rgba(100,116,139,0.5)',
+              width:'100%',padding:'11px',borderRadius:9,border:'1px dashed var(--p-blue-47-a50)',
               background:'transparent',color:'var(--muted)',fontSize:12,fontFamily:'inherit',cursor:'pointer',fontWeight:600
             }}>去答题预习 →</button>
           </div>
@@ -555,7 +555,7 @@ function WorkshopScreen({ user, onBack }) {
         <div>
           <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
             <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,fontWeight:600}}>{monthLabel(month)} 早班培训计划</div>
-            {isInstructor && <span style={{fontSize:10,padding:'1px 6px',borderRadius:4,background:'rgba(59,130,246,0.15)',border:'1px solid rgba(59,130,246,0.3)',color:'#93c5fd'}}>教员</span>}
+            {isInstructor && <span style={{fontSize:11,padding:'1px 6px',borderRadius:4,background:'var(--p-blue-60-a15)',border:'1px solid var(--p-blue-60-a30)',color:'var(--p-blue-78)'}}>教员</span>}
           </div>
           <div style={{display:'flex',gap:5,alignItems:'center',flexWrap:'wrap',marginBottom:8}}>
             {/* 相册 */}
@@ -563,7 +563,7 @@ function WorkshopScreen({ user, onBack }) {
               setPhotoAlbum({photos:[],loading:true});
               const photos = await apiJson('/api/workshop/photos').catch(()=>[]);
               setPhotoAlbum({photos:Array.isArray(photos)?photos:[],loading:false});
-            }} style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid rgba(148,163,184,0.3)',background:'rgba(148,163,184,0.06)',color:'var(--muted)',cursor:'pointer',fontFamily:'inherit'}}>
+            }} style={{fontSize:11,padding:'3px 8px',borderRadius:5,border:'1px solid var(--p-blue-65-a30)',background:'var(--p-blue-65-a06)',color:'var(--muted)',cursor:'pointer',fontFamily:'inherit'}}>
               🖼 相册
             </button>
 
@@ -574,7 +574,7 @@ function WorkshopScreen({ user, onBack }) {
                 setCalModal({year:y, items:[], loading:true, dateInput:'', kindInput:'holiday', nameInput:''});
                 const rows = await apiJson(`/api/workshop/workday-calendar?year=${y}`).catch(()=>[]);
                 setCalModal(prev=>prev?({...prev, items:Array.isArray(rows)?rows:[], loading:false}):prev);
-              }} style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid rgba(96,165,250,0.35)',background:'rgba(59,130,246,0.07)',color:'#60a5fa',cursor:'pointer',fontFamily:'inherit'}}>
+              }} style={{fontSize:11,padding:'3px 8px',borderRadius:5,border:'1px solid var(--p-blue-68-a35)',background:'var(--p-blue-60-a07)',color:'var(--p-blue-68)',cursor:'pointer',fontFamily:'inherit'}}>
                 📅 节假日
               </button>
             )}
@@ -582,10 +582,10 @@ function WorkshopScreen({ user, onBack }) {
             {/* 确认/评论（补录）模式 */}
             {hasEditPerm && !wsEditMode && (
               <button onClick={()=>setRetroMode(v=>!v)}
-                style={{fontSize:10,padding:'3px 8px',borderRadius:5,
-                  border:`1px solid ${retroMode?'rgba(251,191,36,0.6)':'rgba(251,191,36,0.35)'}`,
-                  background:retroMode?'rgba(251,191,36,0.18)':'rgba(251,191,36,0.07)',
-                  color:'#fbbf24',cursor:'pointer',fontFamily:'inherit',fontWeight:retroMode?700:400}}>
+                style={{fontSize:11,padding:'3px 8px',borderRadius:5,
+                  border:`1px solid ${retroMode?'var(--p-amber-56-a60)':'var(--p-amber-56-a35)'}`,
+                  background:retroMode?'var(--p-amber-56-a18)':'var(--p-amber-56-a07)',
+                  color:'var(--p-amber-56)',cursor:'pointer',fontFamily:'inherit',fontWeight:retroMode?700:400}}>
                 {retroMode ? '📝 补录中' : '📝 确认/评论'}
               </button>
             )}
@@ -594,30 +594,30 @@ function WorkshopScreen({ user, onBack }) {
             {hasEditPerm ? (
               wsEditMode ? (
                 <button onClick={()=>{ setWsEditMode(false); setExpandedCards(new Set()); setActiveField(null); }}
-                  style={{fontSize:10,padding:'3px 10px',borderRadius:5,border:'none',background:'var(--green)',color:'#07101f',cursor:'pointer',fontFamily:'inherit',fontWeight:700}}>
+                  style={{fontSize:11,padding:'3px 10px',borderRadius:5,border:'none',background:'var(--green)',color:'var(--bg)',cursor:'pointer',fontFamily:'inherit',fontWeight:700}}>
                   保存
                 </button>
               ) : (
                 <button onClick={()=>{ setWsEditMode(true); setRetroMode(false); }}
-                  style={{fontSize:10,padding:'3px 10px',borderRadius:5,border:'1px solid rgba(34,197,94,0.4)',background:'rgba(34,197,94,0.08)',color:'var(--green)',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
+                  style={{fontSize:11,padding:'3px 10px',borderRadius:5,border:'1px solid var(--p-green-45-a40)',background:'var(--p-green-45-a08)',color:'var(--green)',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
                   ✎ 组员管理
                 </button>
               )
             ) : (
               <button onClick={()=>setShowAdminInput(v=>!v)}
-                style={{fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontFamily:'inherit'}}>解锁</button>
+                style={{fontSize:11,padding:'3px 8px',borderRadius:5,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontFamily:'inherit'}}>解锁</button>
             )}
           </div>
 
           {/* 编辑模式提示 + 管理员设置/重排按钮 */}
           {wsEditMode && canEdit && (
-            <div style={{display:'flex',alignItems:'center',gap:6,fontSize:10,color:'var(--muted)',marginBottom:8,padding:'5px 10px',background:'rgba(27,50,85,0.2)',borderRadius:6,border:'1px solid rgba(27,50,85,0.4)'}}>
+            <div style={{display:'flex',alignItems:'center',gap:6,fontSize:11,color:'var(--muted)',marginBottom:8,padding:'5px 10px',background:'var(--p-navy-22-a20)',borderRadius:6,border:'1px solid var(--p-navy-22-a40)'}}>
               <span style={{flex:1}}>点击字段（▾）可直接修改</span>
               {!isInstructor && adminPwd && <>
                 <button onClick={()=>{ setSafetyInput(plan?.safetyDate||''); setStartGroupInput(plan?.startGroupId?String(plan.startGroupId):''); setStartLeaderInput(plan?.startLeaderIdx!=null?String(plan.startLeaderIdx):''); setShowSettings(true); }}
-                  style={{fontSize:10,padding:'2px 7px',borderRadius:4,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontFamily:'inherit'}}>设置</button>
+                  style={{fontSize:11,padding:'2px 7px',borderRadius:4,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontFamily:'inherit'}}>设置</button>
                 <button onClick={regenerate}
-                  style={{fontSize:10,padding:'2px 7px',borderRadius:4,border:'1px solid rgba(239,68,68,0.3)',background:'transparent',color:'var(--red)',cursor:'pointer',fontFamily:'inherit'}}>重排</button>
+                  style={{fontSize:11,padding:'2px 7px',borderRadius:4,border:'1px solid var(--p-red-60-a30)',background:'transparent',color:'var(--red)',cursor:'pointer',fontFamily:'inherit'}}>重排</button>
               </>}
             </div>
           )}
@@ -629,7 +629,7 @@ function WorkshopScreen({ user, onBack }) {
                 onKeyDown={e=>e.key==='Enter'&&confirmAdminPwd()}
                 placeholder="管理员密码" autoFocus
                 style={{flex:1,background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:6,padding:'7px 10px',color:'var(--text)',fontSize:12,fontFamily:'inherit',outline:'none'}}/>
-              <button onClick={confirmAdminPwd} style={{padding:'7px 14px',borderRadius:6,border:'none',background:'#1e3a5f',color:'var(--text)',fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>确认</button>
+              <button onClick={confirmAdminPwd} style={{padding:'7px 14px',borderRadius:6,border:'none',background:'var(--p-navy-25)',color:'var(--text)',fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>确认</button>
             </div>
           )}
 
@@ -653,14 +653,14 @@ function WorkshopScreen({ user, onBack }) {
                     <div key={p.id} style={{
                       display:'flex', alignItems:'center', gap:8,
                       padding:'8px 12px', borderRadius:9,
-                      background:'rgba(10,25,41,0.6)', border:'1px solid var(--border)',
+                      background:'var(--p-navy-10-a60)', border:'1px solid var(--border)',
                       cursor:'pointer', opacity:0.72,
                     }} onClick={()=>setExpandedCards(s=>{ const n=new Set(s); n.add(p.id); return n; })}>
                       <span style={{fontSize:12,fontWeight:600,color:'var(--muted)',flexShrink:0}}>{dateLabel(p.shift_date)}</span>
-                      <span style={{fontSize:10,padding:'1px 6px',borderRadius:4,border:`1px solid ${tc.border}`,color:tc.text,flexShrink:0,background:tc.bg}}>{p.plan_type==='培训'?'实操':p.plan_type}</span>
+                      <span style={{fontSize:11,padding:'1px 6px',borderRadius:4,border:`1px solid ${tc.border}`,color:tc.text,flexShrink:0,background:tc.bg}}>{p.plan_type==='培训'?'实操':p.plan_type}</span>
                       {g && <span style={{fontSize:11,color:'var(--muted)',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{g.name}{g.instructor_name?` · ${g.instructor_name}`:''}</span>}
                       {!g && p.plan_type==='中旬会' && <span style={{fontSize:11,color:'var(--muted)',flex:1}}>全员回段</span>}
-                      <span style={{fontSize:16,color:'#334155',flexShrink:0}}>›</span>
+                      <span style={{fontSize:16,color:'var(--p-blue-27)',flexShrink:0}}>›</span>
                     </div>
                   );
                 }
@@ -693,7 +693,7 @@ function WorkshopScreen({ user, onBack }) {
                     <button onClick={()=>toggleField(field)} style={{
                       padding:'1px 6px',borderRadius:5,fontSize:11,fontWeight:600,fontFamily:'inherit',cursor:'pointer',
                       color, border:`1px solid ${isOpen(field)?color:borderColor}`,
-                      background: isOpen(field)?'rgba(59,130,246,0.1)':'none'
+                      background: isOpen(field)?'var(--p-blue-60-a10)':'none'
                     }}>{label} {canEdit?'▾':''}</button>
                     {canEdit && isOpen(field) && !popover && (
                       <span style={{display:'inline-flex',flexWrap:'wrap',gap:4,marginLeft:4}}>
@@ -701,7 +701,7 @@ function WorkshopScreen({ user, onBack }) {
                           <button key={opt.value} onClick={()=>onSelect(opt.value)} style={{
                             padding:'1px 8px',borderRadius:5,fontSize:11,fontFamily:'inherit',cursor:'pointer',
                             border:`1px solid ${opt.value===opt.current?color:'var(--border)'}`,
-                            background: opt.value===opt.current?`rgba(59,130,246,0.15)`:'none',
+                            background: opt.value===opt.current?`var(--p-blue-60-a15)`:'none',
                             color: opt.value===opt.current?color:'var(--muted)', fontWeight: opt.value===opt.current?600:400
                           }}>{opt.label}</button>
                         ))}
@@ -713,16 +713,16 @@ function WorkshopScreen({ user, onBack }) {
                         <span style={{
                           position:'absolute',top:'calc(100% + 4px)',left:0,zIndex:50,
                           background:'var(--input-bg)',border:`1px solid ${color}`,borderRadius:6,
-                          padding:5,boxShadow:'0 4px 14px rgba(0,0,0,0.5)',
+                          padding:5,boxShadow:'0 4px 14px var(--p-black-00-a50)',
                           display:'grid',gridTemplateColumns:'repeat(2,minmax(60px,auto))',gap:3,
                           minWidth:140,
                         }}>
-                          {options.length===0 && <span style={{fontSize:10,color:'var(--muted)',padding:'4px 8px',gridColumn:'span 2'}}>无可选项</span>}
+                          {options.length===0 && <span style={{fontSize:11,color:'var(--muted)',padding:'4px 8px',gridColumn:'span 2'}}>无可选项</span>}
                           {options.map(opt=>(
                             <button key={opt.value} onClick={()=>onSelect(opt.value)} style={{
-                              padding:'3px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:'pointer',
+                              padding:'3px 6px',borderRadius:4,fontSize:11,fontFamily:'inherit',cursor:'pointer',
                               border:`1px solid ${opt.value===opt.current?color:'var(--border)'}`,
-                              background: opt.value===opt.current?`rgba(59,130,246,0.15)`:'rgba(13,17,23,0.4)',
+                              background: opt.value===opt.current?`var(--p-blue-60-a15)`:'var(--p-navy-07-a40)',
                               color: opt.value===opt.current?color:'var(--muted)', fontWeight: opt.value===opt.current?600:400,
                               whiteSpace:'nowrap',textAlign:'center',
                             }}>{opt.label}</button>
@@ -735,17 +735,17 @@ function WorkshopScreen({ user, onBack }) {
 
                 return (
                   <div key={p.id} style={{
-                    background:'#0a1929',
-                    border:`1px solid ${flashCardId===p.id?'rgba(34,197,94,0.8)':tc.border}`,
+                    background:'var(--p-navy-10)',
+                    border:`1px solid ${flashCardId===p.id?'var(--p-green-45-a80)':tc.border}`,
                     borderRadius:10, overflow:'hidden',
                     transition: flashCardId===p.id ? 'border-color 0s' : 'border-color 0.6s, opacity 0.15s',
                     opacity: rowOpacity,
-                    boxShadow: flashCardId===p.id ? '0 0 0 2px rgba(34,197,94,0.25)' : mine ? '0 0 0 1.5px rgba(59,130,246,0.35)' : 'none',
+                    boxShadow: flashCardId===p.id ? '0 0 0 2px var(--p-green-45-a25)' : mine ? '0 0 0 1.5px var(--p-blue-60-a35)' : 'none',
                   }}>
 
                     {/* 已单独展开的非相关卡：收起按钮 */}
                     {collapsible && (
-                      <div style={{display:'flex',justifyContent:'flex-end',padding:'4px 10px',borderBottom:`1px solid ${tc.border}`,background:'rgba(0,0,0,0.2)'}}>
+                      <div style={{display:'flex',justifyContent:'flex-end',padding:'4px 10px',borderBottom:`1px solid ${tc.border}`,background:'var(--p-black-00-a20)'}}>
                         <button onClick={()=>setExpandedCards(s=>{ const n=new Set(s); n.delete(p.id); return n; })}
                           style={{background:'none',border:'none',color:'var(--muted)',fontSize:11,cursor:'pointer',padding:'0 2px',fontFamily:'inherit'}}>
                           收起 ∧
@@ -756,28 +756,28 @@ function WorkshopScreen({ user, onBack }) {
                     {/* ── 行1：日期 小组 类型 地点 ── */}
                     <div style={{padding:'8px 12px',background:tc.bg,borderBottom:`1px solid ${tc.border}`}}>
                       <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
-                        {mine && <span style={{fontSize:9,color:'var(--blue)'}}>◆</span>}
+                        {mine && <span style={{fontSize:11,color:'var(--blue)'}}>◆</span>}
                         <span style={{fontWeight:700,fontSize:12,color:'var(--text)',marginRight:2}}>{dateLabel(p.shift_date)}</span>
 
                         {/* 小组：未指定时也能选（临时培训/补排当天培训都靠这个入口） */}
                         {p.plan_type!=='中旬会' && p.plan_type!=='轮空' && (
-                          <Chip field="group" label={g ? g.name : '未指定小组'} color={g?'var(--text)':'#fca5a5'} borderColor={g?'#1e3a5f':'rgba(248,113,113,0.45)'}
+                          <Chip field="group" label={g ? g.name : '未指定小组'} color={g?'var(--text)':'var(--p-red-82)'} borderColor={g?'var(--p-navy-25)':'var(--p-red-71-a45)'}
                             options={[{value:null,label:'专项培训（不挂小组·单独勾人）',current:p.group_id}, ...(plan.groups||[]).map(gr=>({value:gr.id,label:gr.name,current:p.group_id}))]}
                             onSelect={v=>patchRow(p.id,{group_id:v},`${now} 小组改为"${v?(plan.groups||[]).find(gr=>gr.id===v)?.name:'专项培训（不挂小组）'}"`)}
                           />
                         )}
                         {/* 中旬会固定标签 */}
                         {p.plan_type==='中旬会' && (
-                          <span style={{fontSize:11,fontWeight:600,color:'#fbbf24',padding:'1px 6px',border:'1px solid rgba(251,191,36,0.3)',borderRadius:5}}>全员回段</span>
+                          <span style={{fontSize:11,fontWeight:600,color:'var(--p-amber-56)',padding:'1px 6px',border:'1px solid var(--p-amber-56-a30)',borderRadius:5}}>全员回段</span>
                         )}
 
                         {/* 整体对调 / 全员延后 快捷按钮（仅编辑模式） */}
                         {canEdit && p.plan_type!=='轮空' && (<>
                           <button onClick={()=>setSwapPlanModal({planId:p.id,shiftDate:p.shift_date,step:'pick',target:null})}
-                            title="与另一期整体对调" style={{padding:'1px 5px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:'pointer',border:'1px solid rgba(96,165,250,0.4)',background:'rgba(59,130,246,0.08)',color:'#60a5fa',lineHeight:1.4}}>⇄</button>
+                            title="与另一期整体对调" style={{padding:'1px 5px',borderRadius:4,fontSize:11,fontFamily:'inherit',cursor:'pointer',border:'1px solid var(--p-blue-68-a40)',background:'var(--p-blue-60-a08)',color:'var(--p-blue-68)',lineHeight:1.4}}>⇄</button>
                           {p.plan_type!=='中旬会' && p.group_id && (
                             <button onClick={()=>setBulkPostponeModal({planId:p.id,shiftDate:p.shift_date,step:'pick',target:null,setLunKong:false})}
-                              title="全员延后到另一期" style={{padding:'1px 5px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:'pointer',border:'1px solid rgba(251,191,36,0.4)',background:'rgba(251,191,36,0.07)',color:'#fbbf24',lineHeight:1.4}}>→↑</button>
+                              title="全员延后到另一期" style={{padding:'1px 5px',borderRadius:4,fontSize:11,fontFamily:'inherit',cursor:'pointer',border:'1px solid var(--p-amber-56-a40)',background:'var(--p-amber-56-a07)',color:'var(--p-amber-56)',lineHeight:1.4}}>→↑</button>
                           )}
                         </>)}
 
@@ -810,9 +810,9 @@ function WorkshopScreen({ user, onBack }) {
 
                     {/* ── 内容区 ── */}
                     {p.plan_type === '轮空' ? (
-                      <div style={{padding:'8px 12px',fontSize:11,color:'#6b7280',fontStyle:'italic'}}>
+                      <div style={{padding:'8px 12px',fontSize:11,color:'var(--p-slate-46)',fontStyle:'italic'}}>
                         本次早班轮空，暂不安排车场培训
-                        {p.notes && <span style={{marginLeft:6,color:'#9ca3af'}}>（{p.notes}）</span>}
+                        {p.notes && <span style={{marginLeft:6,color:'var(--p-slate-65)'}}>（{p.notes}）</span>}
                       </div>
                     ) : p.plan_type === '中旬会' ? (
                       (()=>{
@@ -836,40 +836,40 @@ function WorkshopScreen({ user, onBack }) {
                                     const newNotes = JSON.stringify(newEntries);
                                     patchRow(p.id,{notes:newNotes},`${now2} 移除记录：${entry.staffName}`);
                                   }} style={{
-                                    padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:canEdit?'pointer':'default',
+                                    padding:'2px 6px',borderRadius:4,fontSize:11,fontFamily:'inherit',cursor:canEdit?'pointer':'default',
                                     border:`1px solid ${entry.type==='请假'?'var(--red)':'var(--blue)'}`,
-                                    background:entry.type==='请假'?'rgba(239,68,68,0.12)':'rgba(59,130,246,0.12)',
-                                    color:entry.type==='请假'?'#fca5a5':'#93c5fd',fontWeight:600
+                                    background:entry.type==='请假'?'var(--p-red-60-a12)':'var(--p-blue-60-a12)',
+                                    color:entry.type==='请假'?'var(--p-red-82)':'var(--p-blue-78)',fontWeight:600
                                   }}>{entry.staffName}</button>
                                 ) : (
                                   <button key={i} onClick={()=>{
                                     if(!canEdit) return;
                                     setMemberModal({planId:p.id,step:'zhxh_pick',specialEntries,staffId:null,staffName:null,isAdded:false,candidates:[],target:null});
                                   }} style={{
-                                    display:'inline-block',width:28,height:20,border:'1px dashed rgba(100,130,180,0.5)',borderRadius:4,
-                                    background:'rgba(27,50,85,0.25)',cursor:canEdit?'pointer':'default',padding:0
+                                    display:'inline-block',width:28,height:20,border:'1px dashed var(--p-blue-55-a50)',borderRadius:4,
+                                    background:'var(--p-navy-22-a25)',cursor:canEdit?'pointer':'default',padding:0
                                   }}/>
                                 );
                               })}
                             </div>
                             {/* 备注行 */}
                             {specialEntries.length>0 && (
-                              <div style={{fontSize:10,color:'var(--muted)',lineHeight:1.7}}>
+                              <div style={{fontSize:11,color:'var(--muted)',lineHeight:1.7}}>
                                 备注：{specialEntries.map(e=>`${e.staffName} ${e.type}`).join('；')}
                               </div>
                             )}
                             {specialEntries.length===0 && (
-                              <div style={{fontSize:10,color:'#6b7280',fontStyle:'italic'}}>备注：点击方框登记请假或临时参会人员</div>
+                              <div style={{fontSize:11,color:'var(--p-slate-46)',fontStyle:'italic'}}>备注：点击方框登记请假或临时参会人员</div>
                             )}
 
                             {/* 全员名单（默认折叠） */}
-                            <div style={{borderTop:'1px solid rgba(27,50,85,0.8)',paddingTop:6}}>
+                            <div style={{borderTop:'1px solid var(--p-navy-22-a80)',paddingTop:6}}>
                               <button onClick={()=>setZhxhExpanded(s=>{const n=new Set(s);isZhxhExpanded?n.delete(p.id):n.add(p.id);return n;})} style={{
-                                background:'none',border:'none',color:'#60a5fa',fontSize:11,cursor:'pointer',padding:0,fontFamily:'inherit',
+                                background:'none',border:'none',color:'var(--p-blue-68)',fontSize:11,cursor:'pointer',padding:0,fontFamily:'inherit',
                                 display:'flex',alignItems:'center',gap:4,width:'100%',justifyContent:'space-between'
                               }}>
                                 <span style={{fontWeight:600}}>全员名单</span>
-                                <span style={{color:'var(--muted)',fontSize:10}}>{isZhxhExpanded?'收起 ∧':'展开 ∨'}</span>
+                                <span style={{color:'var(--muted)',fontSize:11}}>{isZhxhExpanded?'收起 ∧':'展开 ∨'}</span>
                               </button>
                               {isZhxhExpanded && (
                                 <div style={{marginTop:8,display:'flex',flexDirection:'column',gap:6}}>
@@ -877,8 +877,8 @@ function WorkshopScreen({ user, onBack }) {
                                     const fixedIdsSet = new Set((plan.fixedStaff||[]).map(f=>f.staff_id));
                                     const grpMembers = (grp.members||[]).filter(m=>!fixedIdsSet.has(m.id));
                                     return (
-                                      <div key={grp.id} style={{background:'rgba(13,30,50,0.5)',borderRadius:6,padding:'6px 8px'}}>
-                                        <div style={{fontSize:10,color:'#60a5fa',fontWeight:700,marginBottom:4}}>
+                                      <div key={grp.id} style={{background:'var(--p-navy-12-a50)',borderRadius:6,padding:'6px 8px'}}>
+                                        <div style={{fontSize:11,color:'var(--p-blue-68)',fontWeight:700,marginBottom:4}}>
                                           {grp.name}{grp.instructor_name?<span style={{color:'var(--muted)',fontWeight:400,marginLeft:4}}>· {grp.instructor_name}（教员）</span>:null}
                                         </div>
                                         <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
@@ -901,7 +901,7 @@ function WorkshopScreen({ user, onBack }) {
                                               await handleMemberClick(m, p, evMap, monthPlanItems, currentItems, allM);
                                             }} style={(() => {
                                               const confirmed = (p.confirmedIds||[]).includes(String(m.id));
-                                              return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:'pointer',border:`1px solid ${confirmed?'rgba(34,197,94,0.35)':'rgba(248,113,113,0.35)'}`,background:confirmed?'rgba(34,197,94,0.07)':'rgba(248,113,113,0.07)',color:confirmed?'var(--green)':'#f87171',fontWeight:400};
+                                              return {padding:'2px 6px',borderRadius:4,fontSize:11,fontFamily:'inherit',cursor:'pointer',border:`1px solid ${confirmed?'var(--p-green-45-a35)':'var(--p-red-71-a35)'}`,background:confirmed?'var(--p-green-45-a07)':'var(--p-red-71-a07)',color:confirmed?'var(--green)':'var(--p-red-71)',fontWeight:400};
                                             })()}>{m.real_name||m.name}</button>
                                           ))}
                                         </div>
@@ -909,8 +909,8 @@ function WorkshopScreen({ user, onBack }) {
                                     );
                                   })}
                                   {(plan.fixedStaff||[]).length>0 && (
-                                    <div style={{background:'rgba(13,30,50,0.5)',borderRadius:6,padding:'6px 8px'}}>
-                                      <div style={{fontSize:10,color:'#c4b5fd',fontWeight:700,marginBottom:4}}>固定成员</div>
+                                    <div style={{background:'var(--p-navy-12-a50)',borderRadius:6,padding:'6px 8px'}}>
+                                      <div style={{fontSize:11,color:'var(--p-indigo-85)',fontWeight:700,marginBottom:4}}>固定成员</div>
                                       <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
                                         {(plan.fixedStaff||[]).map((f,fi)=>(
                                           <button key={fi} onClick={async()=>{
@@ -932,7 +932,7 @@ function WorkshopScreen({ user, onBack }) {
                                             await handleMemberClick({id:f.staff_id,real_name:f.real_name||f.name}, p, evMap, monthPlanItems, currentItems, allM);
                                           }} style={(() => {
                                             const confirmed = (p.confirmedIds||[]).includes(String(f.staff_id));
-                                            return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:hasEditPerm?'pointer':'default',border:`1px solid ${confirmed?'rgba(34,197,94,0.35)':'rgba(248,113,113,0.35)'}`,background:confirmed?'rgba(34,197,94,0.07)':'rgba(248,113,113,0.07)',color:confirmed?'var(--green)':'#f87171',fontWeight:400};
+                                            return {padding:'2px 6px',borderRadius:4,fontSize:11,fontFamily:'inherit',cursor:hasEditPerm?'pointer':'default',border:`1px solid ${confirmed?'var(--p-green-45-a35)':'var(--p-red-71-a35)'}`,background:confirmed?'var(--p-green-45-a07)':'var(--p-red-71-a07)',color:confirmed?'var(--green)':'var(--p-red-71)',fontWeight:400};
                                           })()}>{f.real_name||f.name}</button>
                                         ))}
                                       </div>
@@ -962,9 +962,9 @@ function WorkshopScreen({ user, onBack }) {
                               opts.unshift({value:'__reset__',label:`↺ 恢复默认（${def?.real_name||def?.name||'—'}）`,current:null});
                             }
                             return (
-                              <span style={{fontSize:11,color:'#7c8fa6',display:'inline-flex',alignItems:'center',gap:4}}>
+                              <span style={{fontSize:11,color:'var(--p-blue-57)',display:'inline-flex',alignItems:'center',gap:4}}>
                                 教员
-                                <Chip field="instructor" label={(g.instructor_name||'—')+(p.instructor_overridden?' *':'')} color="#93c5fd" borderColor="var(--border)"
+                                <Chip field="instructor" label={(g.instructor_name||'—')+(p.instructor_overridden?' *':'')} color="var(--p-blue-78)" borderColor="var(--border)"
                                   popover={true}
                                   options={opts}
                                   onSelect={v=>{
@@ -1005,15 +1005,15 @@ function WorkshopScreen({ user, onBack }) {
                                     });
                                   }} style={{
                                     padding:'1px 5px',borderRadius:5,fontSize:11,fontFamily:'inherit',cursor:'pointer',
-                                    border:'1px solid var(--border)',background:'rgba(59,130,246,0.08)',color:'#93c5fd',
+                                    border:'1px solid var(--border)',background:'var(--p-blue-60-a08)',color:'var(--p-blue-78)',
                                   }}>⇄</button>
                                 )}
                               </span>
                             );
                           })()}
-                          <span style={{fontSize:11,color:'#7c8fa6',display:'inline-flex',alignItems:'center',gap:4}}>
+                          <span style={{fontSize:11,color:'var(--p-blue-57)',display:'inline-flex',alignItems:'center',gap:4}}>
                             班组长
-                            <Chip field="leader" label={p.leader_name||'—'} color="#fbbf24" borderColor="var(--border)"
+                            <Chip field="leader" label={p.leader_name||'—'} color="var(--p-amber-56)" borderColor="var(--border)"
                               options={allLeaders.map(l=>({value:l,label:l,current:p.leader_name}))}
                               onSelect={v=>patchRow(p.id,{leader_name:v},`${now} 班组长改为"${v}"`)}
                             />
@@ -1034,8 +1034,8 @@ function WorkshopScreen({ user, onBack }) {
                             <div style={{display:'flex',flexDirection:'column',gap:4}}>
                               {/* 组员方框行 */}
                               <div style={{display:'flex',alignItems:'center',gap:4,flexWrap:'wrap'}}>
-                                <span style={{fontSize:10,color:'#7c8fa6',flexShrink:0}}>组员</span>
-                                {canEdit && <button onClick={()=>setMemberEditModal({planId:p.id, shiftDate:p.shift_date, groupName:p.group?.name||p.plan_type||''})} style={{fontSize:9,padding:'1px 6px',borderRadius:4,border:'1px solid rgba(96,165,250,0.45)',background:'rgba(59,130,246,0.1)',color:'#60a5fa',cursor:'pointer',fontFamily:'inherit'}}>✎ 调组员</button>}
+                                <span style={{fontSize:11,color:'var(--p-blue-57)',flexShrink:0}}>组员</span>
+                                {canEdit && <button onClick={()=>setMemberEditModal({planId:p.id, shiftDate:p.shift_date, groupName:p.group?.name||p.plan_type||''})} style={{fontSize:11,padding:'1px 6px',borderRadius:4,border:'1px solid var(--p-blue-68-a45)',background:'var(--p-blue-60-a10)',color:'var(--p-blue-68)',cursor:'pointer',fontFamily:'inherit'}}>✎ 调组员</button>}
                                 <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
                                   {Array.from({length:SLOTS}).map((_,i)=>{
                                     const m = effectiveMembers[i];
@@ -1065,10 +1065,10 @@ function WorkshopScreen({ user, onBack }) {
                                         const otherDates = (plan.plans||[]).filter(x=>x.id!==p.id&&x.plan_type!=='轮空'&&x.plan_type!=='中旬会'&&x.group_id);
                                         setMemberModal({planId:p.id,staffId:m.id,staffName:m.real_name||m.name,isAdded:isSwapped,step:'pick-date',dates:otherDates,target:null,swapCandidates:[]});
                                       }} style={(() => {
-                                        if (canRetro) return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:'pointer',border:'1px solid rgba(251,191,36,0.5)',background:'rgba(251,191,36,0.08)',color:'#fbbf24',fontWeight:600};
-                                        if (isSwapped) return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:canEdit?'pointer':'default',border:'1px solid #3b82f6',background:'rgba(59,130,246,0.15)',color:'#60a5fa',fontWeight:600};
-                                        if (confirmed) return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:canEdit?'pointer':'default',border:'1px solid rgba(34,197,94,0.5)',background:'rgba(34,197,94,0.14)',color:'#4ade80',fontWeight:600};
-                                        return {padding:'2px 6px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:canEdit?'pointer':'default',border:'1px solid rgba(248,113,113,0.45)',background:'rgba(248,113,113,0.1)',color:'#fca5a5',fontWeight:400};
+                                        if (canRetro) return {padding:'2px 6px',borderRadius:4,fontSize:11,fontFamily:'inherit',cursor:'pointer',border:'1px solid var(--p-amber-56-a50)',background:'var(--p-amber-56-a08)',color:'var(--p-amber-56)',fontWeight:600};
+                                        if (isSwapped) return {padding:'2px 6px',borderRadius:4,fontSize:11,fontFamily:'inherit',cursor:canEdit?'pointer':'default',border:'1px solid var(--blue)',background:'var(--p-blue-60-a15)',color:'var(--p-blue-68)',fontWeight:600};
+                                        if (confirmed) return {padding:'2px 6px',borderRadius:4,fontSize:11,fontFamily:'inherit',cursor:canEdit?'pointer':'default',border:'1px solid var(--p-green-45-a50)',background:'var(--p-green-45-a14)',color:'var(--p-green-58)',fontWeight:600};
+                                        return {padding:'2px 6px',borderRadius:4,fontSize:11,fontFamily:'inherit',cursor:canEdit?'pointer':'default',border:'1px solid var(--p-red-71-a45)',background:'var(--p-red-71-a10)',color:'var(--p-red-82)',fontWeight:400};
                                       })()}>
                                         {confirmed ? '✓ ' : '○ '}{m.real_name||m.name}
                                         {canEdit && <span onClick={async e=>{
@@ -1077,17 +1077,17 @@ function WorkshopScreen({ user, onBack }) {
                                           const now2=logNow();
                                           await api('/api/admin/training-plan/member-remove',{method:'POST',headers:hdrs(),body:JSON.stringify({plan_id:p.id,staff_id:m.id,action:'remove'})});
                                           patchRow(p.id,{},`${now2} ${m.real_name||m.name} 本期移出`);
-                                        }} style={{marginLeft:3,color:'rgba(248,113,113,0.6)',fontWeight:700,fontSize:9,verticalAlign:'middle',cursor:'pointer'}}>×</span>}
+                                        }} style={{marginLeft:3,color:'var(--p-red-71-a60)',fontWeight:700,fontSize:11,verticalAlign:'middle',cursor:'pointer'}}>×</span>}
                                       </button>
                                     ) : (
-                                      <span key={i} style={{display:'inline-block',width:28,height:20,border:'1px dashed rgba(100,130,180,0.45)',borderRadius:4,background:'rgba(27,50,85,0.2)'}}/>
+                                      <span key={i} style={{display:'inline-block',width:28,height:20,border:'1px dashed var(--p-blue-55-a45)',borderRadius:4,background:'var(--p-navy-22-a20)'}}/>
                                     );
                                   })}
                                 </div>
                               </div>
                               {/* 固定人员 */}
                               {(activeFixedStaff.length>0||cancelledFixedStaff.length>0) && (
-                                <div style={{fontSize:10,color:'#7c8fa6',display:'flex',alignItems:'center',gap:4,flexWrap:'wrap'}}>
+                                <div style={{fontSize:11,color:'var(--p-blue-57)',display:'flex',alignItems:'center',gap:4,flexWrap:'wrap'}}>
                                   <span>固定</span>
                                   {activeFixedStaff.map((f,fi)=>(
                                     wsEditMode&&canEdit ? (
@@ -1095,11 +1095,11 @@ function WorkshopScreen({ user, onBack }) {
                                         const now2=logNow();
                                         await api('/api/admin/training-plan/member-remove',{method:'POST',headers:hdrs(),body:JSON.stringify({plan_id:p.id,staff_id:f.staff_id,action:'remove'})});
                                         patchRow(p.id,{},`${now2} ${f.real_name||f.name} 取消本次回段`);
-                                      }} style={{padding:'1px 5px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:'pointer',border:'1px solid rgba(196,181,253,0.4)',background:'rgba(196,181,253,0.08)',color:'#c4b5fd'}}>
+                                      }} style={{padding:'1px 5px',borderRadius:4,fontSize:11,fontFamily:'inherit',cursor:'pointer',border:'1px solid var(--p-indigo-85-a40)',background:'var(--p-indigo-85-a08)',color:'var(--p-indigo-85)'}}>
                                         {f.real_name||f.name} ×
                                       </button>
                                     ) : (
-                                      <span key={fi} style={{color:'#c4b5fd'}}>{f.real_name||f.name}</span>
+                                      <span key={fi} style={{color:'var(--p-indigo-85)'}}>{f.real_name||f.name}</span>
                                     )
                                   ))}
                                   {cancelledFixedStaff.map((f,fi)=>(
@@ -1108,39 +1108,39 @@ function WorkshopScreen({ user, onBack }) {
                                       const now2=logNow();
                                       await api('/api/admin/training-plan/member-remove',{method:'POST',headers:hdrs(),body:JSON.stringify({plan_id:p.id,staff_id:f.staff_id,action:'restore'})});
                                       patchRow(p.id,{},`${now2} ${f.real_name||f.name} 恢复本次回段`);
-                                    }} style={{padding:'1px 5px',borderRadius:4,fontSize:10,fontFamily:'inherit',cursor:wsEditMode&&canEdit?'pointer':'default',border:'1px solid rgba(100,100,100,0.3)',background:'rgba(30,30,30,0.2)',color:'#6b7280',textDecoration:'line-through'}}>
+                                    }} style={{padding:'1px 5px',borderRadius:4,fontSize:11,fontFamily:'inherit',cursor:wsEditMode&&canEdit?'pointer':'default',border:'1px solid var(--p-slate-39-a30)',background:'var(--p-slate-12-a20)',color:'var(--p-slate-46)',textDecoration:'line-through'}}>
                                       {f.real_name||f.name}
                                     </button>
                                   ))}
                                 </div>
                               )}
                               {(effectiveMembers.some(m=>m)||activeFixedStaff.length>0) && (
-                                <div style={{fontSize:8.5,color:'#64748b',display:'flex',gap:9,flexWrap:'wrap',marginTop:3}}>
-                                  <span style={{color:'#4ade80'}}>✓ 已确认</span>
-                                  <span style={{color:'#fca5a5'}}>○ 未确认</span>
-                                  <span style={{color:'#60a5fa'}}>◆ 补入</span>
-                                  {activeFixedStaff.length>0 && <span style={{color:'#c4b5fd'}}>◆ 固定</span>}
+                                <div style={{fontSize:11,color:'var(--muted)',display:'flex',gap:9,flexWrap:'wrap',marginTop:3}}>
+                                  <span style={{color:'var(--p-green-58)'}}>✓ 已确认</span>
+                                  <span style={{color:'var(--p-red-82)'}}>○ 未确认</span>
+                                  <span style={{color:'var(--p-blue-68)'}}>◆ 补入</span>
+                                  {activeFixedStaff.length>0 && <span style={{color:'var(--p-indigo-85)'}}>◆ 固定</span>}
                                 </div>
                               )}
                               {cpMembers.length>0 && (
-                                <div style={{fontSize:9,color:'#94a3b8'}}>
+                                <div style={{fontSize:11,color:'var(--muted)'}}>
                                   车峰（在册，不参训）：{cpMembers.map(m=>m.real_name||m.name).join('、')}
                                 </div>
                               )}
                               {!p.group_id && p.plan_type!=='轮空' && p.plan_type!=='中旬会' && (
-                                <div style={{fontSize:9,color:'#60a5fa'}}>
+                                <div style={{fontSize:11,color:'var(--p-blue-68)'}}>
                                   专项培训：不挂小组，点「✎ 调组员」可直接从全体班组人员里单独勾选参训人员（用于调休日/临时专项）
                                 </div>
                               )}
                             </div>
                           );
                         })()}
-                        {p.notes && <div style={{fontSize:10,color:'#7c8fa6',fontStyle:'italic'}}>备注：{p.notes}</div>}
+                        {p.notes && <div style={{fontSize:11,color:'var(--p-blue-57)',fontStyle:'italic'}}>备注：{p.notes}</div>}
                       </div>
                     ) : (
-                      <div style={{padding:'8px 12px',fontSize:11,color:'#7c8fa6'}}>
+                      <div style={{padding:'8px 12px',fontSize:11,color:'var(--p-blue-57)'}}>
                         未分配小组{p.notes && <span style={{marginLeft:6}}>（{p.notes}）</span>}
-                        <div style={{marginTop:4,color:'#94a3b8'}}>
+                        <div style={{marginTop:4,color:'var(--muted)'}}>
                           先在上面选一个小组（临时培训也这样），选定后才会出现 教员 / 班组长 / 参训人员，再用「✎ 调组员」加减人和「✅ 确认点评」补录出席。
                         </div>
                       </div>
@@ -1148,20 +1148,20 @@ function WorkshopScreen({ user, onBack }) {
 
                     {/* ── 变更记录 ── */}
                     {p.change_log && (
-                      <div style={{padding:'5px 12px 7px',borderTop:'1px solid rgba(27,50,85,0.4)',background:'rgba(0,0,0,0.12)'}}>
+                      <div style={{padding:'5px 12px 7px',borderTop:'1px solid var(--p-navy-22-a40)',background:'var(--p-black-00-a12)'}}>
                         {p.change_log.split('\n').filter((ln,i,arr)=>i===0||arr[i-1]!==ln).map((ln,i)=>(
-                          <div key={i} style={{fontSize:10,color:'#6b7280',lineHeight:1.7}}>• {ln}</div>
+                          <div key={i} style={{fontSize:11,color:'var(--p-slate-46)',lineHeight:1.7}}>• {ln}</div>
                         ))}
                       </div>
                     )}
 
                     {/* ── 现场记录 & 确认点评（编辑模式） ── */}
                     {p.plan_type !== '轮空' && canEdit && (
-                      <div style={{display:'flex',gap:6,padding:'7px 10px',borderTop:'1px solid rgba(27,50,85,0.35)',background:'rgba(0,0,0,0.1)'}}>
+                      <div style={{display:'flex',gap:6,padding:'7px 10px',borderTop:'1px solid var(--p-navy-22-a35)',background:'var(--p-black-00-a10)'}}>
                         <button onClick={async()=>{
                           const photos = await apiJson(`/api/workshop/training-plan/${p.id}/photos`).catch(()=>[]);
                           setPhotoModal({planId:p.id,photos:Array.isArray(photos)?photos:[]});
-                        }} style={{flex:1,padding:'6px',borderRadius:6,border:'1px solid rgba(59,130,246,0.3)',background:'rgba(59,130,246,0.07)',color:'#60a5fa',fontSize:11,fontFamily:'inherit',cursor:'pointer',fontWeight:600}}>
+                        }} style={{flex:1,padding:'6px',borderRadius:6,border:'1px solid var(--p-blue-60-a30)',background:'var(--p-blue-60-a07)',color:'var(--p-blue-68)',fontSize:11,fontFamily:'inherit',cursor:'pointer',fontWeight:600}}>
                           📷 现场记录
                         </button>
                         {p.plan_type !== '中旬会' && (
@@ -1181,7 +1181,7 @@ function WorkshopScreen({ user, onBack }) {
                             const monthPlanItems = (Array.isArray(yearPlanData)?yearPlanData:[]).find(r=>r.month===shiftMonth)?.sessions || [];
                             const currentItems = (() => { try { return JSON.parse(p.completed_items||'[]'); } catch(e) { return []; } })();
                             setEvalModal({planId:p.id,shiftDate:p.shift_date,members:allM,step:'items',target:null,comment:'',saving:false,evaluations:evMap,yearPlanItems:monthPlanItems,selectedItems:currentItems.length>0?currentItems:monthPlanItems.map(i=>i.item)});
-                          }} style={{flex:1,padding:'6px',borderRadius:6,border:'1px solid rgba(251,191,36,0.3)',background:'rgba(251,191,36,0.07)',color:'#fbbf24',fontSize:11,fontFamily:'inherit',cursor:'pointer',fontWeight:600}}>
+                          }} style={{flex:1,padding:'6px',borderRadius:6,border:'1px solid var(--p-amber-56-a30)',background:'var(--p-amber-56-a07)',color:'var(--p-amber-56)',fontSize:11,fontFamily:'inherit',cursor:'pointer',fontWeight:600}}>
                             ✅ 确认点评
                           </button>
                         )}
@@ -1197,9 +1197,9 @@ function WorkshopScreen({ user, onBack }) {
 
       {/* 轮空确认弹窗 */}
       {lunKongConfirm && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>setLunKongConfirm(null)}>
-          <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:340}} onClick={e=>e.stopPropagation()}>
-            <div style={{fontWeight:600,color:'#fbbf24',fontSize:14,marginBottom:8}}>⚠️ 设为轮空</div>
+        <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a75)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>setLunKongConfirm(null)}>
+          <div style={{background:'var(--p-navy-16)',borderRadius:12,padding:20,width:'100%',maxWidth:340}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontWeight:600,color:'var(--p-amber-56)',fontSize:14,marginBottom:8}}>⚠️ 设为轮空</div>
             <div style={{fontSize:12,color:'var(--muted)',marginBottom:4,lineHeight:1.6}}>
               此次早班将设为<strong style={{color:'var(--red)'}}>轮空</strong>，不安排培训。<br/>
               后续日程不会自动级联变化，如需调整小组顺序请使用"重生"功能。
@@ -1214,7 +1214,7 @@ function WorkshopScreen({ user, onBack }) {
             />
             <div style={{display:'flex',gap:8}}>
               <button onClick={()=>setLunKongConfirm(null)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
-              <button disabled={!lunKongConfirm.noteInput.trim()} onClick={confirmLunKong} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#7c1d1d,#dc2626)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:!lunKongConfirm.noteInput.trim()?0.4:1}}>确认设为轮空</button>
+              <button disabled={!lunKongConfirm.noteInput.trim()} onClick={confirmLunKong} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,var(--p-red-30),var(--p-red-51))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:!lunKongConfirm.noteInput.trim()?0.4:1}}>确认设为轮空</button>
             </div>
           </div>
         </div>
@@ -1222,14 +1222,14 @@ function WorkshopScreen({ user, onBack }) {
 
       {/* 成员操作弹窗 */}
       {memberModal && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:210,padding:16}} onClick={()=>setMemberModal(null)}>
-          <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:340}} onClick={e=>e.stopPropagation()}>
+        <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a80)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:210,padding:16}} onClick={()=>setMemberModal(null)}>
+          <div style={{background:'var(--p-navy-16)',borderRadius:12,padding:20,width:'100%',maxWidth:340}} onClick={e=>e.stopPropagation()}>
 
             {/* 第一步：选目标培训日期 */}
             {memberModal.step==='pick-date' && (<>
               <div style={{fontWeight:600,color:'var(--text)',fontSize:14,marginBottom:2}}>
                 {memberModal.staffName}
-                {memberModal.isAdded && <span style={{fontSize:10,color:'#60a5fa',marginLeft:6,fontWeight:400}}>（换入）</span>}
+                {memberModal.isAdded && <span style={{fontSize:11,color:'var(--p-blue-68)',marginLeft:6,fontWeight:400}}>（换入）</span>}
               </div>
               <div style={{fontSize:11,color:'var(--muted)',marginBottom:10}}>调到哪一期？</div>
               <div style={{maxHeight:260,overflowY:'auto',display:'flex',flexDirection:'column',gap:3}}>
@@ -1246,9 +1246,9 @@ function WorkshopScreen({ user, onBack }) {
                       const added2=(ov2.added||[]).map(a=>({id:a.id||a.staff_id,real_name:a.real_name||a.staff_name||a.name}));
                       const swapCandidates=[...base2,...added2].filter(m=>String(m.id)!==String(memberModal.staffId)).map(m=>({...m,planId:d.id,shiftDate:d.shift_date}));
                       setMemberModal(prev=>({...prev,target:{id:d.id,shift_date:d.shift_date,group_name:d.group?.name||'—'},swapCandidates,step:'pick-action'}));
-                    }} style={{padding:'8px 12px',borderRadius:7,border:`1px solid ${sel?'#60a5fa':'var(--border)'}`,background:sel?'rgba(59,130,246,0.15)':'rgba(13,17,23,0.4)',color:'var(--text)',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    }} style={{padding:'8px 12px',borderRadius:7,border:`1px solid ${sel?'var(--p-blue-68)':'var(--border)'}`,background:sel?'var(--p-blue-60-a15)':'var(--p-navy-07-a40)',color:'var(--text)',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                       <span style={{fontWeight:600}}>{d.shift_date?.slice(5)}</span>
-                      <span style={{fontSize:10,color:'var(--muted)'}}>{d.group?.name||'—'}</span>
+                      <span style={{fontSize:11,color:'var(--muted)'}}>{d.group?.name||'—'}</span>
                     </button>
                   );
                 })}
@@ -1269,15 +1269,15 @@ function WorkshopScreen({ user, onBack }) {
                   const r=await apiJson('/api/admin/training-plan/member-postpone',{method:'POST',headers:hdrs(),body:JSON.stringify({from_plan_id:planId,to_plan_id:target.id,staff_id:staffId,note:`${now2} ${memberModal.staffName}延后至${target.shift_date?.slice(5)}`})}).catch(()=>null);
                   if(r?.ok){setMemberModal(null);flashCard(planId);load(month);}
                   else alert(r?.error||'操作失败');
-                }} style={{padding:'11px 14px',borderRadius:8,border:'1px solid rgba(251,191,36,0.4)',background:'rgba(251,191,36,0.08)',color:'#fbbf24',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',textAlign:'left'}}>
+                }} style={{padding:'11px 14px',borderRadius:8,border:'1px solid var(--p-amber-56-a40)',background:'var(--p-amber-56-a08)',color:'var(--p-amber-56)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',textAlign:'left'}}>
                   单独移过去（延后）
-                  <div style={{fontSize:10,color:'rgba(251,191,36,0.5)',fontWeight:400,marginTop:2}}>{memberModal.target.shift_date?.slice(5)} · {memberModal.target.group_name} 无需给出替代</div>
+                  <div style={{fontSize:11,color:'var(--p-amber-56-a50)',fontWeight:400,marginTop:2}}>{memberModal.target.shift_date?.slice(5)} · {memberModal.target.group_name} 无需给出替代</div>
                 </button>
                 {memberModal.swapCandidates.length>0 && (
                   <button onClick={()=>setMemberModal(prev=>({...prev,step:'pick-member',swapTarget:null}))}
-                    style={{padding:'11px 14px',borderRadius:8,border:'1px solid rgba(96,165,250,0.4)',background:'rgba(59,130,246,0.08)',color:'#60a5fa',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',textAlign:'left'}}>
+                    style={{padding:'11px 14px',borderRadius:8,border:'1px solid var(--p-blue-68-a40)',background:'var(--p-blue-60-a08)',color:'var(--p-blue-68)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',textAlign:'left'}}>
                     与对方互换
-                    <div style={{fontSize:10,color:'rgba(96,165,250,0.5)',fontWeight:400,marginTop:2}}>从 {memberModal.target.shift_date?.slice(5)} 选一人调回来</div>
+                    <div style={{fontSize:11,color:'var(--p-blue-68-a50)',fontWeight:400,marginTop:2}}>从 {memberModal.target.shift_date?.slice(5)} 选一人调回来</div>
                   </button>
                 )}
               </div>
@@ -1294,15 +1294,15 @@ function WorkshopScreen({ user, onBack }) {
                 {memberModal.swapCandidates.map((c,i)=>{
                   const sel = memberModal.swapTarget?.id===c.id;
                   return (
-                    <button key={i} onClick={()=>setMemberModal(prev=>({...prev,swapTarget:c}))} style={{padding:'8px 12px',borderRadius:7,border:`1px solid ${sel?'#60a5fa':'var(--border)'}`,background:sel?'rgba(59,130,246,0.15)':'rgba(13,17,23,0.4)',color:'var(--text)',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left'}}>
+                    <button key={i} onClick={()=>setMemberModal(prev=>({...prev,swapTarget:c}))} style={{padding:'8px 12px',borderRadius:7,border:`1px solid ${sel?'var(--p-blue-68)':'var(--border)'}`,background:sel?'var(--p-blue-60-a15)':'var(--p-navy-07-a40)',color:'var(--text)',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left'}}>
                       {c.real_name||c.name}
                     </button>
                   );
                 })}
               </div>
               {memberModal.swapTarget && (
-                <div style={{marginTop:8,padding:'7px 10px',background:'rgba(59,130,246,0.07)',borderRadius:6,border:'1px solid rgba(59,130,246,0.2)',fontSize:11,color:'var(--muted)'}}>
-                  <strong style={{color:'#60a5fa'}}>{memberModal.staffName}</strong> ↔ <strong style={{color:'#60a5fa'}}>{memberModal.swapTarget.real_name||memberModal.swapTarget.name}</strong>
+                <div style={{marginTop:8,padding:'7px 10px',background:'var(--p-blue-60-a07)',borderRadius:6,border:'1px solid var(--p-blue-60-a20)',fontSize:11,color:'var(--muted)'}}>
+                  <strong style={{color:'var(--p-blue-68)'}}>{memberModal.staffName}</strong> ↔ <strong style={{color:'var(--p-blue-68)'}}>{memberModal.swapTarget.real_name||memberModal.swapTarget.name}</strong>
                 </div>
               )}
               <div style={{display:'flex',gap:8,marginTop:10}}>
@@ -1313,7 +1313,7 @@ function WorkshopScreen({ user, onBack }) {
                   const r=await apiJson('/api/admin/training-plan/member-swap',{method:'POST',headers:hdrs(),body:JSON.stringify({plan_id_a:planId,staff_id_a:staffId,plan_id_b:target.id,staff_id_b:swapTarget.id,note:`${now2} ${memberModal.staffName}↔${swapTarget.real_name||swapTarget.name}`})}).catch(()=>null);
                   if(r?.ok){setMemberModal(null);flashCard(planId);load(month);}
                   else alert(r?.error||'操作失败');
-                }} style={{flex:2,padding:'9px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#2563eb)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberModal.swapTarget?1:0.4}}>
+                }} style={{flex:2,padding:'9px',borderRadius:7,border:'none',background:'linear-gradient(135deg,var(--p-navy-25),var(--p-blue-53))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberModal.swapTarget?1:0.4}}>
                   确认互换
                 </button>
               </div>
@@ -1326,7 +1326,7 @@ function WorkshopScreen({ user, onBack }) {
                 {(plan.allStaff||[]).filter(s=>!memberModal.specialEntries?.some(e=>e.staffId===s.id)).map((s,i)=>(
                   <button key={i} onClick={()=>setMemberModal(prev=>({...prev,target:{staffId:null,staffName:s.real_name||s.name},step:'zhxh_confirm'}))} style={{
                     padding:'7px 12px',borderRadius:7,border:'1px solid var(--border)',
-                    background:'rgba(13,17,23,0.4)',color:'var(--text)',
+                    background:'var(--p-navy-07-a40)',color:'var(--text)',
                     fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left'
                   }}>
                     {s.real_name||s.name}
@@ -1346,7 +1346,7 @@ function WorkshopScreen({ user, onBack }) {
                   const name = (memberModal.manualName||'').trim();
                   if(!name) return;
                   setMemberModal(prev=>({...prev,target:{staffId:null,staffName:name},step:'zhxh_confirm'}));
-                }} style={{width:'100%',padding:'8px',borderRadius:6,border:'none',background:'rgba(59,130,246,0.2)',color:'#60a5fa',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer',opacity:(memberModal.manualName||'').trim()?1:0.4}}>
+                }} style={{width:'100%',padding:'8px',borderRadius:6,border:'none',background:'var(--p-blue-60-a20)',color:'var(--p-blue-68)',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer',opacity:(memberModal.manualName||'').trim()?1:0.4}}>
                   下一步
                 </button>
               </div>
@@ -1370,9 +1370,9 @@ function WorkshopScreen({ user, onBack }) {
                     if(r?.ok){setMemberModal(null);load(month);}
                     else alert('操作失败');
                   }} style={{
-                    flex:1,padding:'12px 8px',borderRadius:8,border:`1px solid ${type==='请假'?'rgba(239,68,68,0.4)':'rgba(59,130,246,0.4)'}`,
-                    background:type==='请假'?'rgba(239,68,68,0.1)':'rgba(59,130,246,0.1)',
-                    color:type==='请假'?'#fca5a5':'#93c5fd',
+                    flex:1,padding:'12px 8px',borderRadius:8,border:`1px solid ${type==='请假'?'var(--p-red-60-a40)':'var(--p-blue-60-a40)'}`,
+                    background:type==='请假'?'var(--p-red-60-a10)':'var(--p-blue-60-a10)',
+                    color:type==='请假'?'var(--p-red-82)':'var(--p-blue-78)',
                     fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'
                   }}>{type}</button>
                 ))}
@@ -1416,8 +1416,8 @@ function WorkshopScreen({ user, onBack }) {
           setMemberEditModal(null);
         };
         return (
-          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:220,padding:16}} onClick={finishAndClose}>
-            <div onClick={e=>e.stopPropagation()} style={{background:'#0f2744',borderRadius:12,width:'100%',maxWidth:360,maxHeight:'88vh',display:'flex',flexDirection:'column'}}>
+          <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:220,padding:16}} onClick={finishAndClose}>
+            <div onClick={e=>e.stopPropagation()} style={{background:'var(--p-navy-16)',borderRadius:12,width:'100%',maxWidth:360,maxHeight:'88vh',display:'flex',flexDirection:'column'}}>
               <div style={{padding:'14px 16px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                 <div>
                   <div style={{fontWeight:700,fontSize:14,color:'var(--text)'}}>调整组员</div>
@@ -1425,31 +1425,31 @@ function WorkshopScreen({ user, onBack }) {
                 </div>
                 <button onClick={finishAndClose} style={{background:'none',border:'none',color:'var(--muted)',fontSize:20,cursor:'pointer',lineHeight:1}}>×</button>
               </div>
-              <div style={{fontSize:10,color:'#94a3b8',padding:'8px 16px 0'}}>改完关掉这个面板，会把这几次调整合并成一条通知发到群里（不是每点一次发一条）</div>
+              <div style={{fontSize:11,color:'var(--muted)',padding:'8px 16px 0'}}>改完关掉这个面板，会把这几次调整合并成一条通知发到群里（不是每点一次发一条）</div>
               <div style={{flex:1,overflowY:'auto',padding:'12px 16px'}}>
-                <div style={{fontSize:11,color:'#60a5fa',fontWeight:700,marginBottom:6}}>本期人员（{current.length}）</div>
+                <div style={{fontSize:11,color:'var(--p-blue-68)',fontWeight:700,marginBottom:6}}>本期人员（{current.length}）</div>
                 {current.length===0 && <div style={{fontSize:11,color:'var(--muted)',marginBottom:8}}>暂无人员</div>}
                 {current.map(c=>(
-                  <div key={'c'+c.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'7px 10px',borderRadius:7,background:'rgba(13,17,23,0.4)',border:'1px solid var(--border)',marginBottom:4}}>
-                    <span style={{fontSize:12,color:'var(--text)'}}>{c.real_name}{c.isAdded?<span style={{color:'#60a5fa',marginLeft:4,fontSize:10}}>换入</span>:c.isFixed?<span style={{color:'#c4b5fd',marginLeft:4,fontSize:10}}>固定</span>:null}</span>
-                    <button onClick={()=>doOp(c.id,'remove')} style={{fontSize:10,color:'#f87171',background:'none',border:'1px solid rgba(248,113,113,0.4)',borderRadius:5,padding:'2px 8px',cursor:'pointer',fontFamily:'inherit'}}>移除</button>
+                  <div key={'c'+c.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'7px 10px',borderRadius:7,background:'var(--p-navy-07-a40)',border:'1px solid var(--border)',marginBottom:4}}>
+                    <span style={{fontSize:12,color:'var(--text)'}}>{c.real_name}{c.isAdded?<span style={{color:'var(--p-blue-68)',marginLeft:4,fontSize:11}}>换入</span>:c.isFixed?<span style={{color:'var(--p-indigo-85)',marginLeft:4,fontSize:11}}>固定</span>:null}</span>
+                    <button onClick={()=>doOp(c.id,'remove')} style={{fontSize:11,color:'var(--p-red-71)',background:'none',border:'1px solid var(--p-red-71-a40)',borderRadius:5,padding:'2px 8px',cursor:'pointer',fontFamily:'inherit'}}>移除</button>
                   </div>
                 ))}
                 {removedList.length>0 && (<>
-                  <div style={{fontSize:11,color:'#fbbf24',fontWeight:700,margin:'12px 0 6px'}}>已移除（{removedList.length}）</div>
+                  <div style={{fontSize:11,color:'var(--p-amber-56)',fontWeight:700,margin:'12px 0 6px'}}>已移除（{removedList.length}）</div>
                   {removedList.map(c=>(
-                    <div key={'r'+c.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'7px 10px',borderRadius:7,background:'rgba(20,20,20,0.3)',border:'1px solid rgba(100,100,100,0.3)',marginBottom:4}}>
-                      <span style={{fontSize:12,color:'#6b7280',textDecoration:'line-through'}}>{c.real_name}</span>
-                      <button onClick={()=>doOp(c.id,'restore')} style={{fontSize:10,color:'var(--green)',background:'none',border:'1px solid rgba(34,197,94,0.4)',borderRadius:5,padding:'2px 8px',cursor:'pointer',fontFamily:'inherit'}}>恢复</button>
+                    <div key={'r'+c.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'7px 10px',borderRadius:7,background:'var(--p-slate-08-a30)',border:'1px solid var(--p-slate-39-a30)',marginBottom:4}}>
+                      <span style={{fontSize:12,color:'var(--p-slate-46)',textDecoration:'line-through'}}>{c.real_name}</span>
+                      <button onClick={()=>doOp(c.id,'restore')} style={{fontSize:11,color:'var(--green)',background:'none',border:'1px solid var(--p-green-45-a40)',borderRadius:5,padding:'2px 8px',cursor:'pointer',fontFamily:'inherit'}}>恢复</button>
                     </div>
                   ))}
                 </>)}
-                <div style={{fontSize:11,color:'#22c55e',fontWeight:700,margin:'12px 0 6px'}}>可加入（全员）</div>
+                <div style={{fontSize:11,color:'var(--green)',fontWeight:700,margin:'12px 0 6px'}}>可加入（全员）</div>
                 {pool.length===0 && <div style={{fontSize:11,color:'var(--muted)'}}>全体人员均已在本期</div>}
                 {pool.map(s=>(
-                  <div key={'p'+s.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'7px 10px',borderRadius:7,background:'rgba(13,17,23,0.4)',border:'1px solid var(--border)',marginBottom:4}}>
+                  <div key={'p'+s.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'7px 10px',borderRadius:7,background:'var(--p-navy-07-a40)',border:'1px solid var(--border)',marginBottom:4}}>
                     <span style={{fontSize:12,color:'var(--text)'}}>{s.real_name||s.name}</span>
-                    <button onClick={()=>doOp(s.id,'add')} style={{fontSize:10,color:'#22c55e',background:'none',border:'1px solid rgba(34,197,94,0.4)',borderRadius:5,padding:'2px 8px',cursor:'pointer',fontFamily:'inherit'}}>＋ 加入</button>
+                    <button onClick={()=>doOp(s.id,'add')} style={{fontSize:11,color:'var(--green)',background:'none',border:'1px solid var(--p-green-45-a40)',borderRadius:5,padding:'2px 8px',cursor:'pointer',fontFamily:'inherit'}}>＋ 加入</button>
                   </div>
                 ))}
               </div>
@@ -1460,19 +1460,19 @@ function WorkshopScreen({ user, onBack }) {
 
       {/* 整体对调弹窗 */}
       {swapPlanModal && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.82)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:215,padding:16}} onClick={()=>setSwapPlanModal(null)}>
-          <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:340}} onClick={e=>e.stopPropagation()}>
+        <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a82)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:215,padding:16}} onClick={()=>setSwapPlanModal(null)}>
+          <div style={{background:'var(--p-navy-16)',borderRadius:12,padding:20,width:'100%',maxWidth:340}} onClick={e=>e.stopPropagation()}>
             {swapPlanModal.step==='pick' && (<>
-              <div style={{fontWeight:600,color:'#60a5fa',fontSize:13,marginBottom:2}}>⇄ 整体对调</div>
+              <div style={{fontWeight:600,color:'var(--p-blue-68)',fontSize:13,marginBottom:2}}>⇄ 整体对调</div>
               <div style={{fontSize:11,color:'var(--muted)',marginBottom:10}}>将 <strong style={{color:'var(--text)'}}>{swapPlanModal.shiftDate?.slice(5)}</strong> 与哪一期对调？</div>
               <div style={{maxHeight:280,overflowY:'auto',display:'flex',flexDirection:'column',gap:3}}>
                 {(plan.plans||[]).filter(x=>x.id!==swapPlanModal.planId&&x.plan_type!=='轮空').map((d,i)=>{
                   const sel=swapPlanModal.target?.id===d.id;
                   return (
                     <button key={i} onClick={()=>setSwapPlanModal(prev=>({...prev,target:{id:d.id,shift_date:d.shift_date,group_name:d.group?.name||d.plan_type},step:'confirm'}))}
-                      style={{padding:'9px 12px',borderRadius:7,border:`1px solid ${sel?'#60a5fa':'var(--border)'}`,background:sel?'rgba(59,130,246,0.15)':'rgba(13,17,23,0.4)',color:'var(--text)',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      style={{padding:'9px 12px',borderRadius:7,border:`1px solid ${sel?'var(--p-blue-68)':'var(--border)'}`,background:sel?'var(--p-blue-60-a15)':'var(--p-navy-07-a40)',color:'var(--text)',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                       <span style={{fontWeight:600}}>{d.shift_date?.slice(5)}</span>
-                      <span style={{fontSize:10,color:'var(--muted)'}}>{d.group?.name||d.plan_type}</span>
+                      <span style={{fontSize:11,color:'var(--muted)'}}>{d.group?.name||d.plan_type}</span>
                     </button>
                   );
                 })}
@@ -1480,8 +1480,8 @@ function WorkshopScreen({ user, onBack }) {
               <button onClick={()=>setSwapPlanModal(null)} style={{width:'100%',marginTop:10,padding:'8px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>取消</button>
             </>)}
             {swapPlanModal.step==='confirm' && swapPlanModal.target && (<>
-              <div style={{fontWeight:600,color:'#60a5fa',fontSize:13,marginBottom:8}}>⇄ 确认对调</div>
-              <div style={{padding:'12px',background:'rgba(59,130,246,0.07)',borderRadius:8,border:'1px solid rgba(59,130,246,0.2)',fontSize:13,color:'var(--text)',marginBottom:14,lineHeight:1.8}}>
+              <div style={{fontWeight:600,color:'var(--p-blue-68)',fontSize:13,marginBottom:8}}>⇄ 确认对调</div>
+              <div style={{padding:'12px',background:'var(--p-blue-60-a07)',borderRadius:8,border:'1px solid var(--p-blue-60-a20)',fontSize:13,color:'var(--text)',marginBottom:14,lineHeight:1.8}}>
                 <strong>{swapPlanModal.shiftDate?.slice(5)}</strong> 的内容（小组·人员·教员·地点）<br/>
                 ↕<br/>
                 <strong>{swapPlanModal.target.shift_date?.slice(5)}</strong> 的内容（{swapPlanModal.target.group_name}）
@@ -1493,7 +1493,7 @@ function WorkshopScreen({ user, onBack }) {
                   const r=await apiJson('/api/admin/training-plan/swap',{method:'PUT',headers:hdrs(),body:JSON.stringify({id1:swapPlanModal.planId,id2:swapPlanModal.target.id})}).catch(()=>null);
                   if(r?.ok){setSwapPlanModal(null);flashCard(swapPlanModal.planId);load(month);}
                   else alert(r?.error||'操作失败');
-                }} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#2563eb)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                }} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,var(--p-navy-25),var(--p-blue-53))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer'}}>
                   确认对调
                 </button>
               </div>
@@ -1504,19 +1504,19 @@ function WorkshopScreen({ user, onBack }) {
 
       {/* 全员延后弹窗 */}
       {bulkPostponeModal && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.82)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:215,padding:16}} onClick={()=>setBulkPostponeModal(null)}>
-          <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:340}} onClick={e=>e.stopPropagation()}>
+        <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a82)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:215,padding:16}} onClick={()=>setBulkPostponeModal(null)}>
+          <div style={{background:'var(--p-navy-16)',borderRadius:12,padding:20,width:'100%',maxWidth:340}} onClick={e=>e.stopPropagation()}>
             {bulkPostponeModal.step==='pick' && (<>
-              <div style={{fontWeight:600,color:'#fbbf24',fontSize:13,marginBottom:2}}>→↑ 全员延后</div>
+              <div style={{fontWeight:600,color:'var(--p-amber-56)',fontSize:13,marginBottom:2}}>→↑ 全员延后</div>
               <div style={{fontSize:11,color:'var(--muted)',marginBottom:10}}>将 <strong style={{color:'var(--text)'}}>{bulkPostponeModal.shiftDate?.slice(5)}</strong> 全体组员延后到哪一期？</div>
               <div style={{maxHeight:280,overflowY:'auto',display:'flex',flexDirection:'column',gap:3}}>
                 {(plan.plans||[]).filter(x=>x.id!==bulkPostponeModal.planId&&x.plan_type!=='轮空'&&x.plan_type!=='中旬会'&&x.group_id).map((d,i)=>{
                   const sel=bulkPostponeModal.target?.id===d.id;
                   return (
                     <button key={i} onClick={()=>setBulkPostponeModal(prev=>({...prev,target:{id:d.id,shift_date:d.shift_date,group_name:d.group?.name||'—'},step:'confirm',setLunKong:false}))}
-                      style={{padding:'9px 12px',borderRadius:7,border:`1px solid ${sel?'#fbbf24':'var(--border)'}`,background:sel?'rgba(251,191,36,0.12)':'rgba(13,17,23,0.4)',color:'var(--text)',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      style={{padding:'9px 12px',borderRadius:7,border:`1px solid ${sel?'var(--p-amber-56)':'var(--border)'}`,background:sel?'var(--p-amber-56-a12)':'var(--p-navy-07-a40)',color:'var(--text)',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                       <span style={{fontWeight:600}}>{d.shift_date?.slice(5)}</span>
-                      <span style={{fontSize:10,color:'var(--muted)'}}>{d.group?.name||'—'}</span>
+                      <span style={{fontSize:11,color:'var(--muted)'}}>{d.group?.name||'—'}</span>
                     </button>
                   );
                 })}
@@ -1524,13 +1524,13 @@ function WorkshopScreen({ user, onBack }) {
               <button onClick={()=>setBulkPostponeModal(null)} style={{width:'100%',marginTop:10,padding:'8px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:12,cursor:'pointer'}}>取消</button>
             </>)}
             {bulkPostponeModal.step==='confirm' && bulkPostponeModal.target && (<>
-              <div style={{fontWeight:600,color:'#fbbf24',fontSize:13,marginBottom:8}}>→↑ 确认全员延后</div>
-              <div style={{padding:'12px',background:'rgba(251,191,36,0.06)',borderRadius:8,border:'1px solid rgba(251,191,36,0.2)',fontSize:13,color:'var(--text)',marginBottom:10,lineHeight:1.8}}>
+              <div style={{fontWeight:600,color:'var(--p-amber-56)',fontSize:13,marginBottom:8}}>→↑ 确认全员延后</div>
+              <div style={{padding:'12px',background:'var(--p-amber-56-a06)',borderRadius:8,border:'1px solid var(--p-amber-56-a20)',fontSize:13,color:'var(--text)',marginBottom:10,lineHeight:1.8}}>
                 <strong>{bulkPostponeModal.shiftDate?.slice(5)}</strong> 全体组员<br/>
                 → 加入 <strong>{bulkPostponeModal.target.shift_date?.slice(5)}</strong>（{bulkPostponeModal.target.group_name}）
               </div>
               <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:14,cursor:'pointer',fontSize:12,color:'var(--muted)'}}>
-                <input type="checkbox" checked={bulkPostponeModal.setLunKong} onChange={e=>setBulkPostponeModal(prev=>({...prev,setLunKong:e.target.checked}))} style={{accentColor:'#fbbf24',width:14,height:14}}/>
+                <input type="checkbox" checked={bulkPostponeModal.setLunKong} onChange={e=>setBulkPostponeModal(prev=>({...prev,setLunKong:e.target.checked}))} style={{accentColor:'var(--p-amber-56)',width:14,height:14}}/>
                 同时将本期改为轮空
               </label>
               <div style={{display:'flex',gap:8}}>
@@ -1543,7 +1543,7 @@ function WorkshopScreen({ user, onBack }) {
                     await apiJson(`/api/admin/training-plan/${planId}`,{method:'PUT',headers:hdrs(),body:JSON.stringify({plan_type:'轮空',group_id:null,leader_name:null,log_entry:`${logNow()} 全员延后后改为轮空`})}).catch(()=>null);
                   }
                   setBulkPostponeModal(null);flashCard(planId);load(month);
-                }} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#7c5c00,#d97706)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                }} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,var(--p-amber-24-h045),var(--p-amber-44))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer'}}>
                   确认延后
                 </button>
               </div>
@@ -1554,13 +1554,13 @@ function WorkshopScreen({ user, onBack }) {
 
       {/* 教员互换弹窗 */}
       {instructorSwapModal && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:215,padding:16}} onClick={()=>setInstructorSwapModal(null)}>
-          <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:360}} onClick={e=>e.stopPropagation()}>
+        <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a80)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:215,padding:16}} onClick={()=>setInstructorSwapModal(null)}>
+          <div style={{background:'var(--p-navy-16)',borderRadius:12,padding:20,width:'100%',maxWidth:360}} onClick={e=>e.stopPropagation()}>
             <div style={{fontWeight:600,color:'var(--text)',fontSize:13,marginBottom:4}}>
               互换教员 · {instructorSwapModal.planDate?.slice(5)}
             </div>
             <div style={{fontSize:11,color:'var(--muted)',marginBottom:10}}>
-              当前教员 <strong style={{color:'#93c5fd'}}>{instructorSwapModal.instructorName}</strong>，选择要与之互换培训的另一位教员
+              当前教员 <strong style={{color:'var(--p-blue-78)'}}>{instructorSwapModal.instructorName}</strong>，选择要与之互换培训的另一位教员
             </div>
             <div style={{maxHeight:280,overflowY:'auto',display:'flex',flexDirection:'column',gap:4}}>
               {instructorSwapModal.candidates.length===0 && (
@@ -1570,20 +1570,20 @@ function WorkshopScreen({ user, onBack }) {
                 <button key={i} onClick={()=>setInstructorSwapModal(prev=>({...prev,target:c}))} style={{
                   padding:'8px 12px',borderRadius:7,
                   border:`1px solid ${instructorSwapModal.target?.planId===c.planId?'var(--blue)':'var(--border)'}`,
-                  background:instructorSwapModal.target?.planId===c.planId?'rgba(59,130,246,0.15)':'rgba(13,17,23,0.4)',
+                  background:instructorSwapModal.target?.planId===c.planId?'var(--p-blue-60-a15)':'var(--p-navy-07-a40)',
                   color:'var(--text)',fontFamily:'inherit',fontSize:12,cursor:'pointer',textAlign:'left',
                   display:'flex',justifyContent:'space-between',alignItems:'center'
                 }}>
-                  <span><span style={{color:'var(--muted)',marginRight:8}}>{c.shiftDate?.slice(5)}</span><strong style={{color:'#93c5fd'}}>{c.instructorName}</strong></span>
-                  <span style={{fontSize:10,color:'var(--muted)'}}>{c.groupName}</span>
+                  <span><span style={{color:'var(--muted)',marginRight:8}}>{c.shiftDate?.slice(5)}</span><strong style={{color:'var(--p-blue-78)'}}>{c.instructorName}</strong></span>
+                  <span style={{fontSize:11,color:'var(--muted)'}}>{c.groupName}</span>
                 </button>
               ))}
             </div>
             {instructorSwapModal.target && (
-              <div style={{marginTop:10,padding:'8px 10px',background:'rgba(59,130,246,0.08)',borderRadius:6,border:'1px solid rgba(59,130,246,0.2)',fontSize:11,color:'var(--muted)'}}>
+              <div style={{marginTop:10,padding:'8px 10px',background:'var(--p-blue-60-a08)',borderRadius:6,border:'1px solid var(--p-blue-60-a20)',fontSize:11,color:'var(--muted)'}}>
                 互换后：<br/>
-                {instructorSwapModal.planDate?.slice(5)} 由 <strong style={{color:'#60a5fa'}}>{instructorSwapModal.target.instructorName}</strong> 上课<br/>
-                {instructorSwapModal.target.shiftDate?.slice(5)} 由 <strong style={{color:'#60a5fa'}}>{instructorSwapModal.instructorName}</strong> 上课
+                {instructorSwapModal.planDate?.slice(5)} 由 <strong style={{color:'var(--p-blue-68)'}}>{instructorSwapModal.target.instructorName}</strong> 上课<br/>
+                {instructorSwapModal.target.shiftDate?.slice(5)} 由 <strong style={{color:'var(--p-blue-68)'}}>{instructorSwapModal.instructorName}</strong> 上课
               </div>
             )}
             <div style={{display:'flex',gap:8,marginTop:12}}>
@@ -1595,7 +1595,7 @@ function WorkshopScreen({ user, onBack }) {
                 })}).catch(()=>null);
                 if(r?.ok){setInstructorSwapModal(null);load(month);}
                 else alert(r?.error||'操作失败');
-              }} style={{flex:2,padding:'9px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#2563eb)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:instructorSwapModal.target?1:0.4}}>
+              }} style={{flex:2,padding:'9px',borderRadius:7,border:'none',background:'linear-gradient(135deg,var(--p-navy-25),var(--p-blue-53))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:instructorSwapModal.target?1:0.4}}>
                 确认互换
               </button>
             </div>
@@ -1611,32 +1611,32 @@ function WorkshopScreen({ user, onBack }) {
           setCalModal(prev=>prev?({...prev, items:Array.isArray(rows)?rows:[], loading:false}):prev);
         };
         return (
-          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:210,padding:16}} onClick={()=>setCalModal(null)}>
-            <div style={{background:'#0f2744',borderRadius:12,width:'100%',maxWidth:420,maxHeight:'86vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+          <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:210,padding:16}} onClick={()=>setCalModal(null)}>
+            <div style={{background:'var(--p-navy-16)',borderRadius:12,width:'100%',maxWidth:420,maxHeight:'86vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
               <div style={{padding:'14px 16px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                 <div>
                   <div style={{fontWeight:700,fontSize:14,color:'var(--text)'}}>📅 {calModal.year} 年 节假日 / 调休</div>
-                  <div style={{fontSize:10,color:'var(--muted)',marginTop:3,lineHeight:1.6}}>放假 → 早班日排「轮空」；调休上班 → 早班日照常排培训（占小组轮换）。改动对之后生成/重排的计划生效。</div>
+                  <div style={{fontSize:11,color:'var(--muted)',marginTop:3,lineHeight:1.6}}>放假 → 早班日排「轮空」；调休上班 → 早班日照常排培训（占小组轮换）。改动对之后生成/重排的计划生效。</div>
                 </div>
                 <button onClick={()=>setCalModal(null)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:20,cursor:'pointer',lineHeight:1}}>×</button>
               </div>
 
               {/* 新增 */}
-              <div style={{display:'flex',gap:6,padding:'10px 16px',borderBottom:'1px solid rgba(27,50,85,0.5)',alignItems:'center',flexWrap:'wrap'}}>
+              <div style={{display:'flex',gap:6,padding:'10px 16px',borderBottom:'1px solid var(--p-navy-22-a50)',alignItems:'center',flexWrap:'wrap'}}>
                 <input type="date" value={calModal.dateInput} onChange={e=>setCalModal(prev=>({...prev,dateInput:e.target.value}))}
-                  style={{flex:'1 1 120px',padding:'7px 9px',borderRadius:7,border:'1px solid var(--border)',background:'rgba(13,17,23,0.5)',color:'var(--text)',fontFamily:'inherit',fontSize:12}}/>
+                  style={{flex:'1 1 120px',padding:'7px 9px',borderRadius:7,border:'1px solid var(--border)',background:'var(--p-navy-07-a50)',color:'var(--text)',fontFamily:'inherit',fontSize:12}}/>
                 <select value={calModal.kindInput} onChange={e=>setCalModal(prev=>({...prev,kindInput:e.target.value}))}
-                  style={{flex:'0 0 92px',padding:'7px 9px',borderRadius:7,border:'1px solid var(--border)',background:'rgba(13,17,23,0.5)',color:'var(--text)',fontFamily:'inherit',fontSize:12}}>
+                  style={{flex:'0 0 92px',padding:'7px 9px',borderRadius:7,border:'1px solid var(--border)',background:'var(--p-navy-07-a50)',color:'var(--text)',fontFamily:'inherit',fontSize:12}}>
                   <option value="holiday">放假</option>
                   <option value="workday">调休上班</option>
                 </select>
                 <input value={calModal.nameInput} onChange={e=>setCalModal(prev=>({...prev,nameInput:e.target.value}))} placeholder="名称（如 国庆调休）"
-                  style={{flex:'1 1 110px',padding:'7px 9px',borderRadius:7,border:'1px solid var(--border)',background:'rgba(13,17,23,0.5)',color:'var(--text)',fontFamily:'inherit',fontSize:12}}/>
+                  style={{flex:'1 1 110px',padding:'7px 9px',borderRadius:7,border:'1px solid var(--border)',background:'var(--p-navy-07-a50)',color:'var(--text)',fontFamily:'inherit',fontSize:12}}/>
                 <button onClick={async()=>{
                   if(!calModal.dateInput) return alert('先选日期');
                   const r = await apiJson('/api/admin/workday-calendar',{method:'POST',headers:hdrs(),body:JSON.stringify({date:calModal.dateInput,kind:calModal.kindInput,name:calModal.nameInput||null})}).catch(()=>null);
                   if(r?.ok){ setCalModal(prev=>({...prev,dateInput:'',nameInput:''})); await reload(calModal.year); } else alert(r?.error||'保存失败');
-                }} style={{flex:'0 0 auto',padding:'7px 12px',borderRadius:7,border:'1px solid rgba(34,197,94,0.4)',background:'rgba(34,197,94,0.1)',color:'var(--green)',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer'}}>＋ 添加</button>
+                }} style={{flex:'0 0 auto',padding:'7px 12px',borderRadius:7,border:'1px solid var(--p-green-45-a40)',background:'var(--p-green-45-a10)',color:'var(--green)',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer'}}>＋ 添加</button>
               </div>
 
               {/* 列表 */}
@@ -1644,10 +1644,10 @@ function WorkshopScreen({ user, onBack }) {
                 {calModal.loading ? <div style={{textAlign:'center',color:'var(--muted)',fontSize:12,padding:'20px 0'}}>加载中…</div>
                   : (calModal.items||[]).length===0 ? <div style={{textAlign:'center',color:'var(--muted)',fontSize:12,padding:'20px 0'}}>这一年还没录入节假日/调休</div>
                   : (calModal.items||[]).map(it=>(
-                    <div key={it.date} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',borderRadius:7,background:it.kind==='holiday'?'rgba(239,68,68,0.06)':'rgba(34,197,94,0.06)',border:`1px solid ${it.kind==='holiday'?'rgba(239,68,68,0.25)':'rgba(34,197,94,0.25)'}`,marginBottom:4}}>
+                    <div key={it.date} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',borderRadius:7,background:it.kind==='holiday'?'var(--p-red-60-a06)':'var(--p-green-45-a06)',border:`1px solid ${it.kind==='holiday'?'var(--p-red-60-a25)':'var(--p-green-45-a25)'}`,marginBottom:4}}>
                       <span style={{fontSize:12,color:'var(--text)',fontWeight:600,flexShrink:0}}>{it.date.slice(5)}</span>
-                      <span style={{fontSize:10,color:'var(--muted)',flexShrink:0}}>周{WD[it.weekday]}</span>
-                      <span style={{fontSize:10,color:it.kind==='holiday'?'#fca5a5':'#86efac',flexShrink:0}}>{it.kind==='holiday'?'放假':'调休上班'}</span>
+                      <span style={{fontSize:11,color:'var(--muted)',flexShrink:0}}>周{WD[it.weekday]}</span>
+                      <span style={{fontSize:11,color:it.kind==='holiday'?'var(--p-red-82)':'var(--p-green-73)',flexShrink:0}}>{it.kind==='holiday'?'放假':'调休上班'}</span>
                       <span style={{fontSize:11,color:'var(--muted)',flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{it.name||''}</span>
                       <button onClick={async()=>{
                         if(!window.confirm(`删除 ${it.date} 的标记？`)) return;
@@ -1664,8 +1664,8 @@ function WorkshopScreen({ user, onBack }) {
 
       {/* 现场记录弹窗 */}
       {photoModal && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:210,padding:0}} onClick={()=>setPhotoModal(null)}>
-          <div style={{background:'#0f2744',borderRadius:'14px 14px 0 0',padding:20,width:'100%',maxWidth:480,maxHeight:'80vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+        <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a85)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:210,padding:0}} onClick={()=>setPhotoModal(null)}>
+          <div style={{background:'var(--p-navy-16)',borderRadius:'14px 14px 0 0',padding:20,width:'100%',maxWidth:480,maxHeight:'80vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
             <div style={{fontWeight:600,color:'var(--text)',fontSize:14,marginBottom:14,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
               📷 现场记录
               <button onClick={()=>setPhotoModal(null)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:18,cursor:'pointer',padding:0}}>×</button>
@@ -1674,7 +1674,7 @@ function WorkshopScreen({ user, onBack }) {
             {/* 照片网格 */}
             <div style={{flex:1,overflowY:'auto',marginBottom:12}}>
               {photoModal.photos.length===0 && (
-                <div style={{textAlign:'center',color:'#334155',fontSize:12,padding:'24px 0'}}>暂无照片，点击下方按钮拍照</div>
+                <div style={{textAlign:'center',color:'var(--p-blue-27)',fontSize:12,padding:'24px 0'}}>暂无照片，点击下方按钮拍照</div>
               )}
               <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6}}>
                 {photoModal.photos.map(ph=>(
@@ -1684,8 +1684,8 @@ function WorkshopScreen({ user, onBack }) {
                       if(!confirm('删除这张照片？')) return;
                       await apiJson(`/api/workshop/training-plan/photos/${ph.id}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);
                       setPhotoModal(prev=>({...prev,photos:prev.photos.filter(x=>x.id!==ph.id)}));
-                    }} style={{position:'absolute',top:3,right:3,width:20,height:20,borderRadius:'50%',background:'rgba(0,0,0,0.6)',border:'none',color:'var(--text)',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>×</button>
-                    <div style={{position:'absolute',bottom:0,left:0,right:0,background:'rgba(0,0,0,0.5)',fontSize:9,color:'var(--muted)',padding:'2px 4px',textAlign:'center'}}>{ph.uploaded_at?.slice(5,16)}</div>
+                    }} style={{position:'absolute',top:3,right:3,width:20,height:20,borderRadius:'50%',background:'var(--p-black-00-a60)',border:'none',color:'var(--text)',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>×</button>
+                    <div style={{position:'absolute',bottom:0,left:0,right:0,background:'var(--p-black-00-a50)',fontSize:11,color:'var(--muted)',padding:'2px 4px',textAlign:'center'}}>{ph.uploaded_at?.slice(5,16)}</div>
                   </div>
                 ))}
               </div>
@@ -1693,7 +1693,7 @@ function WorkshopScreen({ user, onBack }) {
 
             {/* 拍照/选图按钮（后台上传，不阻塞） */}
             <div style={{display:'flex',gap:8}}>
-              <label style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid rgba(59,130,246,0.4)',background:'rgba(59,130,246,0.1)',color:'#60a5fa',fontSize:13,fontWeight:600,cursor:'pointer',textAlign:'center'}}>
+              <label style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid var(--p-blue-60-a40)',background:'var(--p-blue-60-a10)',color:'var(--p-blue-68)',fontSize:13,fontWeight:600,cursor:'pointer',textAlign:'center'}}>
                 📷 拍照
                 <input type="file" accept="image/*" capture="environment" style={{display:'none'}} onChange={e=>{
                   const file = e.target.files?.[0];
@@ -1701,7 +1701,7 @@ function WorkshopScreen({ user, onBack }) {
                   e.target.value='';
                 }}/>
               </label>
-              <label style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid var(--border)',background:'rgba(27,50,85,0.2)',color:'var(--muted)',fontSize:13,fontWeight:600,cursor:'pointer',textAlign:'center'}}>
+              <label style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid var(--border)',background:'var(--p-navy-22-a20)',color:'var(--muted)',fontSize:13,fontWeight:600,cursor:'pointer',textAlign:'center'}}>
                 🖼 相册
                 <input type="file" accept="image/*" style={{display:'none'}} onChange={e=>{
                   const file = e.target.files?.[0];
@@ -1716,8 +1716,8 @@ function WorkshopScreen({ user, onBack }) {
 
       {/* 人员点击弹卡：本月完成情况 + 培训确认 */}
       {memberCheckModal && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:205}} onClick={()=>setMemberCheckModal(null)}>
-          <div style={{background:'#0f2744',borderRadius:'14px 14px 0 0',padding:20,width:'100%',maxWidth:480,maxHeight:'82vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+        <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a85)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:205}} onClick={()=>setMemberCheckModal(null)}>
+          <div style={{background:'var(--p-navy-16)',borderRadius:'14px 14px 0 0',padding:20,width:'100%',maxWidth:480,maxHeight:'82vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
 
             {/* 标题 */}
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
@@ -1725,10 +1725,10 @@ function WorkshopScreen({ user, onBack }) {
                 <div style={{display:'flex',alignItems:'baseline',gap:6}}>
                   <span style={{fontWeight:700,color:'var(--text)',fontSize:15}}>{memberCheckModal.staffName}</span>
                   {!memberCheckLoading && memberCheckModal.monthTotal > 0 && (
-                    <span style={{color:'#60a5fa',fontSize:13,fontWeight:700}}>({memberCheckModal.monthDone}/{memberCheckModal.monthTotal})</span>
+                    <span style={{color:'var(--p-blue-68)',fontSize:13,fontWeight:700}}>({memberCheckModal.monthDone}/{memberCheckModal.monthTotal})</span>
                   )}
                 </div>
-                <div style={{fontSize:10,color:'var(--muted)',marginTop:2}}>
+                <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>
                   {memberCheckModal.isFuture ? `${memberCheckModal.shiftDate} 尚未开始` : `${memberCheckModal.shiftDate} 本月完成情况`}
                 </div>
               </div>
@@ -1768,29 +1768,29 @@ function WorkshopScreen({ user, onBack }) {
                     }} style={{
                       display:'flex',alignItems:'flex-start',gap:10,
                       padding:'9px 12px',borderRadius:8,cursor:isInteractive?'pointer':alreadyDone?'default':'pointer',
-                      border:`1px solid ${alreadyDone?'rgba(34,197,94,0.35)':isSelected?'rgba(96,165,250,0.4)':tipped?'rgba(251,191,36,0.4)':'rgba(27,50,85,0.7)'}`,
-                      background:alreadyDone?'rgba(34,197,94,0.06)':isSelected?'rgba(96,165,250,0.06)':tipped?'rgba(251,191,36,0.04)':'rgba(13,17,23,0.3)',
+                      border:`1px solid ${alreadyDone?'var(--p-green-45-a35)':isSelected?'var(--p-blue-68-a40)':tipped?'var(--p-amber-56-a40)':'var(--p-navy-22-a70)'}`,
+                      background:alreadyDone?'var(--p-green-45-a06)':isSelected?'var(--p-blue-68-a06)':tipped?'var(--p-amber-56-a04)':'var(--p-navy-07-a30)',
                       transition:'border-color 0.15s,background 0.15s'
                     }}>
                       {/* 勾选框 / 状态图标 */}
                       <div style={{flexShrink:0,marginTop:1,width:18,height:18,borderRadius:4,display:'flex',alignItems:'center',justifyContent:'center',
-                        border:alreadyDone?'none':'1px solid '+(isSelected?'#60a5fa':'#334155'),
-                        background:alreadyDone?'transparent':isSelected?'rgba(96,165,250,0.15)':'transparent',
+                        border:alreadyDone?'none':'1px solid '+(isSelected?'var(--p-blue-68)':'var(--p-blue-27)'),
+                        background:alreadyDone?'transparent':isSelected?'var(--p-blue-68-a15)':'transparent',
                         fontSize:12
                       }}>
                         {alreadyDone ? '✅' : isSelected ? '✓' : ''}
                       </div>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:12,color:alreadyDone?'#86efac':isSelected?'#93c5fd':'var(--muted)',fontWeight:alreadyDone||isSelected?600:400,lineHeight:1.4}}>
+                        <div style={{fontSize:12,color:alreadyDone?'var(--p-green-73)':isSelected?'var(--p-blue-78)':'var(--muted)',fontWeight:alreadyDone||isSelected?600:400,lineHeight:1.4}}>
                           {it.item}
-                          {it.is_extra && <span style={{marginLeft:5,fontSize:9,color:'#fbbf24',border:'1px solid rgba(251,191,36,0.4)',borderRadius:3,padding:'0 3px',fontWeight:400}}>专项</span>}
-                          {inPlan && !alreadyDone && <span style={{marginLeft:5,fontSize:9,color:'var(--muted)',fontWeight:400}}>本次项点</span>}
+                          {it.is_extra && <span style={{marginLeft:5,fontSize:11,color:'var(--p-amber-56)',border:'1px solid var(--p-amber-56-a40)',borderRadius:3,padding:'0 3px',fontWeight:400}}>专项</span>}
+                          {inPlan && !alreadyDone && <span style={{marginLeft:5,fontSize:11,color:'var(--muted)',fontWeight:400}}>本次项点</span>}
                         </div>
                         {alreadyDone && fmtDate && (
-                          <div style={{fontSize:10,color:'var(--muted)',marginTop:2}}>{fmtDate}{it.confirmed_by ? ` · ${it.confirmed_by}` : ''}</div>
+                          <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{fmtDate}{it.confirmed_by ? ` · ${it.confirmed_by}` : ''}</div>
                         )}
-                        {tipped && <div style={{fontSize:10,color:'#fbbf24',marginTop:2}}>⏰ 未到培训时间</div>}
-                        {alreadyDone && it.has_comment && <div style={{fontSize:10,color:'var(--green)',marginTop:2}}>已填写评价</div>}
+                        {tipped && <div style={{fontSize:11,color:'var(--p-amber-56)',marginTop:2}}>⏰ 未到培训时间</div>}
+                        {alreadyDone && it.has_comment && <div style={{fontSize:11,color:'var(--green)',marginTop:2}}>已填写评价</div>}
                       </div>
                     </div>
                   );
@@ -1821,11 +1821,11 @@ function WorkshopScreen({ user, onBack }) {
                         const r = await apiJson(`/api/workshop/training-plan/${planId}/evaluations/${staffId}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);
                         setMemberCheckModal(null);
                         if(r?.ok) load(month); else alert('撤销失败');
-                      }} style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid rgba(239,68,68,0.4)',background:'transparent',color:'#fca5a5',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberCheckModal.saving?0.6:1}}>
+                      }} style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid var(--p-red-60-a40)',background:'transparent',color:'var(--p-red-82)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberCheckModal.saving?0.6:1}}>
                         撤销确认
                       </button>
                     )}
-                    <button onClick={()=>setMemberCheckModal(prev=>({...prev,step:'comment'}))} style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid rgba(148,163,184,0.25)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>
+                    <button onClick={()=>setMemberCheckModal(prev=>({...prev,step:'comment'}))} style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid var(--p-blue-65-a25)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>
                       💬 评价
                     </button>
                     <button disabled={memberCheckModal.saving} onClick={async()=>{
@@ -1835,7 +1835,7 @@ function WorkshopScreen({ user, onBack }) {
                       const r = await apiJson(`/api/workshop/training-plan/${planId}/evaluations/${staffId}`,{method:'PUT',headers:hdrs(),body:JSON.stringify({staff_name:staffName,comment:comment||''})}).catch(()=>null);
                       setMemberCheckModal(null);
                       if(r?.ok) load(month);
-                    }} style={{flex:2,padding:'11px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#14532d,#16a34a)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberCheckModal.saving?0.6:1}}>
+                    }} style={{flex:2,padding:'11px',borderRadius:8,border:'none',background:'linear-gradient(135deg,var(--p-green-20),var(--p-green-36))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberCheckModal.saving?0.6:1}}>
                       {memberCheckModal.saving ? '保存中…' : `✅ 培训（${(memberCheckModal.selectedItems||[]).length}项）`}
                     </button>
                   </>) : (<>
@@ -1847,7 +1847,7 @@ function WorkshopScreen({ user, onBack }) {
                       const r = await apiJson(`/api/workshop/training-plan/${planId}/evaluations/${staffId}`,{method:'PUT',headers:hdrs(),body:JSON.stringify({staff_name:staffName,comment:comment||''})}).catch(()=>null);
                       setMemberCheckModal(null);
                       if(r?.ok) load(month);
-                    }} style={{flex:2,padding:'11px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#14532d,#16a34a)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberCheckModal.saving?0.6:1}}>
+                    }} style={{flex:2,padding:'11px',borderRadius:8,border:'none',background:'linear-gradient(135deg,var(--p-green-20),var(--p-green-36))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:memberCheckModal.saving?0.6:1}}>
                       {memberCheckModal.saving ? '保存中…' : '✅ 确认培训'}
                     </button>
                   </>)}
@@ -1860,8 +1860,8 @@ function WorkshopScreen({ user, onBack }) {
 
       {/* 确认点评弹窗 */}
       {evalModal && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:210}} onClick={()=>setEvalModal(null)}>
-          <div style={{background:'#0f2744',borderRadius:'14px 14px 0 0',padding:20,width:'100%',maxWidth:480,maxHeight:'80vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+        <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a85)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:210}} onClick={()=>setEvalModal(null)}>
+          <div style={{background:'var(--p-navy-16)',borderRadius:'14px 14px 0 0',padding:20,width:'100%',maxWidth:480,maxHeight:'80vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
 
             {/* 第零层：选择本次完成的项点 */}
             {evalModal.step==='items' && (<>
@@ -1881,14 +1881,14 @@ function WorkshopScreen({ user, onBack }) {
                         const next=sel?cur.filter(x=>x!==it.item):[...cur,it.item];
                         return{...prev,selectedItems:next};
                       })} style={{
-                        padding:'10px 14px',borderRadius:8,border:`1px solid ${sel?'rgba(34,197,94,0.5)':'var(--border)'}`,
-                        background:sel?'rgba(34,197,94,0.09)':'rgba(13,17,23,0.4)',
+                        padding:'10px 14px',borderRadius:8,border:`1px solid ${sel?'var(--p-green-45-a50)':'var(--border)'}`,
+                        background:sel?'var(--p-green-45-a09)':'var(--p-navy-07-a40)',
                         color:'var(--text)',fontFamily:'inherit',fontSize:12,cursor:'pointer',
                         textAlign:'left',display:'flex',alignItems:'center',gap:10
                       }}>
-                        <span style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?'var(--green)':'#334155'}`,background:sel?'var(--green)':'transparent',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'var(--text)'}}>{sel?'✓':''}</span>
+                        <span style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?'var(--green)':'var(--p-blue-27)'}`,background:sel?'var(--green)':'transparent',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:'var(--text)'}}>{sel?'✓':''}</span>
                         <span style={{flex:1,fontWeight:sel?600:400}}>{it.item}</span>
-                        <span style={{fontSize:10,color:'var(--muted)',flexShrink:0}}>{it.trainType}</span>
+                        <span style={{fontSize:11,color:'var(--muted)',flexShrink:0}}>{it.trainType}</span>
                       </button>
                     );
                   })}
@@ -1901,10 +1901,10 @@ function WorkshopScreen({ user, onBack }) {
                 return (
                   <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:8}}>
                     {extra.map((x,i)=>(
-                      <div key={'x'+i} style={{padding:'10px 14px',borderRadius:8,border:'1px solid rgba(34,197,94,0.5)',background:'rgba(34,197,94,0.09)',color:'var(--text)',fontSize:12,display:'flex',alignItems:'center',gap:10}}>
-                        <span style={{width:16,height:16,borderRadius:4,background:'var(--green)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'var(--text)'}}>✓</span>
+                      <div key={'x'+i} style={{padding:'10px 14px',borderRadius:8,border:'1px solid var(--p-green-45-a50)',background:'var(--p-green-45-a09)',color:'var(--text)',fontSize:12,display:'flex',alignItems:'center',gap:10}}>
+                        <span style={{width:16,height:16,borderRadius:4,background:'var(--green)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:'var(--text)'}}>✓</span>
                         <span style={{flex:1,fontWeight:600}}>{x}</span>
-                        <span style={{fontSize:9,color:'#fbbf24',border:'1px solid rgba(251,191,36,0.4)',borderRadius:3,padding:'0 3px',flexShrink:0}}>专项</span>
+                        <span style={{fontSize:11,color:'var(--p-amber-56)',border:'1px solid var(--p-amber-56-a40)',borderRadius:3,padding:'0 3px',flexShrink:0}}>专项</span>
                         <button onClick={()=>setEvalModal(prev=>({...prev,selectedItems:(prev.selectedItems||[]).filter(y=>y!==x)}))} style={{background:'none',border:'none',color:'var(--muted)',fontSize:14,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
                       </div>
                     ))}
@@ -1915,15 +1915,15 @@ function WorkshopScreen({ user, onBack }) {
               <div style={{display:'flex',gap:6,marginBottom:12}}>
                 <input value={evalModal.customInput||''} onChange={e=>setEvalModal(prev=>({...prev,customInput:e.target.value}))}
                   onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); setEvalModal(prev=>{const v=(prev.customInput||'').trim(); if(!v) return prev; return {...prev,selectedItems:[...(prev.selectedItems||[]).filter(x=>x!==v),v],customInput:''};}); } }}
-                  placeholder="添加专项项点（如：手摇道岔实操）" style={{flex:1,padding:'9px 11px',borderRadius:8,border:'1px solid var(--border)',background:'rgba(13,17,23,0.5)',color:'var(--text)',fontFamily:'inherit',fontSize:12}}/>
+                  placeholder="添加专项项点（如：手摇道岔实操）" style={{flex:1,padding:'9px 11px',borderRadius:8,border:'1px solid var(--border)',background:'var(--p-navy-07-a50)',color:'var(--text)',fontFamily:'inherit',fontSize:12}}/>
                 <button onClick={()=>setEvalModal(prev=>{const v=(prev.customInput||'').trim(); if(!v) return prev; return {...prev,selectedItems:[...(prev.selectedItems||[]).filter(x=>x!==v),v],customInput:''};})}
-                  style={{padding:'9px 12px',borderRadius:8,border:'1px solid rgba(96,165,250,0.45)',background:'rgba(59,130,246,0.12)',color:'#60a5fa',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer',flexShrink:0}}>＋ 添加</button>
+                  style={{padding:'9px 12px',borderRadius:8,border:'1px solid var(--p-blue-68-a45)',background:'var(--p-blue-60-a12)',color:'var(--p-blue-68)',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer',flexShrink:0}}>＋ 添加</button>
               </div>
               <button disabled={evalModal.saving} onClick={async()=>{
                 setEvalModal(prev=>({...prev,saving:true}));
                 await apiJson(`/api/workshop/training-plan/${evalModal.planId}/completed-items`,{method:'PATCH',headers:hdrs(),body:JSON.stringify({items:evalModal.selectedItems||[]})}).catch(()=>{});
                 setEvalModal(prev=>({...prev,saving:false,step:'pick'}));
-              }} style={{padding:'11px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:evalModal.saving?0.6:1}}>
+              }} style={{padding:'11px',borderRadius:8,border:'none',background:'linear-gradient(135deg,var(--p-navy-25),var(--blue))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:evalModal.saving?0.6:1}}>
                 {evalModal.saving?'保存中…':`确认（已选 ${(evalModal.selectedItems||[]).length} 个项点）→`}
               </button>
             </>)}
@@ -1935,7 +1935,7 @@ function WorkshopScreen({ user, onBack }) {
                 <button onClick={()=>setEvalModal(null)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:18,cursor:'pointer',padding:0}}>×</button>
               </div>
               <div style={{fontSize:11,color:'var(--muted)',marginBottom:8}}>选择人员进行培训确认和点评</div>
-              {(evalModal.selectedItems||[]).length>0&&<div style={{fontSize:10,color:'#60a5fa',marginBottom:10,padding:'5px 8px',background:'rgba(59,130,246,0.08)',borderRadius:5,border:'1px solid rgba(59,130,246,0.2)'}}>本次项点：{(evalModal.selectedItems||[]).join('、')} <button onClick={()=>setEvalModal(prev=>({...prev,step:'items'}))} style={{marginLeft:6,background:'none',border:'none',color:'var(--muted)',fontSize:10,cursor:'pointer',padding:0}}>修改</button></div>}
+              {(evalModal.selectedItems||[]).length>0&&<div style={{fontSize:11,color:'var(--p-blue-68)',marginBottom:10,padding:'5px 8px',background:'var(--p-blue-60-a08)',borderRadius:5,border:'1px solid var(--p-blue-60-a20)'}}>本次项点：{(evalModal.selectedItems||[]).join('、')} <button onClick={()=>setEvalModal(prev=>({...prev,step:'items'}))} style={{marginLeft:6,background:'none',border:'none',color:'var(--muted)',fontSize:11,cursor:'pointer',padding:0}}>修改</button></div>}
               <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:4}}>
                 {evalModal.members.map((m,i)=>{
                   const ev = evalModal.evaluations[m.id];
@@ -1947,16 +1947,16 @@ function WorkshopScreen({ user, onBack }) {
                       const data = await apiJson(`/api/workshop/member-month-items?staff_id=${staffId}&month=${curMonth}`).catch(()=>null);
                       setEvalModal(prev=>({...prev,step:'eval',target:{staffId,staffName},comment:ev?.comment||'',memberItems:data?.items||[],memberTotal:data?.total||0,memberDone:data?.done||0}));
                     }} style={{
-                      padding:'10px 14px',borderRadius:8,border:`1px solid ${ev?'rgba(34,197,94,0.4)':'var(--border)'}`,
-                      background:ev?'rgba(34,197,94,0.07)':'rgba(13,17,23,0.4)',
+                      padding:'10px 14px',borderRadius:8,border:`1px solid ${ev?'var(--p-green-45-a40)':'var(--border)'}`,
+                      background:ev?'var(--p-green-45-a07)':'var(--p-navy-07-a40)',
                       color:'var(--text)',fontFamily:'inherit',fontSize:13,cursor:'pointer',
                       textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'
                     }}>
-                      <span style={{fontWeight:600,color:ev?'var(--green)':'#f87171'}}>{m.real_name||m.name}</span>
+                      <span style={{fontWeight:600,color:ev?'var(--green)':'var(--p-red-71)'}}>{m.real_name||m.name}</span>
                       {ev ? (
-                        <span style={{fontSize:10,color:'var(--green)'}}>✓ 已点评{ev.comment?'':' (无评价)'}</span>
+                        <span style={{fontSize:11,color:'var(--green)'}}>✓ 已点评{ev.comment?'':' (无评价)'}</span>
                       ) : (
-                        <span style={{fontSize:10,color:'#f87171'}}>待确认</span>
+                        <span style={{fontSize:11,color:'var(--p-red-71)'}}>待确认</span>
                       )}
                     </button>
                   );
@@ -1972,20 +1972,20 @@ function WorkshopScreen({ user, onBack }) {
               </div>
               <div style={{fontSize:11,color:'var(--muted)',marginBottom:14}}>本次培训确认与评价</div>
               {(evalModal.memberItems||[]).length > 0 && (
-                <div style={{marginBottom:12,borderRadius:7,border:'1px solid rgba(27,50,85,0.7)',background:'rgba(0,0,0,0.2)',padding:'8px 10px'}}>
+                <div style={{marginBottom:12,borderRadius:7,border:'1px solid var(--p-navy-22-a70)',background:'var(--p-black-00-a20)',padding:'8px 10px'}}>
                   <div style={{display:'flex',alignItems:'baseline',gap:6,marginBottom:6}}>
-                    <span style={{fontSize:10,color:'#60a5fa',fontWeight:600}}>本月完成情况</span>
-                    <span style={{fontSize:11,color:'#60a5fa',fontWeight:700}}>({evalModal.memberDone||0}/{evalModal.memberTotal||0})</span>
+                    <span style={{fontSize:11,color:'var(--p-blue-68)',fontWeight:600}}>本月完成情况</span>
+                    <span style={{fontSize:11,color:'var(--p-blue-68)',fontWeight:700}}>({evalModal.memberDone||0}/{evalModal.memberTotal||0})</span>
                   </div>
                   <div style={{display:'flex',flexDirection:'column',gap:3,maxHeight:110,overflowY:'auto'}}>
                     {(evalModal.memberItems||[]).map((it,i)=>{
                       const fmtDate = it.session_date ? `${parseInt(it.session_date.slice(5,7))}月${parseInt(it.session_date.slice(8,10))}日` : '';
                       return (
                         <div key={i} style={{display:'flex',alignItems:'center',gap:6}}>
-                          <span style={{fontSize:11,color:'var(--muted)',flex:1}}>{it.item}{it.is_extra && <span style={{marginLeft:4,fontSize:9,color:'#fbbf24',border:'1px solid rgba(251,191,36,0.4)',borderRadius:3,padding:'0 3px'}}>专项</span>}</span>
+                          <span style={{fontSize:11,color:'var(--muted)',flex:1}}>{it.item}{it.is_extra && <span style={{marginLeft:4,fontSize:11,color:'var(--p-amber-56)',border:'1px solid var(--p-amber-56-a40)',borderRadius:3,padding:'0 3px'}}>专项</span>}</span>
                           <span style={{fontSize:12}}>{it.confirmed?'✅':'❌'}</span>
-                          {it.confirmed ? (it.has_comment ? <span style={{fontSize:12}}>✅</span> : <span style={{fontSize:9,color:'var(--muted)'}}>未评价</span>) : <span style={{fontSize:12}}>❌</span>}
-                          {fmtDate && <span style={{fontSize:9,color:'var(--muted)'}}>{fmtDate}</span>}
+                          {it.confirmed ? (it.has_comment ? <span style={{fontSize:12}}>✅</span> : <span style={{fontSize:11,color:'var(--muted)'}}>未评价</span>) : <span style={{fontSize:12}}>❌</span>}
+                          {fmtDate && <span style={{fontSize:11,color:'var(--muted)'}}>{fmtDate}</span>}
                         </div>
                       );
                     })}
@@ -2019,7 +2019,7 @@ function WorkshopScreen({ user, onBack }) {
                       setEvalModal(prev=>({...prev,saving:false}));
                       alert('撤销失败');
                     }
-                  }} style={{flex:1,padding:'10px',borderRadius:8,border:'1px solid rgba(239,68,68,0.4)',background:'transparent',color:'#fca5a5',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:evalModal.saving?0.6:1}}>
+                  }} style={{flex:1,padding:'10px',borderRadius:8,border:'1px solid var(--p-red-60-a40)',background:'transparent',color:'var(--p-red-82)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:evalModal.saving?0.6:1}}>
                     撤销确认
                   </button>
                 )}
@@ -2039,7 +2039,7 @@ function WorkshopScreen({ user, onBack }) {
                     setEvalModal(prev=>({...prev,saving:false}));
                     alert('保存失败');
                   }
-                }} style={{flex:2,padding:'10px',borderRadius:8,border:'none',background:'linear-gradient(135deg,#14532d,#16a34a)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:evalModal.saving?0.6:1}}>
+                }} style={{flex:2,padding:'10px',borderRadius:8,border:'none',background:'linear-gradient(135deg,var(--p-green-20),var(--p-green-36))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',opacity:evalModal.saving?0.6:1}}>
                   {evalModal.saving ? '保存中…' : '✅ 确认培训'}
                 </button>
               </div>
@@ -2063,8 +2063,8 @@ function WorkshopScreen({ user, onBack }) {
         const dateKeys = Object.keys(dateMap).sort((a,b)=>b.localeCompare(a));
         const allPhotos = sorted;
         return (
-          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.92)',zIndex:250,display:'flex',flexDirection:'column'}} onClick={()=>setPhotoAlbum(null)}>
-            <div style={{background:'#0a1929',borderBottom:'1px solid var(--border)',flexShrink:0}} onClick={e=>e.stopPropagation()}>
+          <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a92)',zIndex:250,display:'flex',flexDirection:'column'}} onClick={()=>setPhotoAlbum(null)}>
+            <div style={{background:'var(--p-navy-10)',borderBottom:'1px solid var(--border)',flexShrink:0}} onClick={e=>e.stopPropagation()}>
               {/* 标题栏 */}
               <div style={{padding:'12px 16px 8px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                 <div style={{fontWeight:700,color:'var(--text)',fontSize:15}}>📷 现场记录相册</div>
@@ -2074,8 +2074,8 @@ function WorkshopScreen({ user, onBack }) {
               <div style={{padding:'0 12px 10px',display:'flex',flexDirection:'column',gap:8}}>
                 {/* 拍照/导入按钮 */}
                 <div style={{display:'flex',gap:8}}>
-                  <button onClick={()=>albumCameraRef.current?.click()} style={{flex:1,padding:'9px',borderRadius:8,border:'1px solid rgba(59,130,246,0.4)',background:'rgba(59,130,246,0.08)',color:'#60a5fa',cursor:'pointer',fontSize:12,fontWeight:600}}>📷 拍照</button>
-                  <button onClick={()=>albumFileRef.current?.click()} style={{flex:1,padding:'9px',borderRadius:8,border:'1px solid rgba(100,116,139,0.4)',background:'rgba(100,116,139,0.06)',color:'var(--muted)',cursor:'pointer',fontSize:12,fontWeight:600}}>🖼 导入图片</button>
+                  <button onClick={()=>albumCameraRef.current?.click()} style={{flex:1,padding:'9px',borderRadius:8,border:'1px solid var(--p-blue-60-a40)',background:'var(--p-blue-60-a08)',color:'var(--p-blue-68)',cursor:'pointer',fontSize:12,fontWeight:600}}>📷 拍照</button>
+                  <button onClick={()=>albumFileRef.current?.click()} style={{flex:1,padding:'9px',borderRadius:8,border:'1px solid var(--p-blue-47-a40)',background:'var(--p-blue-47-a06)',color:'var(--muted)',cursor:'pointer',fontSize:12,fontWeight:600}}>🖼 导入图片</button>
                   <input ref={albumCameraRef} type="file" accept="image/*" capture="environment" multiple style={{display:'none'}} onChange={e=>{Array.from(e.target.files||[]).forEach(f=>albumUploadFile(f));e.target.value='';}}/>
                   <input ref={albumFileRef} type="file" accept="image/*" multiple style={{display:'none'}} onChange={e=>{Array.from(e.target.files||[]).forEach(f=>albumUploadFile(f));e.target.value='';}}/>
                 </div>
@@ -2096,9 +2096,9 @@ function WorkshopScreen({ user, onBack }) {
                     <div style={{display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
                       <span style={{fontSize:11,color:'var(--muted)',flexShrink:0}}>地点</span>
                       {[['工人村','武汉地铁工人村车辆段'],['青菱','武汉地铁青菱车场'],['复兴路','复兴路地铁站']].map(([short,full])=>(
-                        <button key={short} onClick={()=>setAlbumLocation(albumLocation===full?'':full)} style={{padding:'3px 8px',borderRadius:5,border:`1px solid ${albumLocation===full?'var(--blue)':'var(--border)'}`,background:albumLocation===full?'rgba(59,130,246,0.15)':'transparent',color:albumLocation===full?'#60a5fa':'var(--muted)',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>{short}</button>
+                        <button key={short} onClick={()=>setAlbumLocation(albumLocation===full?'':full)} style={{padding:'3px 8px',borderRadius:5,border:`1px solid ${albumLocation===full?'var(--blue)':'var(--border)'}`,background:albumLocation===full?'var(--p-blue-60-a15)':'transparent',color:albumLocation===full?'var(--p-blue-68)':'var(--muted)',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>{short}</button>
                       ))}
-                      <button onClick={albumGeolocate} disabled={albumLocLoading} style={{padding:'3px 8px',borderRadius:5,border:'1px solid rgba(34,197,94,0.25)',background:'transparent',color:albumLocLoading?'var(--muted)':'#4ade80',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>
+                      <button onClick={albumGeolocate} disabled={albumLocLoading} style={{padding:'3px 8px',borderRadius:5,border:'1px solid var(--p-green-45-a25)',background:'transparent',color:albumLocLoading?'var(--muted)':'var(--p-green-58)',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>
                         {albumLocLoading?'…':'📍'}
                       </button>
                     </div>
@@ -2108,25 +2108,25 @@ function WorkshopScreen({ user, onBack }) {
             </div>
             <div style={{flex:1,overflowY:'auto',padding:'10px 12px 24px'}} onClick={e=>e.stopPropagation()}>
               {photoAlbum.loading && <div style={{textAlign:'center',color:'var(--muted)',padding:'40px 0',fontSize:13}}>加载中…</div>}
-              {!photoAlbum.loading && dateKeys.length===0 && <div style={{textAlign:'center',color:'#334155',padding:'40px 0',fontSize:13}}>暂无现场照片</div>}
+              {!photoAlbum.loading && dateKeys.length===0 && <div style={{textAlign:'center',color:'var(--p-blue-27)',padding:'40px 0',fontSize:13}}>暂无现场照片</div>}
               {dateKeys.map(dateKey => {
                 const photos = dateMap[dateKey];
                 return (
                   <div key={dateKey} style={{marginBottom:12}}>
                           <div style={{fontSize:11,color:'var(--muted)',marginBottom:5,display:'flex',alignItems:'center',gap:6}}>
                             <span style={{color:'var(--muted)',fontWeight:600}}>{dateKey}</span>
-                            <span style={{color:'#334155'}}>· {photos[0]?.plan_type||''} {photos[0]?.group_name||''}</span>
-                            <span style={{marginLeft:'auto',color:'#334155'}}>{photos.length} 张</span>
+                            <span style={{color:'var(--p-blue-27)'}}>· {photos[0]?.plan_type||''} {photos[0]?.group_name||''}</span>
+                            <span style={{marginLeft:'auto',color:'var(--p-blue-27)'}}>{photos.length} 张</span>
                           </div>
                           <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:5}}>
                             {photos.map(ph => {
                               const globalIdx = allPhotos.indexOf(ph);
                               const justUploaded = uploadQueue.some(u=>u.status==='done'&&u.serverFilename===ph.filename);
                               return (
-                                <div key={ph.photo_id} style={{position:'relative',aspectRatio:'1',borderRadius:7,overflow:'hidden',border:`1px solid ${justUploaded?'#22c55e':'var(--border)'}`,background:'var(--input-bg)'}}>
-                                  {justUploaded && <div style={{position:'absolute',top:2,left:2,background:'#22c55e',color:'#052e16',fontSize:9,fontWeight:700,borderRadius:4,padding:'1px 4px',zIndex:2}}>✓新</div>}
+                                <div key={ph.photo_id} style={{position:'relative',aspectRatio:'1',borderRadius:7,overflow:'hidden',border:`1px solid ${justUploaded?'var(--green)':'var(--border)'}`,background:'var(--input-bg)'}}>
+                                  {justUploaded && <div style={{position:'absolute',top:2,left:2,background:'var(--green)',color:'var(--p-green-10)',fontSize:11,fontWeight:700,borderRadius:4,padding:'1px 4px',zIndex:2}}>✓新</div>}
                                   <img src={ph.url} alt="" loading="lazy" onClick={()=>setLightbox({photos:allPhotos,index:globalIdx})} style={{width:'100%',height:'100%',objectFit:'cover',cursor:'pointer'}}/>
-                                  <div style={{position:'absolute',bottom:0,left:0,right:0,fontSize:9,color:'var(--muted)',background:'rgba(0,0,0,0.3)',padding:'2px 4px',textAlign:'right',lineHeight:1.4}}>
+                                  <div style={{position:'absolute',bottom:0,left:0,right:0,fontSize:11,color:'var(--muted)',background:'var(--p-black-00-a30)',padding:'2px 4px',textAlign:'right',lineHeight:1.4}}>
                                     {ph.uploaded_at?.slice(11,16)}
                                   </div>
                                   {hasEditPerm&&(
@@ -2136,7 +2136,7 @@ function WorkshopScreen({ user, onBack }) {
                                       await apiJson(`/api/workshop/training-plan/photos/${ph.photo_id}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);
                                       const photos2=await apiJson('/api/workshop/photos').catch(()=>[]);
                                       setPhotoAlbum(prev=>prev?{...prev,photos:Array.isArray(photos2)?photos2:[]}:prev);
-                                    }} style={{position:'absolute',top:4,right:4,width:20,height:20,borderRadius:'50%',border:'none',background:'rgba(239,68,68,0.8)',color:'var(--text)',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1}}>×</button>
+                                    }} style={{position:'absolute',top:4,right:4,width:20,height:20,borderRadius:'50%',border:'none',background:'var(--p-red-60-a80)',color:'var(--text)',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1}}>×</button>
                                   )}
                                 </div>
                               );
@@ -2157,12 +2157,12 @@ function WorkshopScreen({ user, onBack }) {
         const goPrev = e => { e.stopPropagation(); setLightbox(l=>({...l,index:(l.index-1+total)%total})); };
         const goNext = e => { e.stopPropagation(); setLightbox(l=>({...l,index:(l.index+1)%total})); };
         return (
-          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.97)',zIndex:300,display:'flex',flexDirection:'column'}} onClick={()=>setLightbox(null)}>
+          <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a97)',zIndex:300,display:'flex',flexDirection:'column'}} onClick={()=>setLightbox(null)}>
             {/* 顶栏 */}
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',flexShrink:0}} onClick={e=>e.stopPropagation()}>
               <div style={{color:'var(--muted)',fontSize:12}}>{lightbox.index+1} / {total}</div>
               <a href={ph.url} download={ph.filename}
-                style={{fontSize:11,padding:'5px 12px',borderRadius:6,border:'1px solid rgba(59,130,246,0.5)',background:'rgba(59,130,246,0.12)',color:'#60a5fa',textDecoration:'none',fontWeight:600}}
+                style={{fontSize:11,padding:'5px 12px',borderRadius:6,border:'1px solid var(--p-blue-60-a50)',background:'var(--p-blue-60-a12)',color:'var(--p-blue-68)',textDecoration:'none',fontWeight:600}}
                 onClick={e=>e.stopPropagation()}>
                 ⬇ 下载
               </a>
@@ -2170,9 +2170,9 @@ function WorkshopScreen({ user, onBack }) {
             </div>
             {/* 图片区 */}
             <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',overflow:'hidden'}} onClick={e=>e.stopPropagation()}>
-              {total>1 && <button onClick={goPrev} style={{position:'absolute',left:8,zIndex:1,background:'rgba(0,0,0,0.5)',border:'1px solid var(--border)',borderRadius:'50%',width:36,height:36,color:'var(--text)',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>‹</button>}
+              {total>1 && <button onClick={goPrev} style={{position:'absolute',left:8,zIndex:1,background:'var(--p-black-00-a50)',border:'1px solid var(--border)',borderRadius:'50%',width:36,height:36,color:'var(--text)',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>‹</button>}
               <img src={ph.url} alt="" style={{maxWidth:'100%',maxHeight:'100%',objectFit:'contain',borderRadius:4}}/>
-              {total>1 && <button onClick={goNext} style={{position:'absolute',right:8,zIndex:1,background:'rgba(0,0,0,0.5)',border:'1px solid var(--border)',borderRadius:'50%',width:36,height:36,color:'var(--text)',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>›</button>}
+              {total>1 && <button onClick={goNext} style={{position:'absolute',right:8,zIndex:1,background:'var(--p-black-00-a50)',border:'1px solid var(--border)',borderRadius:'50%',width:36,height:36,color:'var(--text)',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>›</button>}
             </div>
             {/* 底部信息 */}
             <div style={{padding:'8px 14px',color:'var(--muted)',fontSize:11,textAlign:'center',flexShrink:0}} onClick={e=>e.stopPropagation()}>
@@ -2187,10 +2187,10 @@ function WorkshopScreen({ user, onBack }) {
         <div style={{position:'fixed',bottom:90,left:'50%',transform:'translateX(-50%)',zIndex:300,display:'flex',flexDirection:'column',gap:4,minWidth:200,maxWidth:320,pointerEvents:'none'}}>
           {uploadQueue.map(item=>(
             <div key={item.id} style={{
-              background: item.status==='done' ? 'rgba(22,163,74,0.9)' : item.status==='error' ? 'rgba(220,38,38,0.9)' : 'rgba(15,39,68,0.95)',
-              border: `1px solid ${item.status==='done'?'rgba(34,197,94,0.5)':item.status==='error'?'rgba(239,68,68,0.5)':'rgba(59,130,246,0.4)'}`,
+              background: item.status==='done' ? 'var(--p-green-36-a90)' : item.status==='error' ? 'var(--p-red-51-a90)' : 'var(--p-navy-16-a95)',
+              border: `1px solid ${item.status==='done'?'var(--p-green-45-a50)':item.status==='error'?'var(--p-red-60-a50)':'var(--p-blue-60-a40)'}`,
               borderRadius:10,padding:'8px 14px',display:'flex',alignItems:'center',gap:8,
-              boxShadow:'0 4px 16px rgba(0,0,0,0.4)'
+              boxShadow:'0 4px 16px var(--p-black-00-a40)'
             }}>
               <span style={{fontSize:13}}>
                 {item.status==='uploading' ? '⏫' : item.status==='done' ? '✅' : '❌'}
@@ -2205,8 +2205,8 @@ function WorkshopScreen({ user, onBack }) {
 
       {/* 月度设置弹窗 */}
       {showSettings && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>setShowSettings(false)}>
-          <div style={{background:'#0f2744',borderRadius:12,padding:20,width:'100%',maxWidth:360}} onClick={e=>e.stopPropagation()}>
+        <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a80)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:16}} onClick={()=>setShowSettings(false)}>
+          <div style={{background:'var(--p-navy-16)',borderRadius:12,padding:20,width:'100%',maxWidth:360}} onClick={e=>e.stopPropagation()}>
             <div style={{fontWeight:600,color:'var(--text)',fontSize:15,marginBottom:14}}>月度设置 — {monthLabel(month)}</div>
             <div style={{fontSize:11,color:'var(--muted)',marginBottom:5}}>中旬会日期（留空=自动取11~20首个工作日早班）</div>
             <input type="date" value={safetyInput} onChange={e=>setSafetyInput(e.target.value)}
@@ -2223,7 +2223,7 @@ function WorkshopScreen({ user, onBack }) {
               placeholder={`0 ~ ${(plan?.leaderStaff?.length||1)-1}`}/>
             <div style={{display:'flex',gap:8}}>
               <button onClick={()=>setShowSettings(false)} style={{flex:1,padding:'10px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>取消</button>
-              <button onClick={saveSettings} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,#1e3a5f,#3b82f6)',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>保存并重新生成</button>
+              <button onClick={saveSettings} style={{flex:2,padding:'10px',borderRadius:7,border:'none',background:'linear-gradient(135deg,var(--p-navy-25),var(--blue))',color:'var(--text)',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer'}}>保存并重新生成</button>
             </div>
           </div>
         </div>
