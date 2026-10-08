@@ -4,9 +4,8 @@ import WorkshopScreen from "./screens/WorkshopScreen.jsx";
 import AdminScreen from "./screens/AdminScreen.jsx";
 
 // ─── Assets ────────────────────────────────────────────────────────────────
-const IMG_ELEVATED = "/img-elevated.jpeg";
-const IMG_TUNNEL = "/img-tunnel.jpeg";
-const IMG_MASCOT = "/img-mascot.jpeg";
+// 背景图与滤镜已令牌化：见 CSS 的「④ 图片与背景配套」层（随主题变化）
+// 注：img-mascot.jpeg 从未被引用（死资源），如需使用请先把路径加进令牌层
 
 
 // ─── NEW: Login Screen ─────────────────────────────────────────────────────
@@ -37,7 +36,7 @@ function LoginScreen({ onLogin, onAdmin }) {
   return (
     <div style={{position:"relative",width:"100%",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:"var(--p-navy-04)"}}>
       {/* 背景：高架封闭段 */}
-      <div style={{position:"absolute",inset:0,backgroundImage:`url(${IMG_ELEVATED})`,backgroundSize:"cover",backgroundPosition:"center",filter:"brightness(0.42) saturate(0.8)",animation:"bgZoom 18s ease-in-out infinite alternate"}}/>
+      <div style={{position:"absolute",inset:0,backgroundImage:"var(--img-hero)",backgroundSize:"cover",backgroundPosition:"center",filter:"var(--img-hero-filter)",animation:"bgZoom 18s ease-in-out infinite alternate"}}/>
       <div style={{position:"absolute",inset:0,background:"linear-gradient(180deg,var(--p-black-00-a50) 0%,var(--p-black-00-a15) 40%,var(--p-blue-60-a12) 70%,var(--p-black-00-a75) 100%)"}}/>
       {/* 轨道光线 */}
       <div style={{position:"absolute",bottom:0,left:"50%",transform:"translateX(-50%)",width:3,height:"55%",background:"linear-gradient(to bottom,transparent,var(--p-blue-60-a80))",filter:"blur(7px)",animation:"glowPulse 3s ease-in-out infinite"}}/>
@@ -671,7 +670,8 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
 
   if (phase==="shift_deadline") return (
     <div style={{position:"relative",width:"100%",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,background:"var(--p-navy-04)"}}>
-      <div style={{position:"absolute",inset:0,backgroundImage:`url(${IMG_TUNNEL})`,backgroundSize:"cover",backgroundPosition:"center",filter:"brightness(0.3)",pointerEvents:"none"}}/>
+      <div style={{position:"absolute",inset:0,backgroundImage:"var(--img-quiz)",backgroundSize:"cover",backgroundPosition:"center",filter:"var(--img-quiz-dim-filter)",pointerEvents:"none"}}/>
+      <div style={{position:"absolute",inset:0,background:"var(--img-quiz-tint)",pointerEvents:"none"}}/>
       <div style={{position:"relative",zIndex:1,textAlign:"center",padding:"0 32px"}}>
         <div style={{fontSize:40,marginBottom:12}}>⏰</div>
         <div style={{color:"white",fontSize:18,fontWeight:700,marginBottom:8}}>早班答题已截止</div>
@@ -682,7 +682,8 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
   );
   if (phase==="already_done") return (
     <div style={{position:"relative",width:"100%",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,background:"var(--p-navy-04)"}}>
-      <div style={{position:"absolute",inset:0,backgroundImage:`url(${IMG_TUNNEL})`,backgroundSize:"cover",backgroundPosition:"center",filter:"brightness(0.3)",pointerEvents:"none"}}/>
+      <div style={{position:"absolute",inset:0,backgroundImage:"var(--img-quiz)",backgroundSize:"cover",backgroundPosition:"center",filter:"var(--img-quiz-dim-filter)",pointerEvents:"none"}}/>
+      <div style={{position:"absolute",inset:0,background:"var(--img-quiz-tint)",pointerEvents:"none"}}/>
       <div style={{position:"relative",zIndex:1,textAlign:"center",padding:"0 32px"}}>
         <div style={{fontSize:40,marginBottom:12}}>✅</div>
         <div style={{color:"white",fontSize:18,fontWeight:700,marginBottom:8}}>本轮已完成答题</div>
@@ -693,7 +694,8 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
   );
   if (phase==="loading"||phase==="error") return (
     <div style={{position:"relative",width:"100%",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,background:"var(--p-navy-04)"}}>
-      <div style={{position:"absolute",inset:0,backgroundImage:`url(${IMG_TUNNEL})`,backgroundSize:"cover",backgroundPosition:"center",filter:"brightness(0.3)",pointerEvents:"none"}}/>
+      <div style={{position:"absolute",inset:0,backgroundImage:"var(--img-quiz)",backgroundSize:"cover",backgroundPosition:"center",filter:"var(--img-quiz-dim-filter)",pointerEvents:"none"}}/>
+      <div style={{position:"absolute",inset:0,background:"var(--img-quiz-tint)",pointerEvents:"none"}}/>
       <div style={{position:"relative",zIndex:1,textAlign:"center"}}>
         {phase==="error"?<><div style={{fontSize:30}}>⚠</div><div style={{color:"var(--red)",marginTop:8}}>加载失败，请检查服务器</div></>:<><div className="spinner"/><div style={{color:"var(--p-white-100-a50)",marginTop:12,fontSize:14}}>加载题目中…</div></>}
       </div>
@@ -712,7 +714,8 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
   return (
     <div onContextMenu={e=>e.preventDefault()} className="quiz-shell" style={{position:"relative",width:"100%",display:"flex",flexDirection:"column",overflow:"hidden",background:"var(--p-navy-04)"}}>
       {/* 背景：地下隧道 */}
-      <div style={{position:"absolute",inset:0,backgroundImage:`url(${IMG_TUNNEL})`,backgroundSize:"cover",backgroundPosition:"center",filter:"brightness(0.32) saturate(0.65)",pointerEvents:"none"}}/>
+      <div style={{position:"absolute",inset:0,backgroundImage:"var(--img-quiz)",backgroundSize:"cover",backgroundPosition:"center",filter:"var(--img-quiz-filter)"}}/>
+      <div style={{position:"absolute",inset:0,background:"var(--img-quiz-tint)",pointerEvents:"none"}}/>
       <div style={{position:"absolute",inset:0,background:"linear-gradient(180deg,var(--p-black-00-a60) 0%,var(--p-black-00-a10) 40%,var(--p-black-00-a55) 75%,var(--p-black-00-a92) 100%)",pointerEvents:"none"}}/>
 
       {/* 内容 */}
@@ -3205,6 +3208,176 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);-webkit-tap-
 --p-white-100-a90:rgba(var(--p-white-100-rgb),0.9);
 --p-white-100-a95:rgba(var(--p-white-100-rgb),0.95);
 }
+/* ── ④ 图片与背景配套（随主题变化）──
+   同一张照片靠 hue-rotate 跟着主题走，不必为每个主题准备一套图；
+   再叠一层主题色（--img-tint），照片就有了该主题的色偏。 */
+:root{
+--img-hero:url(/img-elevated.jpeg);
+--img-quiz:url(/img-tunnel.jpeg);
+--img-hue-rotate:0deg;
+--img-hero-filter:brightness(.42) saturate(.8);
+--img-quiz-filter:brightness(.32) saturate(.65);
+--img-quiz-dim-filter:brightness(.3) saturate(.65);
+--img-tint-rgb:var(--p-blue-60-rgb);
+--img-tint-a:0;
+--img-tint:rgba(var(--img-tint-rgb),var(--img-tint-a));
+--img-quiz-tint-a:0;
+--img-quiz-tint:rgba(var(--img-tint-rgb),var(--img-quiz-tint-a));
+}
+
+/* ══ 主题层 ══
+   切换方式：index.html 的 <html data-theme="...">；不设 = 地铁蓝（当前默认）。
+   换主题只改这一层，页面代码与调色板都不用动。 */
+/* 首义红（5号线线路色） */
+:root[data-theme="shouyi"]{
+/* 主色族：随主题做色相旋转（OKLCh，保持感知明度/彩度）*/
+--p-blue-27-h214-rgb:125,45,42;
+--p-blue-33-rgb:117,52,49;
+--p-blue-40-rgb:150,0,21;
+--p-blue-53-rgb:205,32,43;
+--p-blue-60-rgb:222,80,77;
+--p-blue-68-rgb:236,126,119;
+--p-blue-78-rgb:246,170,163;
+--p-blue-82-rgb:242,160,153;
+/* 底色族：随之偏色，避免「蓝底红点」的拼贴感 */
+--p-navy-04-rgb:12,9,9;
+--p-navy-06-rgb:29,9,8;
+--p-navy-07-rgb:23,14,14;
+--p-navy-09-rgb:37,11,10;
+--p-navy-09-h210-rgb:38,15,14;
+--p-navy-10-rgb:39,17,15;
+--p-navy-11-rgb:39,16,14;
+--p-navy-11-h214-rgb:50,19,17;
+--p-navy-12-rgb:47,20,18;
+--p-navy-13-rgb:46,27,25;
+--p-navy-14-rgb:53,22,20;
+--p-navy-14-h213-rgb:62,24,22;
+--p-navy-16-rgb:64,25,23;
+--p-navy-16-h215-rgb:82,23,22;
+--p-navy-17-rgb:57,33,31;
+--p-navy-22-rgb:80,34,32;
+--p-navy-25-rgb:90,40,38;
+/* 图片配套：同一张照片色相旋转 + 主题色叠加 */
+--img-hue-rotate:138deg;
+--img-hero-filter:brightness(.42) saturate(.6) hue-rotate(138deg);
+--img-quiz-filter:brightness(.32) saturate(.55) hue-rotate(138deg);
+--img-quiz-dim-filter:brightness(.3) saturate(.55) hue-rotate(138deg);
+--img-tint-a:0.2;
+--img-tint-a:0.20;
+--img-quiz-tint-a:0.20;
+}
+/* 首义红·深绛（与录音红拉开明度） */
+:root[data-theme="shouyi-deep"]{
+/* 主色族：随主题做色相旋转（OKLCh，保持感知明度/彩度）*/
+--p-blue-27-h214-rgb:97,22,27;
+--p-blue-33-rgb:90,31,32;
+--p-blue-40-rgb:109,1,20;
+--p-blue-53-rgb:156,0,32;
+--p-blue-60-rgb:175,41,52;
+--p-blue-68-rgb:183,84,84;
+--p-blue-78-rgb:189,121,119;
+--p-blue-82-rgb:187,113,111;
+/* 底色族：随之偏色，避免「蓝底红点」的拼贴感 */
+--p-navy-04-rgb:12,9,9;
+--p-navy-06-rgb:29,9,9;
+--p-navy-07-rgb:23,14,14;
+--p-navy-09-rgb:37,11,11;
+--p-navy-09-h210-rgb:38,15,15;
+--p-navy-10-rgb:39,17,16;
+--p-navy-11-rgb:39,16,15;
+--p-navy-11-h214-rgb:50,19,19;
+--p-navy-12-rgb:47,20,19;
+--p-navy-13-rgb:46,27,26;
+--p-navy-14-rgb:53,22,21;
+--p-navy-14-h213-rgb:62,24,24;
+--p-navy-16-rgb:64,24,24;
+--p-navy-16-h215-rgb:82,22,25;
+--p-navy-17-rgb:57,33,32;
+--p-navy-22-rgb:80,34,34;
+--p-navy-25-rgb:90,40,40;
+/* 图片配套：同一张照片色相旋转 + 主题色叠加 */
+--img-hue-rotate:138deg;
+--img-hero-filter:brightness(.42) saturate(.6) hue-rotate(138deg);
+--img-quiz-filter:brightness(.32) saturate(.55) hue-rotate(138deg);
+--img-quiz-dim-filter:brightness(.3) saturate(.55) hue-rotate(138deg);
+--img-tint-a:0.22;
+--img-quiz-tint-a:0.22;
+}
+/* 编钟青（8号线线路色） */
+:root[data-theme="bianzhong"]{
+/* 主色族：随主题做色相旋转（OKLCh，保持感知明度/彩度）*/
+--p-blue-27-h214-rgb:0,86,93;
+--p-blue-33-rgb:4,86,93;
+--p-blue-40-rgb:0,89,97;
+--p-blue-53-rgb:8,127,138;
+--p-blue-60-rgb:7,153,165;
+--p-blue-68-rgb:20,184,198;
+--p-blue-78-rgb:110,211,222;
+--p-blue-82-rgb:90,204,217;
+/* 底色族：随之偏色，避免「蓝底红点」的拼贴感 */
+--p-navy-04-rgb:7,10,11;
+--p-navy-06-rgb:0,20,23;
+--p-navy-07-rgb:9,19,20;
+--p-navy-09-rgb:0,25,28;
+--p-navy-09-h210-rgb:0,28,31;
+--p-navy-10-rgb:0,29,32;
+--p-navy-11-rgb:0,28,32;
+--p-navy-11-h214-rgb:0,35,39;
+--p-navy-12-rgb:0,35,38;
+--p-navy-13-rgb:12,37,40;
+--p-navy-14-rgb:0,38,42;
+--p-navy-14-h213-rgb:0,44,48;
+--p-navy-16-rgb:0,45,49;
+--p-navy-16-h215-rgb:0,54,59;
+--p-navy-17-rgb:15,46,49;
+--p-navy-22-rgb:0,58,63;
+--p-navy-25-rgb:0,66,72;
+/* 图片配套：同一张照片色相旋转 + 主题色叠加 */
+--img-hue-rotate:333deg;
+--img-hero-filter:brightness(.42) saturate(.6) hue-rotate(333deg);
+--img-quiz-filter:brightness(.32) saturate(.55) hue-rotate(333deg);
+--img-quiz-dim-filter:brightness(.3) saturate(.55) hue-rotate(333deg);
+--img-tint-a:0.16;
+--img-quiz-tint-a:0.16;
+}
+/* 芳草绿（4号线线路色） */
+:root[data-theme="fangcao"]{
+/* 主色族：随主题做色相旋转（OKLCh，保持感知明度/彩度）*/
+--p-blue-27-h214-rgb:5,91,40;
+--p-blue-33-rgb:25,89,45;
+--p-blue-40-rgb:5,95,41;
+--p-blue-53-rgb:4,135,61;
+--p-blue-60-rgb:0,162,74;
+--p-blue-68-rgb:86,187,113;
+--p-blue-78-rgb:148,210,160;
+--p-blue-82-rgb:135,204,150;
+/* 底色族：随之偏色，避免「蓝底红点」的拼贴感 */
+--p-navy-04-rgb:8,10,9;
+--p-navy-06-rgb:5,20,8;
+--p-navy-07-rgb:12,19,14;
+--p-navy-09-rgb:3,26,9;
+--p-navy-09-h210-rgb:8,28,13;
+--p-navy-10-rgb:10,29,15;
+--p-navy-11-rgb:9,29,14;
+--p-navy-11-h214-rgb:9,36,16;
+--p-navy-12-rgb:11,35,18;
+--p-navy-13-rgb:22,37,25;
+--p-navy-14-rgb:12,39,19;
+--p-navy-14-h213-rgb:11,45,21;
+--p-navy-16-rgb:10,47,21;
+--p-navy-16-h215-rgb:0,57,21;
+--p-navy-17-rgb:27,46,31;
+--p-navy-22-rgb:19,60,30;
+--p-navy-25-rgb:24,68,36;
+/* 图片配套：同一张照片色相旋转 + 主题色叠加 */
+--img-hue-rotate:283deg;
+--img-hero-filter:brightness(.42) saturate(.6) hue-rotate(283deg);
+--img-quiz-filter:brightness(.32) saturate(.55) hue-rotate(283deg);
+--img-quiz-dim-filter:brightness(.3) saturate(.55) hue-rotate(283deg);
+--img-tint-a:0.16;
+--img-quiz-tint-a:0.16;
+}
+
 
 
 `;

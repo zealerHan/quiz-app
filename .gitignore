@@ -33,3 +33,4 @@ backup-ui-*/
 backup-dist-*.tgz
 backup-b-*/
 backup-rgb-*/
+backup-theme*/
