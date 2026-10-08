@@ -32,3 +32,4 @@ ui-compare/
 backup-ui-*/
 backup-dist-*.tgz
 backup-b-*/
+backup-rgb-*/
