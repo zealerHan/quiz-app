@@ -57,7 +57,13 @@ function getWeekday(dateStr) {
   return d.getDay(); // 0=日,1=一,...,6=六
 }
 
-function getLocation(dateStr) {
+// 中旬会（全员会）固定地点：与「培训」的按星期分场地规则各走一条，互不干扰。
+// 依据：中旬会全员回段，地点恒定；且它按「11~20日第一个工作日」浮动，星期不固定 → 借用培训规则必然踩空。
+const ZHONGXUN_LOCATION = '工人村';
+
+function getLocation(dateStr, planType) {
+  // 中旬会不看星期，一律固定地点
+  if (planType === '中旬会') return ZHONGXUN_LOCATION;
   const wd = getWeekday(dateStr);
   // 周一(1)周三(3)周四(4)周六(6) → 青菱；周二(2)周五(5)周日(0) → 工人村
   return [1,3,4,6].includes(wd) ? '青菱车场' : '工人村';
@@ -130,7 +136,7 @@ function generatePlan(yearMonth) {
       groupIdx++;
       leaderPos++;
     }
-    rows.push({ year_month: yearMonth, shift_date: date, location: getLocation(date),
+    rows.push({ year_month: yearMonth, shift_date: date, location: getLocation(date, planType),
       plan_type: planType, group_id: groupId, leader_name: leaderName, is_type_custom: 0, notes: null });
   }
   return rows;
@@ -307,11 +313,11 @@ router.put('/api/admin/training-plan/swap', workshopEditAuth, (req, res) => {
   const entryFor2 = `${today} 与${p1.shift_date.slice(5)}整体对调`;
   const appendLog = (existing, entry) => (existing ? existing + '\n' : '') + entry;
   db.transaction(() => {
-    // location 由日期星期决定，不随内容互换，各自保持原日期对应的地点
+    // location 按「换过来的类型 + 本行原日期」重算：中旬会固定工人村，培训仍按星期
     db.prepare(`UPDATE monthly_training_plans SET group_id=?,plan_type=?,leader_name=?,location=?,notes=?,instructor_id_override=?,change_log=?,is_type_custom=1 WHERE id=?`)
-      .run(p2.group_id, p2.plan_type, p2.leader_name, getLocation(p1.shift_date), p2.notes, p2.instructor_id_override, appendLog(p2.change_log, entryFor1), id1);
+      .run(p2.group_id, p2.plan_type, p2.leader_name, getLocation(p1.shift_date, p2.plan_type), p2.notes, p2.instructor_id_override, appendLog(p2.change_log, entryFor1), id1);
     db.prepare(`UPDATE monthly_training_plans SET group_id=?,plan_type=?,leader_name=?,location=?,notes=?,instructor_id_override=?,change_log=?,is_type_custom=1 WHERE id=?`)
-      .run(p1.group_id, p1.plan_type, p1.leader_name, getLocation(p2.shift_date), p1.notes, p1.instructor_id_override, appendLog(p1.change_log, entryFor2), id2);
+      .run(p1.group_id, p1.plan_type, p1.leader_name, getLocation(p2.shift_date, p1.plan_type), p1.notes, p1.instructor_id_override, appendLog(p1.change_log, entryFor2), id2);
     db.prepare('DELETE FROM training_plan_member_overrides WHERE plan_id IN (?,?)').run(id1, id2);
     const ins = db.prepare(`INSERT INTO training_plan_member_overrides (plan_id,staff_id,action,note,created_at) VALUES (?,?,?,?,?)`);
     for (const o of ov1) ins.run(id2, o.staff_id, o.action, o.note, o.created_at);
