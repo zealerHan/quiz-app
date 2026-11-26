@@ -1038,9 +1038,11 @@ function AdminScreen({ onBack }) {
           weekBatch={weekBatch} weekLoading={weekLoading}
           weekAnchor={weekAnchor} setWeekAnchor={setWeekAnchor}
           leavePending={leavePending} leavePendLoading={leavePendLoading}
+          loadLeavePending={loadLeavePending}
           rejectModal={rejectModal} setRejectModal={setRejectModal}
           rejectReason={rejectReason} setRejectReason={setRejectReason}
           reviewLeave={reviewLeave} loadWeekBatch={loadWeekBatch} hdrs={hdrs}
+          copyBatchText={copyBatchText} markReported={markReported}
         />}
 
 

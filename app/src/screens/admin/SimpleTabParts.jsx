@@ -18,9 +18,10 @@ import { apiJson } from "../../shared.jsx";
 /** 休假审批：周报批清单 + 待批列表 + 驳回弹窗 */
 export function LeaveTab({
   weekBatch, weekLoading, weekAnchor, setWeekAnchor,
-  leavePending, leavePendLoading,
+  leavePending, leavePendLoading, loadLeavePending,
   rejectModal, setRejectModal, rejectReason, setRejectReason,
   reviewLeave, loadWeekBatch, hdrs,
+  copyBatchText, markReported,
 }) {
   return (
       <div style={{padding:'0 2px'}}>
