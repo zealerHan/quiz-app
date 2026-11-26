@@ -1,6 +1,6 @@
 {
   "name": "crew-system",
-  "version": "3.0.0",
+  "version": "1.0.1",
   "description": "武汉地铁5号线乘务四组日常管理系统",
   "scripts": {
     "dev": "vite --host",
