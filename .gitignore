@@ -34,3 +34,6 @@ backup-dist-*.tgz
 backup-b-*/
 backup-rgb-*/
 backup-theme*/
+
+# 死代码备份目录（删代码前留的存档，不入库）
+_deadcode-*/
