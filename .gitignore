@@ -37,3 +37,8 @@ backup-theme*/
 
 # 死代码备份目录（删代码前留的存档，不入库）
 _deadcode-*/
+
+# Playwright 测试产物（截图/视频/trace/报告，不入库）
+app/test-results/
+app/test/ui/report/
+app/playwright-report/
