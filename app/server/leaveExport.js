@@ -44,7 +44,7 @@ function toExcelDate(s) {
  */
 async function buildLeaveWorkbook(rows) {
   const wb = new ExcelJS.Workbook();
-  wb.creator = '乘务四组培训系统';
+  wb.creator = '乘务四组乘务系统';
   wb.created = new Date();
 
   // ── Sheet1：明细台账 ──

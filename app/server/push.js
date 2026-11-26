@@ -116,18 +116,18 @@ function logSkip(kind, detail) {
 // ── 按群推送 ──────────────────────────────────────────────────────────────────
 // 现在有多个钉钉群，各自用途不同（老韩 2026-11-25 定）：
 //   CREW_MAIN_*  「乘务四组」大群    —— 全体组员群，申报预告/提醒发这里
-//   DINGTALK_GROUP_* 「四组办事情」群（骨干+管理群，狗蛋在此）
+//   DINGTALK_GROUP_* 「四组办事处」群（骨干+管理群，狗蛋在此）
 //                 —— 顶班确认、申报/撤销变动都发这里
-//   DINGTALK_*      管理员群        —— 培训计划卡
-// 注意：狗蛋 = 培训系统接入钉钉群的机器人，它所在的群就是「四组办事情」群，
+//   DINGTALK_*      四组大群        —— 培训计划卡、答题完成通报
+// 注意：狗蛋 = 培训系统接入钉钉群的机器人，它所在的群是「四组办事处」，
 // 所以 crewOps 与 group 是同一个 webhook（老韩 2026-11-25 确认）。
 // 不另设 CREW_OPS_* 变量，避免两份相同的值各自漂移。
 // 传 channel 决定发哪个群，默认沿用原来的狗蛋群，保持既有调用不变。
 const GROUP_CHANNELS = {
-  crewMain: { webhook: 'CREW_MAIN_WEBHOOK',       secret: 'CREW_MAIN_SECRET',       name: '乘务四组大群' },
-  crewOps:  { webhook: 'DINGTALK_GROUP_WEBHOOK',  secret: 'DINGTALK_GROUP_SECRET',  name: '四组办事情群' },
-  group:    { webhook: 'DINGTALK_GROUP_WEBHOOK',  secret: 'DINGTALK_GROUP_SECRET',  name: '四组办事情群（狗蛋）' },
-  admin:    { webhook: 'DINGTALK_WEBHOOK',        secret: 'DINGTALK_SECRET',        name: '管理员群' },
+  crewMain: { webhook: 'CREW_MAIN_WEBHOOK',       secret: 'CREW_MAIN_SECRET',       name: '四组大群' },
+  crewOps:  { webhook: 'DINGTALK_GROUP_WEBHOOK',  secret: 'DINGTALK_GROUP_SECRET',  name: '四组办事处' },
+  group:    { webhook: 'DINGTALK_GROUP_WEBHOOK',  secret: 'DINGTALK_GROUP_SECRET',  name: '四组办事处（狗蛋）' },
+  admin:    { webhook: 'DINGTALK_WEBHOOK',        secret: 'DINGTALK_SECRET',        name: '四组大群' },
 };
 
 async function sendToChannel(channel, text, opts = {}) {
@@ -243,7 +243,7 @@ async function sendDingTalkCard({ title, bodyLines, plan, logTag, operator = 'ad
   const workshopUrl = instrToken ? `${BASE}/go?t=${instrToken}` : `${BASE}/?_nav=workshop`;
 
   const btns = [
-    { title: '📱 培训系统', actionURL: `${BASE}/?_nav=home` },
+    { title: '📱 乘务系统', actionURL: `${BASE}/?_nav=home` },
     { title: '📋 月度任务', actionURL: workshopUrl },
   ];
 

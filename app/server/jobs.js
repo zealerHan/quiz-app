@@ -84,7 +84,7 @@ async function checkAndRemindNoQuiz(triggerTime) {
   const publicUrl = process.env.PUBLIC_URL || '';
   const lines = [
     `⚠️ 提醒：本套班尚未设置抽问题目`,
-    `${todayShift}已开始，请管理员及时登录培训系统设置本套班抽问内容。`,
+    `${todayShift}已开始，请管理员及时登录乘务系统设置本套班抽问内容。`,
   ];
   if (publicUrl) lines.push(`🔗 ${publicUrl}`);
   await sendGroupPush(lines.join('\n'));
