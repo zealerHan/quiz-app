@@ -14,8 +14,13 @@
 //      官方算例（孩子 2020-02-22 生）：
 //        2021.11.26-2021.12.31  10天
 //        2022.1.1-2022.12.31    10天
-//        2023.1.1-2023.2.22     10天  ← 满3岁前一天截止
-//      → 首年 = 出生日到当年 12-31；中间整年各 10 天；末年 = 1-1 到满3岁前一天。
+//        2023.1.1-2023.2.22     10天  ← 末年截止到满3岁【当天】
+//      → 首年 = 出生日到当年 12-31；中间整年各 10 天；末年 = 1-1 到满3岁当天。
+//
+//      2026-11-27 老韩定论（选 B）：**以官方算例为准，末年截止到满 3 岁当天**。
+//      官方原文写的是 2023.1.1-2023.2.22，含满 3 岁那天，不是前一天。
+//      之前实现写成 addMonths(+36) 再 addDays(-1)，少算一天，已改。
+//      别再自作聪明改回去，也别按「未满3周岁」的常识重新解释一遍 —— 定过了。
 //
 //   ② 婚假 15 天 —— 老韩 2026-11-26 定论。领证日起 365 天内有效，过期归零。
 //
@@ -67,13 +72,15 @@ function parentalCycles(birthDate, perYear = 10) {
   const birth = parseDate(birthDate);
   if (!birth) return [];
   const by = birth.getUTCFullYear();
-  const threeYearsOld = addDays(addMonths(birthDate, 36), -1); // 满3岁前一天
+  // 末年截止 = 满 3 岁【当天】（2026-11-27 定：以武汉市政府官方算例为准，
+  // 官方写的是 2023.1.1-2023.2.22，含满 3 岁那天）
+  const threeYearsOld = addMonths(birthDate, 36);
   const lastDay = threeYearsOld;                                // 育儿假到这天为止
   const cycles = [];
   for (let y = by; ; y++) {
     const start = (y === by) ? fmt(birth) : `${y}-01-01`;
     let end = `${y}-12-31`;
-    if (lte(lastDay, end)) end = lastDay;   // 末年截到满3岁前一天
+    if (lte(lastDay, end)) end = lastDay;   // 末年截到满3岁当天
     if (lte(end, start) && y !== by) break; // 越过截止，收工
     cycles.push({
       year: y,
