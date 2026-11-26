@@ -5,10 +5,35 @@
   <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="theme-color" content="#07101f"/>
-  <title>乘务培训系统</title>
+  <title>乘务系统</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚇</text></svg>"/>
+  <script>
+  /* ── 一周七套主题轮转（周一 → 周日）────────────────────────────
+     每周按「星期几」自动换一套主题；空字符串 = 默认地铁蓝。
+     · 想临时锁定某套：网址后加 ?theme=shouyi（或 ?theme=default 回地铁蓝）
+     · 想改成随机：把 WEEK[new Date().getDay()] 换成按日期做种子的伪随机
+       （用日期当种子 → 同一天全系统一致，且每天不重样）          */
+  (function(){
+    var COL = { '':'#07101f', 'shouyi':'#1d0908', 'shouyi-deep':'#1d0909', 'bianzhong':'#001417',
+                'fangcao':'#051408', 'light':'#f3f3f3', 'fluent-dark':'#202020' };
+    var WEEK = {
+      1:'',            /* 周一 · 地铁蓝（默认） */
+      2:'shouyi',      /* 周二 · 首义红         */
+      3:'bianzhong',   /* 周三 · 编钟青         */
+      4:'fangcao',     /* 周四 · 芳草绿         */
+      5:'shouyi-deep', /* 周五 · 首义红·深绛    */
+      6:'light',       /* 周六 · Win11 浅色     */
+      0:'fluent-dark'  /* 周日 · Win11 深色     */
+    };
+    var q = (location.search.match(/[?&]theme=([\w-]+)/) || [])[1];
+    var t = q ? (q === 'default' ? '' : q) : (WEEK[new Date().getDay()] || '');
+    if (t) document.documentElement.setAttribute('data-theme', t);
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m && COL[t]) m.setAttribute('content', COL[t]);
+  })();
+  </script>
   <style>html,body{margin:0;padding:0;overflow:hidden;overscroll-behavior:none;}</style>
-  <script type="module" crossorigin src="/assets/index-B5Rua3Xl.js"></script>
+  <script type="module" crossorigin src="/assets/index-Ba9FV7G-.js"></script>
 </head>
 <body>
   <div id="root"></div>
