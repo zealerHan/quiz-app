@@ -34,7 +34,7 @@ const STATUS_TEXT = {
   cancel_pending: '撤销待批',
 };
 
-export default function LeaveScreen({ user, onBack, onApply, refreshKey }) {
+export default function LeaveScreen({ user, onBack, refreshKey }) {
   const thisYear = new Date().getFullYear();
   const [year, setYear] = useState(thisYear);
   const [data, setData] = useState(null);

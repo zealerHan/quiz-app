@@ -10,7 +10,7 @@ const AdminScreen = lazy(() => import("./screens/AdminScreen.jsx"));
 import LeaveScreen from "./screens/LeaveScreen.jsx";
 import ShiftCalendar from "./ShiftCalendar.jsx";
 import WallScreen, { WallCardBody } from "./screens/WallScreen.jsx";
-import LeaveApplyScreen from "./screens/LeaveApplyScreen.jsx";
+
 
 // 设备指纹（2026-11-26）：给「登录/答题留痕」用。
 // 目的不是精确识别设备（伪造很容易），而是让同一台手机有个稳定的标识 ——
@@ -2644,9 +2644,8 @@ export default function App() {
             <WorkshopScreen user={user} onBack={()=>nav("home")}/>
           </Suspense>
         )}
-        {screen==="leave"&&<LeaveScreen user={user} onBack={()=>nav("home")} onApply={()=>nav("apply")}/>}
+        {screen==="leave"&&<LeaveScreen user={user} onBack={()=>nav("home")}/>}
         {screen==="wall"&&<WallScreen user={user} onBack={()=>nav("home")}/>}
-        {screen==="apply"&&<LeaveApplyScreen user={user} onBack={()=>nav("leave")} onDone={()=>nav("leave")}/>}
       </div>
     </>
   );

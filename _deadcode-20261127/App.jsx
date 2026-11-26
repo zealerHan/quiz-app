@@ -1,0 +1,3449 @@
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { api, apiJson, AppModal, Badge, ScoreRing, MiniBar, SHOW_LEADERBOARD } from "./shared.jsx";
+import { SquareModuleCard } from "./ModuleCard.jsx";
+// 代码分割（2026-11-27）：管理后台 266KB + 车间培训 168KB 拆成独立包。
+// 组员只答个题，不该被迫下载管理后台那 3500 行代码。实测原来首字节 1.3~3.3 秒。
+// 这两个页面组员基本不碰，等真进到那页再下载。
+import { lazy, Suspense } from "react";
+const WorkshopScreen = lazy(() => import("./screens/WorkshopScreen.jsx"));
+const AdminScreen = lazy(() => import("./screens/AdminScreen.jsx"));
+import LeaveScreen from "./screens/LeaveScreen.jsx";
+import ShiftCalendar from "./ShiftCalendar.jsx";
+import WallScreen, { WallCardBody } from "./screens/WallScreen.jsx";
+import LeaveApplyScreen from "./screens/LeaveApplyScreen.jsx";
+
+// 设备指纹（2026-11-26）：给「登录/答题留痕」用。
+// 目的不是精确识别设备（伪造很容易），而是让同一台手机有个稳定的标识 ——
+// 班长就能看出「同一个人今天用了两台不同手机答题」。
+// 存 localStorage，换浏览器/清缓存会变，这是已知局限，不影响用途。
+function getDeviceId() {
+  try {
+    let v = localStorage.getItem('quiz_device_id');
+    if (!v) {
+      v = (crypto.randomUUID ? crypto.randomUUID() : 'dev-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10));
+      localStorage.setItem('quiz_device_id', v);
+    }
+    return v;
+  } catch (_) { return ''; }
+}
+
+// 按需加载时的过渡画面（2026-11-27）。
+// 只在第一次进管理后台/车间培训时出现，通常一闪而过；网络慢时给个明确提示，
+// 而不是白屏让人以为点坏了。
+function LazyLoading() {
+  return (
+    <div style={{
+      minHeight: '100vh', display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center', gap: 14,
+      background: '#0d1b2a', color: '#8fb8dd',
+    }}>
+      <div style={{
+        width: 28, height: 28, borderRadius: '50%',
+        border: '3px solid rgba(143,184,221,.25)', borderTopColor: '#6ba5fb',
+        animation: 'lazySpin .8s linear infinite',
+      }}/>
+      <div style={{ fontSize: 13 }}>正在加载…</div>
+      <style>{`@keyframes lazySpin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
+
+
+
+
+// ─── Assets ────────────────────────────────────────────────────────────────
+// 背景图与滤镜已令牌化：见 CSS 的「④ 图片与背景配套」层（随主题变化）
+// 注：img-mascot.jpeg 从未被引用（死资源），如需使用请先把路径加进令牌层
+
+
+// ─── NEW: Login Screen ─────────────────────────────────────────────────────
+const LOGIN_STORAGE_KEY = 'quiz_last_login';
+function LoginScreen({ onLogin, onAdmin }) {
+  const getSaved = () => { try { return JSON.parse(localStorage.getItem(LOGIN_STORAGE_KEY)||'null'); } catch { return null; } };
+  const [saved,setSaved]=useState(getSaved);
+  const [id,setId]=useState(()=>getSaved()?.staffId||"");
+  const [phone,setPhone]=useState(()=>getSaved()?.phoneTail||"");
+  const [err,setErr]=useState(""), [loading,setLoading]=useState(false);
+
+  const clearSaved=()=>{ localStorage.removeItem(LOGIN_STORAGE_KEY); setSaved(null); setId(""); setPhone(""); };
+
+  const submit=async e=>{
+    e.preventDefault();
+    if(!/^\d{3,8}$/.test(id)){setErr("工号格式不正确");return;}
+    if(!/^\d{4}$/.test(phone)){setErr("请输入手机号后4位");return;}
+    setLoading(true);
+    try{
+      const r = await api("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({staffId:id.trim(),phoneTail:phone.trim(),deviceId:getDeviceId()})});
+      const d = await r.json();
+      if(!r.ok){ setErr(d.error||"登录失败"); return; }
+      localStorage.setItem(LOGIN_STORAGE_KEY, JSON.stringify({staffId:id.trim(),phoneTail:phone.trim()}));
+      onLogin({staffId:d.staffId, name:d.realName||d.staffId, isExempt:!!d.isExempt, isTester:!!d.isTester, isInstructor:!!d.isInstructor});
+    }catch(e){ setErr("连接服务器失败"); }
+    finally{setLoading(false);}
+  };
+  return (
+    <div style={{position:"relative",width:"100%",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:"var(--p-navy-04)"}}>
+      {/* 背景：高架封闭段 */}
+      <div style={{position:"absolute",inset:0,backgroundImage:"var(--img-hero)",backgroundSize:"cover",backgroundPosition:"center",filter:"var(--img-hero-filter)",animation:"bgZoom 18s ease-in-out infinite alternate"}}/>
+      <div style={{position:"absolute",inset:0,background:"var(--hero-overlay)"}}/>
+      {/* 轨道光线 */}
+      <div style={{position:"absolute",bottom:0,left:"50%",transform:"translateX(-50%)",width:3,height:"55%",background:"var(--hero-glow)",filter:"blur(7px)",animation:"glowPulse 3s ease-in-out infinite"}}/>
+
+      {/* 登录卡片 */}
+      <div style={{position:"relative",zIndex:10,width:"100%",maxWidth:340,margin:"0 20px",padding:"36px 30px 28px",background:"var(--p-navy-04-a80)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",border:"1px solid var(--p-white-100-a10)",borderTop:"2px solid var(--color-accent)",borderRadius:6,boxShadow:"var(--shadow-card)",animation:"cardIn 0.7s cubic-bezier(0.16,1,0.3,1) both"}}>
+        {/* Logo */}
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div style={{display:"inline-flex",alignItems:"center",gap:8,marginBottom:14}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:"var(--color-accent)",boxShadow:"0 0 12px var(--p-amber-54-a60)",animation:"liveDotGold 2s ease-in-out infinite"}}/>
+            <span style={{fontSize:11,fontWeight:600,letterSpacing:3,color:"var(--color-accent)"}}>乘务四组</span>
+            <div style={{width:8,height:8,borderRadius:"50%",background:"var(--color-accent)",boxShadow:"0 0 12px var(--p-amber-54-a60)",animation:"liveDotGold 2s ease-in-out infinite"}}/>
+          </div>
+          <div style={{fontSize:20,fontWeight:700,letterSpacing:5,color:"var(--text-on-media)",marginBottom:5}}>乘务系统</div>
+          <div style={{fontSize:11,fontWeight:300,color:"var(--p-white-100-a50)",letterSpacing:2}}>CREW OPERATIONS SYSTEM</div>
+        </div>
+
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:22}}>
+          <div style={{flex:1,height:1,background:"linear-gradient(90deg,transparent,var(--p-amber-54-a45))"}}/>
+          <div style={{width:5,height:5,background:"var(--color-accent)",transform:"rotate(45deg)"}}/>
+          <div style={{flex:1,height:1,background:"linear-gradient(270deg,transparent,var(--p-amber-54-a45))"}}/>
+        </div>
+
+        {saved&&(
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,padding:"7px 10px",background:"var(--p-green-45-a07)",border:"1px solid var(--p-green-45-a22)",borderRadius:4}}>
+            <span style={{fontSize:11,color:"var(--p-green-45-a90)",letterSpacing:0.5}}>✓ 已记住账号 Y{saved.staffId}</span>
+            <button type="button" onClick={clearSaved} style={{background:"none",border:"none",color:"var(--p-white-100-a30)",cursor:"pointer",fontSize:14,lineHeight:1,padding:"0 2px"}}>×</button>
+          </div>
+        )}
+        <form onSubmit={submit}>
+          <div style={{marginBottom:14}}>
+            <label style={{display:"block",fontSize:11,fontWeight:600,letterSpacing:2.5,color:"var(--p-white-100-a50)",marginBottom:7}}>工　　号</label>
+            <div style={{display:"flex",alignItems:"center",background:"var(--p-white-100-a06)",border:"1px solid var(--p-white-100-a10)",borderRadius:4,height:44,paddingLeft:14,gap:2}}
+              onFocus={e=>{e.currentTarget.style.borderColor="var(--color-primary)";e.currentTarget.style.background="var(--p-blue-60-a07)";e.currentTarget.style.boxShadow="0 0 0 3px var(--p-blue-60-a10)"}}
+              onBlur={e=>{e.currentTarget.style.borderColor="var(--p-white-100-a10)";e.currentTarget.style.background="var(--p-white-100-a06)";e.currentTarget.style.boxShadow="none"}}>
+                <span style={{color:"var(--text-on-media)",fontSize:14,fontWeight:700,userSelect:"none",letterSpacing:0.5,opacity:0.9}}>Y</span>
+                <input value={id} onChange={e=>setId(e.target.value.replace(/[^0-9]/g,""))} placeholder="输入工号数字" maxLength={8} inputMode="numeric"
+              style={{flex:1,height:"100%",background:"transparent",border:"none",padding:"0 4px",fontFamily:"inherit",fontSize:14,color:"var(--text-on-media)",outline:"none",letterSpacing:0.5}}/>
+              </div>
+          </div>
+          <div style={{marginBottom:14}}>
+            <label style={{display:"block",fontSize:11,fontWeight:600,letterSpacing:2.5,color:"var(--p-white-100-a50)",marginBottom:7}}>手机尾号</label>
+            <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="请输入手机后4位" maxLength={4} inputMode="numeric"
+              style={{width:"100%",height:44,background:"var(--p-white-100-a06)",border:"1px solid var(--p-white-100-a10)",borderRadius:4,padding:"0 14px",fontFamily:"inherit",fontSize:14,color:"var(--text-on-media)",outline:"none",letterSpacing:0.5}}
+              onFocus={e=>{e.target.style.borderColor="var(--color-primary)";e.target.style.background="var(--p-blue-60-a07)";e.target.style.boxShadow="0 0 0 3px var(--p-blue-60-a10)";}}
+              onBlur={e=>{e.target.style.borderColor="var(--p-white-100-a10)";e.target.style.background="var(--p-white-100-a06)";e.target.style.boxShadow="none";}}/>
+          </div>
+          {err&&<div style={{color:"var(--red)",fontSize:12,marginBottom:8}}>⚠ {err}</div>}
+          <button type="submit" disabled={loading}
+            style={{width:"100%",height:46,marginTop:6,background:loading?"var(--p-slate-33)":"linear-gradient(135deg,var(--p-navy-25),var(--blue))",border:"none",borderRadius:4,fontFamily:"inherit",fontSize:13,fontWeight:600,letterSpacing:5,color:"white",cursor:loading?"not-allowed":"pointer",transition:"all 0.2s"}}>
+            {loading?"登录中…":"欢迎登录"}
+          </button>
+        </form>
+        <button onClick={onAdmin} style={{width:"100%",marginTop:12,background:"none",border:"none",color:"var(--p-white-100-a20)",fontSize:11,cursor:"pointer",fontFamily:"inherit",letterSpacing:1}}>管理员入口</button>
+        <div style={{marginTop:16,textAlign:"center",fontSize:11,color:"var(--p-white-100-a15)",letterSpacing:1}}>武汉地铁5号线 · 乘务四组</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 三问合一题的分段作答 ───────────────────────────────────────────────────
+// 题干形如：请口述【XXXX事件】的完整情况，包括：① 事件简要经过；② 乘务员存在哪些问题；③ 整改措施及反思。
+// 返回各小问文案；非三问合一的题返回 null（走原有单段录音流程）
+function parseSegments(text){
+  if(!text || !String(text).includes('完整情况') || !String(text).includes('包括：')) return null;
+  const m = String(text).match(/包括：(.+?)。?\s*$/);
+  if(!m) return null;
+  const asks = m[1].split(/[；;]/).map(s=>s.replace(/^[\s①②③④⑤⑥]*/,'').trim()).filter(Boolean);
+  return asks.length >= 2 ? asks : null;
+}
+// 分段作答时题干只显示主标题，三个小问单独列出来
+function segmentStem(text){
+  const i = String(text||'').indexOf('，包括：');
+  return i > 0 ? String(text).slice(0, i) + '。' : (text||'');
+}
+
+function splitToItems(text) {
+  if (!text?.trim()) return [];
+  // ① 分号分隔的编号步骤："1.xxx；2.xxx"
+  if (/[；;]/.test(text)) {
+    const segs = text.split(/[；;]/).map(s=>s.replace(/^\d{1,2}[.、。]\s*/,'').trim()).filter(Boolean);
+    if (segs.length > 1) return segs.slice(0,10);
+  }
+  // ② 内联编号分割："1.xxx2.xxx" 或 "①xxx②xxx"
+  const numParts = text.split(/(?=\d{1,2}[.、]|[①②③④⑤⑥⑦⑧⑨⑩])/u)
+    .map(s=>s.replace(/^\d{1,2}[.、]|^[①②③④⑤⑥⑦⑧⑨⑩]/,'').trim()).filter(Boolean);
+  if (numParts.length > 1) return numParts.slice(0,10);
+  // ③ 按句末标点拆，再按逗号拆超长段
+  const sentenceParts = text.split(/[。！？\n]+/).map(s=>s.trim()).filter(Boolean);
+  const result = [];
+  for (const part of sentenceParts) {
+    if (part.length <= 50) { result.push(part); continue; }
+    const subs = part.split(/[，,]+/).map(s=>s.trim()).filter(Boolean);
+    let buf = '';
+    for (const sub of subs) {
+      if (!buf) { buf = sub; }
+      else if (buf.length + sub.length + 1 <= 50) { buf += '，' + sub; }
+      else { result.push(buf); buf = sub; }
+    }
+    if (buf) result.push(buf);
+  }
+  return result.filter(s=>s.length>0);
+}
+const CIRCLE_NUMS = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩'];
+// 判断 item 是否包含 points 中任意关键词（取前4字匹配）
+function hasOverlap(item, points) {
+  if (!points?.length || !item) return false;
+  return points.some(p => {
+    const key = p.replace(/[，。！？、\s]/g,'').slice(0,4);
+    return key.length >= 2 && item.includes(key);
+  });
+}
+
+// ─── NEW: Quiz Screen ──────────────────────────────────────────────────────
+function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }) {
+  const [questions,setQuestions]=useState([]);
+  const [sessionId,setSessionId]=useState(null);
+  const [qi,setQi]=useState(0);
+  const [phase,setPhase]=useState("loading");
+  const [editMode,setEditMode]=useState(false);
+  const [transcript,setTranscript]=useState("");
+  const [transcriptItems,setTranscriptItems]=useState([]);
+  const [editingIdx,setEditingIdx]=useState(-1);
+  const [isRec,setIsRec]=useState(false);
+  const [aiRes,setAiRes]=useState(null);
+  const [isRecognizing,setIsRecognizing]=useState(false);
+  const [recogError,setRecogError]=useState(null); // 识别失败/超时提示
+  const questionStartRef=useRef(null); // 当前题目开始作答时间戳（ms），用于记录答题时长
+  const [results,setResults]=useState([]);
+  const [displayText,setDisplayText]=useState("");
+  const [isSpeaking,setIsSpeaking]=useState(false);
+  const [muted,setMuted]=useState(true); // 默认静音
+  const [showSubmitConfirm,setShowSubmitConfirm]=useState(false);
+  const [showBackConfirm,setShowBackConfirm]=useState(false);
+  const [tabSwitchCount,setTabSwitchCount]=useState(0);
+  const [showTabWarn,setShowTabWarn]=useState(false);
+  const tabSwitchRef=useRef(0);
+  const isRecRef=useRef(false);       // 录音状态 ref，供 visibilitychange 跨闭包访问
+  const hiddenWhileRecRef=useRef(false); // 录音期间是否发生过息屏
+  const noSleepAudioRef=useRef(null); // iOS 息屏兜底静音音频
+  const wakeLockRef=useRef(null); // 屏幕常亮：录音期间防止息屏中断（安卓/钉钉webview 靠这个）
+  const recRef=useRef(),typeRef=useRef(),pendingSubmitRef=useRef(false),submitRef=useRef(null),scoreCacheRef=useRef(null),audioStreamRef=useRef(null),recognizeTimeoutRef=useRef(null);
+  const segAsksRef=useRef(null),segIdxRef=useRef(0); // 分段作答：ws 回调闭包需要读最新值
+  const pcmChunksRef=useRef([]);  // 录音期间本地留存的 PCM 帧（流式识别失败时重传做二次识别）
+  const finishPromiseRef=useRef(null),finishResultRef=useRef(null);
+  const answerStoreRef=useRef({}); // 本题已提交的答案载荷（finish 校验缺题时用于补传）
+  const [finishWarn,setFinishWarn]=useState(null); // 交卷未完成提示
+  // ── 三问合一题的分段作答：①②③ 分别录音，提交时拼成整段 ──
+  const [segIdx,setSegIdx]=useState(0);
+  const [segTexts,setSegTexts]=useState([]);
+
+  // 传答案：keepalive + 失败重试（防"最后一题答案半路丢失"→ 半截记录）
+  const postAnswer = async (payload, tries=2) => {
+    for (let i=0;i<tries;i++){
+      try {
+        const r = await api(`/api/session/${sessionId}/answer`,{method:"POST",keepalive:true,body:JSON.stringify(payload)});
+        if (r?.ok) return true;
+      } catch {}
+      if (i<tries-1) await new Promise(s=>setTimeout(s,500));
+    }
+    return false;
+  };
+  // 交卷：带上本轮应答题清单 → 服务端校验题数，缺题则补传后重交（绝不产生"已完成但少一题"）
+  const doFinish = async (avg) => {
+    const expectedQuestionIds = questions.map(x=>x.id);
+    const body = {totalScore:avg,tabSwitchCount:tabSwitchRef.current,expectedQuestionIds};
+    let d = null;
+    try { d = await apiJson(`/api/session/${sessionId}/finish`,{method:"POST",keepalive:true,body:JSON.stringify(body)}); } catch {}
+    if (d?.needsRetry && Array.isArray(d.missingIds) && d.missingIds.length) {
+      for (const qid of d.missingIds) {
+        const p = answerStoreRef.current[qid];
+        if (p) await postAnswer(p, 3);
+      }
+      try { d = await apiJson(`/api/session/${sessionId}/finish`,{method:"POST",body:JSON.stringify(body)}); } catch {}
+    }
+    return d;
+  };
+
+  const isPractice = mode !== 'normal';
+
+  useEffect(()=>{
+    const bankParam = practiceBankId ? `&bank_id=${practiceBankId}` : '';
+    const qUrl = mode==='practice_random' ? `/api/practice/questions?mode=random&count=3${bankParam}`
+               : mode==='practice_random_all' ? `/api/practice/questions?mode=random_all${bankParam}`
+               : mode==='practice_sequential' ? `/api/practice/questions?mode=sequential${bankParam}`
+               : '/api/questions';
+    Promise.all([
+      apiJson(qUrl),
+      api("/api/session/start",{method:"POST",body:JSON.stringify({staffId:user.staffId,staffName:user.name,isPractice,deviceId:getDeviceId()})})
+        .then(async r=>{ const d=await r.json(); if(!r.ok){ const err=new Error(d.error||'启动失败'); err.alreadyDone=d.alreadyDone; err.shiftDeadline=d.shiftDeadline; throw err; } return d; })
+    ]).then(([qData,sData])=>{
+      setQuestions(qData.questions||[]);
+      setSessionId(sData.sessionId);
+      setPhase("intro");
+      if (mode==='normal') {
+        const today=new Date().toISOString().slice(0,10);
+        localStorage.setItem('quiz_inprogress',JSON.stringify({staffId:user.staffId,date:today,answered:0,total:(qData.questions||[]).length}));
+      }
+    }).catch(err=>{ if(err.alreadyDone){ localStorage.removeItem('quiz_inprogress'); setPhase("already_done"); } else if(err.shiftDeadline){ localStorage.removeItem('quiz_inprogress'); setPhase("shift_deadline"); } else setPhase("error"); });
+    navigator.mediaDevices?.getUserMedia({audio:{sampleRate:16000,channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}})
+      .then(s=>{audioStreamRef.current=s;})
+      .catch(()=>{});
+    return()=>{
+      audioStreamRef.current?.getTracks().forEach(t=>t.stop());
+    };
+  },[]);
+
+  useEffect(()=>{
+    const handler=()=>{
+      if(document.hidden){
+        if(isRecRef.current){
+          // 录音中息屏：不计切屏，标记需要恢复提示
+          hiddenWhileRecRef.current=true;
+        } else {
+          tabSwitchRef.current+=1;
+          setTabSwitchCount(tabSwitchRef.current);
+        }
+      } else {
+        if(hiddenWhileRecRef.current){
+          // 录音被息屏打断，恢复屏幕后停止录音并提示重录
+          hiddenWhileRecRef.current=false;
+          if(isRecRef.current){
+            try{ recRef.current?.stop?.(); }catch(_){}
+            setIsRec(false);
+            setIsRecognizing(false);
+            setRecogError('屏幕息屏导致录音中断。已识别到的内容保留在文本框里，可手动补充后提交；也可以重新录音。（已开启屏幕常亮，若仍息屏，请调高屏幕亮度或关闭省电模式）');
+          }
+        } else if(tabSwitchRef.current>0){
+          setShowTabWarn(true);
+        }
+      }
+    };
+    document.addEventListener('visibilitychange',handler);
+    return()=>document.removeEventListener('visibilitychange',handler);
+  },[]);
+
+  // 答题期间保持屏幕常亮，避免手机自动锁屏被判定为切屏中断
+  useEffect(()=>{
+    let wakeLock=null;
+    let released=false;
+    const request=async()=>{
+      if(!('wakeLock' in navigator)) return;
+      try{
+        wakeLock=await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release',()=>{ wakeLock=null; });
+      }catch(_){}
+    };
+    const onVisible=()=>{ if(!document.hidden && !released) request(); };
+    request();
+    document.addEventListener('visibilitychange',onVisible);
+    return()=>{
+      released=true;
+      document.removeEventListener('visibilitychange',onVisible);
+      wakeLock?.release?.().catch(()=>{});
+    };
+  },[]);
+
+  const typeText = useCallback((text, onDone) => {
+    clearInterval(typeRef.current);
+    setDisplayText("");
+    setIsSpeaking(true);
+    let i = 0;
+    typeRef.current = setInterval(() => {
+      if (i < text.length) {
+        setDisplayText(text.slice(0, i+1));
+        i++;
+      } else {
+        clearInterval(typeRef.current);
+        setIsSpeaking(false);
+        onDone?.();
+      }
+    }, 40);
+  }, []);
+
+  const speak = useCallback((text, onEnd) => {
+    if (!text) { onEnd?.(); return; }
+    if (muted) { onEnd?.(); return; } // 静音模式直接跳过
+    fetch('/api/tts', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text})})
+      .then(r => r.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.onended = () => { URL.revokeObjectURL(url); onEnd?.(); };
+        audio.onerror = () => { URL.revokeObjectURL(url); onEnd?.(); };
+        audio.play().catch(() => onEnd?.());
+      })
+      .catch(() => onEnd?.());
+  }, [muted]);
+
+  const q = questions[qi];
+  // 三问合一题（①②③）→ 分段作答；其余题走原有单段录音流程
+  const segAsks = parseSegments(q?.text);
+  segAsksRef.current = segAsks;   // 渲染期同步给 ws 回调闭包
+  // 提交按钮可用性：分段作答时不前置要求"已有转写"（缺哪一问会给出明确提示）
+  const submitReady = !isRec && !isRecognizing && phase!=="processing" && phase!=="intro" && (segAsks ? true : transcriptItems.length>0);
+  segIdxRef.current = segIdx;
+  useEffect(()=>{ setSegIdx(0); setSegTexts([]); segIdxRef.current=0; }, [qi]); // 换题重置分段进度
+
+  useEffect(() => {
+    if (phase !== "intro" || !q) return;
+    const segs0 = parseSegments(q.text);
+    const spoken = segs0
+      ? `请依次回答 ${segs0.length} 个问题：${segs0.map((s,i)=>`第${i+1}问，${s}`).join('；')}`
+      : q.text;
+    const introText = `${user.name}，第${qi+1}题，共${questions.length}题。${spoken}`;
+    setTimeout(() => {
+      typeText(segs0 ? segmentStem(q.text) : q.text, () => {
+        setPhase("ready");
+        questionStartRef.current = Date.now();
+      });
+      speak(introText, () => {});
+    }, 400);
+  }, [phase, qi, q]);
+
+  // 流式识别失败/超时 → 用本地留存的 PCM 重传做二次识别（服务端按"录音文件识别"重放）
+  const retryWithLocalAudio = async () => {
+    const chunks = pcmChunksRef.current;
+    if(!chunks || chunks.length < 3) return null;
+    try{
+      setRecogError('语音识别中断，正在用本地录音重新识别，请稍候…');
+      const blob = new Blob(chunks, {type:'application/octet-stream'});
+      const r = await fetch('/api/asr/replay', {method:'POST', headers:{'Content-Type':'application/octet-stream'}, body:blob});
+      const d = await r.json().catch(()=>null);
+      const text = String(d?.text || '').trim();
+      if(text){
+        setTranscript(text);
+        setTranscriptItems(splitToItems(text));
+        window._streamingTranscript = text;
+        setRecogError(null);
+        return text;
+      }
+      setRecogError('二次识别也没能听清。请重新录音，或在下方文本框直接输入答案。');
+      return null;
+    }catch(e){
+      setRecogError('二次识别失败（网络异常）。请重新录音，或在下方文本框直接输入答案。');
+      return null;
+    }
+  };
+
+  const startRec = async () => {
+    navigator.vibrate?.(50);
+    setRecogError(null);
+    try {
+      const stream = (audioStreamRef.current?.active)
+        ? audioStreamRef.current
+        : await navigator.mediaDevices.getUserMedia({audio:{sampleRate:16000,channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+      if(recRef.current === "aborted"){
+        recRef.current = null;
+        stream.getTracks().forEach(t=>t.stop());
+        return;
+      }
+
+      // 拿到麦克风权限后立即变红，不等 WebSocket 握手
+      setIsRec(true);
+      isRecRef.current=true;
+      pcmChunksRef.current = [];   // 本次录音的本地 PCM 缓存，从零开始
+      // 防息屏①：Wake Lock 屏幕常亮（安卓 Chrome / 钉钉 webview 靠这个）
+      try{
+        if(navigator.wakeLock?.request && !wakeLockRef.current){
+          wakeLockRef.current = await navigator.wakeLock.request('screen');
+          wakeLockRef.current?.addEventListener?.('release',()=>{ wakeLockRef.current=null; });
+        }
+      }catch(_){}
+      // 防息屏②：播放静音音频循环兜底（不支持 Wake Lock 的浏览器，如 iOS Safari）
+      try{
+        if(!noSleepAudioRef.current){
+          // 最短合法 WAV：44字节，0.001秒静音
+          const au=new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+          au.loop=true; au.volume=0.001;
+          noSleepAudioRef.current=au;
+        }
+        noSleepAudioRef.current.play().catch(()=>{});
+      }catch(_){}
+
+      // 建立WebSocket连接到后端代理
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const wsUrl = `${proto}://${location.host}/ws/ali-asr`;
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
+
+      const audioCtx = new (window.AudioContext||window.webkitAudioContext)({sampleRate:16000});
+      const source = audioCtx.createMediaStreamSource(stream);
+      const processor = audioCtx.createScriptProcessor(4096,1,1);
+
+      ws.onopen = () => {
+        processor.onaudioprocess = (e) => {
+          if(ws.readyState !== WebSocket.OPEN) return;
+          const f32 = e.inputBuffer.getChannelData(0);
+          const i16 = new Int16Array(f32.length);
+          for(let i=0;i<f32.length;i++) i16[i]=Math.max(-32768,Math.min(32767,Math.round(f32[i]*32767)));
+          // 本地留一份 PCM 副本：流式识别失败/超时时可重传，做"录音文件识别"二次兜底（约 31KB/秒，上限 8 分钟）
+          try{
+            if(pcmChunksRef.current.length < 2000) pcmChunksRef.current.push(i16.buffer.slice(0));
+          }catch(_){}
+          ws.send(i16.buffer);
+        };
+        source.connect(processor);
+        processor.connect(audioCtx.destination);
+      };
+
+      const clearRecognizeTimeout = () => {
+        if (recognizeTimeoutRef.current) { clearTimeout(recognizeTimeoutRef.current); recognizeTimeoutRef.current = null; }
+      };
+
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if(msg.type === 'partial') {
+            setTranscript(msg.text);
+            window._streamingTranscript = msg.text;
+          } else if(msg.type === 'final') {
+            clearRecognizeTimeout();
+            setTranscript(msg.text);
+            setTranscriptItems(splitToItems(msg.text));
+            window._streamingTranscript = msg.text;
+            setIsRecognizing(false);
+            // 分段作答：三问是分别录的 —— 本段说完先存下、自动切到下一问，全部说完再由乘务员核对提交
+            if(msg.text && segAsksRef.current?.length >= 2){
+              const cur = segIdxRef.current, total = segAsksRef.current.length;
+              setSegTexts(prev=>{ const a=[...prev]; a[cur]=msg.text; return a; });
+              if(cur < total-1){
+                pendingSubmitRef.current = false;
+                setTimeout(()=>{ setSegIdx(cur+1); setTranscript(''); setTranscriptItems([]); window._streamingTranscript=null; }, 250);
+                return; // 本段完成：不预热评分、不提交
+              }
+            }
+            // 预热评分：识别完成后立即后台请求，结果缓存供提交时直接使用
+            const preText = msg.text;
+            const preQid = questions[qi]?.id;
+            if (preText && preQid) {
+              const promise = apiJson("/api/score",{method:"POST",body:JSON.stringify({questionId:preQid,answer:preText})}).catch(()=>null);
+              scoreCacheRef.current = { promise, transcript: preText, result: null };
+              promise.then(r=>{ if(scoreCacheRef.current?.transcript===preText) scoreCacheRef.current.result=r; });
+            }
+            if(pendingSubmitRef.current){
+              pendingSubmitRef.current = false;
+              setTimeout(()=>submitRef.current?.(), 50);
+            }
+          } else if(msg.type === 'error') {
+            clearRecognizeTimeout();
+            setIsRecognizing(false);
+            pendingSubmitRef.current = false;
+            // 服务端流式识别报错 → 本地录音兜底（不再把错误文案当成转写内容）
+            retryWithLocalAudio();
+          }
+        } catch(err){}
+      };
+
+      ws.onerror = () => {
+        clearRecognizeTimeout();
+        setIsRec(false);
+        isRecRef.current=false;
+        try{ noSleepAudioRef.current?.pause(); }catch(_){}
+        setIsRecognizing(false);
+        // 流式连接断了，但本地有完整录音 → 自动二次识别，乘务员不用重说
+        retryWithLocalAudio();
+      };
+
+      ws.onclose = () => {
+        clearRecognizeTimeout();
+        setIsRecognizing(false);
+      };
+
+      recRef.current = {
+        stop: () => {
+          processor.disconnect(); source.disconnect();
+          if (stream !== audioStreamRef.current) stream.getTracks().forEach(t=>t.stop());
+          audioCtx.close();
+          setIsRec(false);
+          isRecRef.current=false;
+          // 停止 iOS 息屏兜底音频
+          try{ noSleepAudioRef.current?.pause(); }catch(_){}
+          setIsRecognizing(true);
+          if(ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({type:'stop'}));
+          }
+          // 超时保护：8秒内未收到 final/error，强制解除并提示
+          recognizeTimeoutRef.current = setTimeout(() => {
+            recognizeTimeoutRef.current = null;
+            setIsRecognizing(false);
+            pendingSubmitRef.current = false;
+            try { ws.close(); } catch {}
+            // 超时也别让人白说：用本地录音做二次识别
+            retryWithLocalAudio();
+          }, 8000);
+        },
+        ws
+      };
+
+    } catch(err){
+      recRef.current = null;
+      setIsRec(false);
+      setIsRecognizing(false);
+      if(err.name !== "NotAllowedError") alert("无法访问麦克风: "+err.message);
+    }
+  };
+
+  // 录音一结束就释放屏幕常亮（手动停止/报错/超时各路径全覆盖）
+  useEffect(()=>{
+    if(!isRec && wakeLockRef.current){
+      try{ wakeLockRef.current.release?.(); }catch(_){}
+      wakeLockRef.current=null;
+    }
+  },[isRec]);
+
+  const stopRec = () => {
+    navigator.vibrate?.([30, 50, 30]);
+    if(recRef.current && recRef.current !== 'aborted') {
+      recRef.current.stop();
+      recRef.current = null;
+    } else {
+      recRef.current = 'aborted';
+    }
+  };
+
+  const submitWithConfirm = () => {
+    setShowSubmitConfirm(true);
+  };
+  const submit = async () => {
+    // 识别还在进行中：挂起提交，等 final 结果回来后自动触发
+    if (isRecognizing) {
+      pendingSubmitRef.current = true;
+      setShowSubmitConfirm(false);
+      return;
+    }
+    // ── 分段作答：把各问的转写拼成 ①②③ 整段（评分用的答案就是这个结构，评分侧无需改动）──
+    let finalTranscript;
+    if(segAsksRef.current?.length >= 2){
+      const asks = segAsksRef.current;
+      const parts = [...(segTexts || [])];
+      const curText = transcript || window._streamingTranscript || '';
+      window._streamingTranscript = null;
+      if(curText.trim()) parts[segIdxRef.current] = curText;
+      const missing = asks.findIndex((_,i)=>!parts[i] || !String(parts[i]).trim());
+      if(missing >= 0){
+        setRecogError(`第 ${missing+1} 问「${asks[missing]}」还没有作答内容，请先说完这一问。`);
+        setSegIdx(missing); segIdxRef.current = missing;
+        setShowSubmitConfirm(false);
+        return;
+      }
+      finalTranscript = asks.map((_,i)=>`${'①②③④⑤⑥'[i]||('('+(i+1)+')')} ${String(parts[i]).trim()}`).join('\n');
+    } else {
+      finalTranscript = transcript || window._streamingTranscript;
+      window._streamingTranscript = null;
+      if (!finalTranscript.trim() || finalTranscript.includes('录音完成')) {
+        // 以前这里是静默 return：乘务员点提交后页面毫无反应，被当成"系统卡死"（反馈最多的问题之一）
+        setRecogError('没有识别到语音内容：请确认弹窗里已允许使用麦克风，环境别太吵，再重新录音；也可以在下方文本框直接输入答案。');
+        return;
+      }
+    }
+    setRecogError(null);
+    const durationSeconds = questionStartRef.current ? Math.round((Date.now() - questionStartRef.current) / 1000) : null;
+    setPhase("processing");
+    let result;
+    const cache = scoreCacheRef.current;
+    scoreCacheRef.current = null;
+    if (cache && cache.transcript === finalTranscript) {
+      // 取预热缓存，若还未返回则等待 promise
+      try { result = cache.result ?? await cache.promise; } catch {}
+    }
+    if (!result) {
+      try { result = await apiJson("/api/score",{method:"POST",body:JSON.stringify({questionId:q.id,answer:finalTranscript})}); }
+      catch {}
+    }
+    if (!result) result={score:0,level:"需加强",summary:"评分服务异常",correct_points:[],missing_points:[],suggestion:"请重试",encouragement:"继续加油！",score_method:"error"};
+    result.transcript = finalTranscript || result.transcript || transcript;
+    setAiRes(result);
+    const answerPayload={staffId:user.staffId,staffName:user.name,questionId:q.id,questionText:q.text,category:q.category,answerText:finalTranscript||transcript,score:result.score,level:result.level,summary:result.summary,correctPoints:result.correct_points,missingPoints:result.missing_points,suggestion:result.suggestion,scoreMethod:result.score_method,durationSeconds};
+    answerStoreRef.current[q.id]=answerPayload; // 暂存，交卷校验缺题时补传
+    await postAnswer(answerPayload, 3);
+    const nr = [...results,{...result,questionText:q.text,category:q.category,qNum:qi+1}];
+    setResults(nr);
+    // 最后一题答完后立即在后台 finish，keepalive 确保关闭 APP 后请求仍能发出
+    if (qi+1 >= questions.length && sessionId) {
+      localStorage.removeItem('quiz_inprogress');
+      const avg = Math.round(nr.reduce((s,r)=>s+r.score,0)/nr.length);
+      finishPromiseRef.current = doFinish(avg)
+        .then(d=>{ finishResultRef.current = d?.points ?? null; return d; })
+        .catch(()=>{ finishResultRef.current = null; return null; });
+    }
+    speak(`${result.summary}本题${result.score}分。${result.encouragement}`,()=>{});
+    setPhase("feedback");
+  };
+  submitRef.current = submit;
+
+
+  // 交卷并进入总结页；若答案仍缺题（网络原因）→ 不交卷，弹窗提示重试
+  const finishAndGo = async () => {
+    let pts = finishResultRef.current;
+    if (pts == null && finishPromiseRef.current) {
+      try { const r = await finishPromiseRef.current; pts = r?.points ?? null; } catch {}
+    }
+    if (pts == null) {
+      // 兜底：submit 阶段 finish 没成功，这里再补一次
+      const avg = Math.round(results.reduce((s,r)=>s+r.score,0)/(results.length||1));
+      const d = await doFinish(avg);
+      pts = d?.points ?? null;
+      if (pts == null) {
+        setFinishWarn(d?.needsRetry
+          ? `有 ${d.missingIds?.length || 1} 道题的答案没能上传成功（已自动重试）。\n请检查网络后重试，或联系班组长。`
+          : '交卷请求没有成功，请检查网络后重试。');
+        return false;
+      }
+      finishResultRef.current = pts;
+    }
+    onDone(results, pts, mode);
+    return true;
+  };
+
+  const next = async () => {
+    if (qi+1 >= questions.length) {
+      localStorage.removeItem('quiz_inprogress');
+      await finishAndGo();
+    } else { setQi(i=>i+1); setTranscript(""); setTranscriptItems([]); setEditingIdx(-1); setAiRes(null); setPhase("intro"); setDisplayText(""); setEditMode(false); scoreCacheRef.current=null; }
+  };
+
+  const goBack = async () => {
+    if (q && sessionId) {
+      try {
+        await api(`/api/session/${sessionId}/answer`,{method:"POST",body:JSON.stringify({staffId:user.staffId,staffName:user.name,questionId:q.id,questionText:q.text,category:q.category,answerText:'',score:0,level:'需加强',summary:'未作答',correctPoints:[],missingPoints:[],suggestion:'请认真参与',scoreMethod:'skip'})});
+        await api(`/api/session/${sessionId}/finish`,{method:"POST",body:JSON.stringify({totalScore:0,tabSwitchCount:tabSwitchRef.current})});
+      } catch {}
+    }
+    // 保留进度标记（带已答题数），主页据此显示「继续作答」而非「已完成」
+    if (mode === 'normal') {
+      const today = new Date().toISOString().slice(0, 10);
+      localStorage.setItem('quiz_inprogress', JSON.stringify({staffId:user.staffId, date:today, answered:qi, total:questions.length}));
+    }
+    onBack?.();
+  };
+
+  if (phase==="shift_deadline") return (
+    <div style={{position:"relative",width:"100%",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,background:"var(--p-navy-04)"}}>
+      <div style={{position:"absolute",inset:0,backgroundImage:"var(--img-quiz)",backgroundSize:"cover",backgroundPosition:"center",filter:"var(--img-quiz-dim-filter)",pointerEvents:"none"}}/>
+      <div style={{position:"absolute",inset:0,background:"var(--img-quiz-tint)",pointerEvents:"none"}}/>
+      <div style={{position:"relative",zIndex:1,textAlign:"center",padding:"0 32px"}}>
+        <div style={{fontSize:40,marginBottom:12}}>⏰</div>
+        <div style={{color:"var(--text-on-media)",fontSize:18,fontWeight:700,marginBottom:8}}>早班答题已截止</div>
+        <div style={{color:"var(--p-white-100-a45)",fontSize:13,lineHeight:1.7,marginBottom:24}}>早班答题截止时间为 09:30<br/>如需答题请联系班组长</div>
+        <button onClick={onBack} style={{padding:"10px 28px",borderRadius:8,border:"1px solid var(--p-white-100-a20)",background:"none",color:"var(--text-on-media)",fontSize:14,cursor:"pointer"}}>返回首页</button>
+      </div>
+    </div>
+  );
+  if (phase==="already_done") return (
+    <div style={{position:"relative",width:"100%",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,background:"var(--p-navy-04)"}}>
+      <div style={{position:"absolute",inset:0,backgroundImage:"var(--img-quiz)",backgroundSize:"cover",backgroundPosition:"center",filter:"var(--img-quiz-dim-filter)",pointerEvents:"none"}}/>
+      <div style={{position:"absolute",inset:0,background:"var(--img-quiz-tint)",pointerEvents:"none"}}/>
+      <div style={{position:"relative",zIndex:1,textAlign:"center",padding:"0 32px"}}>
+        <div style={{fontSize:40,marginBottom:12}}>✅</div>
+        <div style={{color:"var(--text-on-media)",fontSize:18,fontWeight:700,marginBottom:8}}>本轮已完成答题</div>
+        <div style={{color:"var(--p-white-100-a45)",fontSize:13,lineHeight:1.7,marginBottom:24}}>每套班（白夜早）只需完成一次答题<br/>下一轮开始后即可继续<br/>您可以在练习板块中继续沉淀</div>
+        <button onClick={onBack} style={{padding:"10px 28px",borderRadius:8,border:"1px solid var(--p-white-100-a20)",background:"none",color:"var(--text-on-media)",fontSize:14,cursor:"pointer"}}>返回首页</button>
+      </div>
+    </div>
+  );
+  if (phase==="loading"||phase==="error") return (
+    <div style={{position:"relative",width:"100%",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,background:"var(--p-navy-04)"}}>
+      <div style={{position:"absolute",inset:0,backgroundImage:"var(--img-quiz)",backgroundSize:"cover",backgroundPosition:"center",filter:"var(--img-quiz-dim-filter)",pointerEvents:"none"}}/>
+      <div style={{position:"absolute",inset:0,background:"var(--img-quiz-tint)",pointerEvents:"none"}}/>
+      <div style={{position:"relative",zIndex:1,textAlign:"center"}}>
+        {phase==="error"?<><div style={{fontSize:30}}>⚠</div><div style={{color:"var(--red)",marginTop:8}}>加载失败，请检查服务器</div></>:<><div className="spinner"/><div style={{color:"var(--p-white-100-a50)",marginTop:12,fontSize:14}}>加载题目中…</div></>}
+      </div>
+    </div>
+  );
+  if (!q) return (
+    <div style={{position:"relative",width:"100%",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,background:"var(--p-navy-04)"}}>
+      <div style={{fontSize:30}}>⚠</div>
+      <div style={{color:"var(--red)",marginTop:8,fontSize:14}}>题库暂无题目，请联系管理员</div>
+      <button onClick={onBack} style={{marginTop:16,padding:"10px 28px",borderRadius:8,border:"1px solid var(--p-white-100-a20)",background:"none",color:"var(--text-on-media)",fontSize:14,cursor:"pointer"}}>返回</button>
+    </div>
+  );
+
+  const pct = (qi / questions.length) * 100;
+
+  return (
+    <div onContextMenu={e=>e.preventDefault()} className="quiz-shell" style={{position:"relative",width:"100%",display:"flex",flexDirection:"column",overflow:"hidden",background:"var(--p-navy-04)"}}>
+      {/* 背景：地下隧道 */}
+      <div style={{position:"absolute",inset:0,backgroundImage:"var(--img-quiz)",backgroundSize:"cover",backgroundPosition:"center",filter:"var(--img-quiz-filter)"}}/>
+      <div style={{position:"absolute",inset:0,background:"var(--img-quiz-tint)",pointerEvents:"none"}}/>
+      <div style={{position:"absolute",inset:0,background:"linear-gradient(180deg,var(--p-black-00-a60) 0%,var(--p-black-00-a10) 40%,var(--p-black-00-a55) 75%,var(--p-black-00-a92) 100%)",pointerEvents:"none"}}/>
+
+      {/* 内容 */}
+      <div style={{position:"relative",zIndex:10,flex:1,display:"flex",flexDirection:"column",maxWidth:440,margin:"0 auto",width:"100%",overflowY:"auto",overscrollBehavior:"contain"}}>
+
+        {/* 顶部状态栏 */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 20px 6px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <button onClick={()=>setShowBackConfirm(true)} title="返回主页" style={{background:"none",border:"none",color:"var(--p-white-100-a45)",fontSize:22,cursor:"pointer",padding:"0 4px 0 0",lineHeight:1,fontWeight:300}}>‹</button>
+            <div style={{width:7,height:7,borderRadius:"50%",background:"var(--p-red-50)",boxShadow:"0 0 8px var(--p-red-50-a70)",animation:"liveDot 2s ease-in-out infinite"}}/>
+            <span style={{fontSize:12,fontWeight:500,letterSpacing:1.5,color:"var(--p-white-100-a80)"}}>第 {qi+1} 题 / 共 {questions.length} 题</span>
+            {isPractice&&<span style={{fontSize:11,fontWeight:700,color:"var(--amber)",background:"var(--p-amber-50-a15)",border:"1px solid var(--p-amber-50-a35)",borderRadius:8,padding:"1px 7px",letterSpacing:1}}>练习</span>}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            {tabSwitchCount>0&&<span style={{fontSize:11,fontWeight:700,color:"var(--red)",background:"var(--p-red-60-a15)",border:"1px solid var(--p-red-60-a30)",borderRadius:8,padding:"1px 6px",letterSpacing:0.5}}>切屏×{tabSwitchCount}</span>}
+            <button onClick={()=>setMuted(m=>!m)} title={muted?"点击开启朗读":"点击静音"}
+              style={{background:muted?"var(--p-white-100-a08)":"var(--p-red-50-a20)",border:`1px solid ${muted?"var(--p-white-100-a15)":"var(--p-red-50-a50)"}`,borderRadius:20,padding:"4px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:5,color:muted?"var(--p-white-100-a45)":"var(--p-red-50)",fontSize:11,fontWeight:600,transition:"all 0.2s"}}>
+              <span style={{fontSize:14}}>{muted?"🔇":"🔊"}</span>
+              <span>{muted?"静音":"朗读"}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 进度条 */}
+        <div style={{height:2,background:"var(--p-white-100-a08)",margin:"0 20px",borderRadius:2,overflow:"hidden"}}>
+          <div style={{height:"100%",width:`${pct}%`,background:"var(--p-red-50)",boxShadow:"0 0 8px var(--p-red-50-a50)",borderRadius:2,transition:"width 0.6s ease"}}/>
+        </div>
+
+        {/* 鱼快快 + 题目区 */}
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"6px 20px 0"}}>
+
+          {/* 姓名提示 */}
+          <div style={{width:"100%",padding:"10px 0 4px",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            <div style={{width:36,height:36,borderRadius:18,background:"linear-gradient(135deg,var(--p-red-50),var(--p-red-39))",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,color:"white",fontSize:15,flexShrink:0,boxShadow:"0 4px 12px var(--p-red-50-a35)"}}>{user.name?.[0]||"?"}</div>
+            <div>
+              <div style={{fontSize:15,fontWeight:700,color:"var(--text-on-media)",letterSpacing:1}}>{user.name}</div>
+              <div style={{fontSize:11,color:"var(--p-white-100-a40)",letterSpacing:2}}>请回答：</div>
+            </div>
+            {isSpeaking && (
+              <div style={{display:"flex",gap:2.5,alignItems:"flex-end",height:18,marginLeft:4}}>
+                {[5,9,13,7,11].map((h,i)=><div key={i} style={{width:3,height:h,background:"var(--p-red-50)",borderRadius:2,animation:`barDance 0.5s ease-in-out ${i*0.1}s infinite alternate`}}/>)}
+              </div>
+            )}
+          </div>
+
+          {/* 题目气泡 */}
+          <div style={{width:"100%",background:"var(--p-navy-04-a85)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",border:"1px solid var(--p-white-100-a10)",borderTop:"none",borderRadius:"0 0 16px 16px",padding:"16px 18px 18px",position:"relative"}}>
+            <div style={{position:"absolute",top:-1,left:"50%",transform:"translateX(-50%)",width:36,height:1,background:"var(--p-red-50-a70)",boxShadow:"0 0 8px var(--p-red-50-a40)"}}/>
+
+
+
+            {/* 题目文字 */}
+            <div style={{fontSize:18,lineHeight:1.75,color:"var(--p-white-100-a85)",letterSpacing:0.3,minHeight:72}}>
+              {displayText || (phase==="ready" ? (segAsks ? segmentStem(q.text) : q.text) : "")}
+              {isSpeaking && <span style={{display:"inline-block",width:2,height:16,background:"var(--p-red-50)",marginLeft:2,verticalAlign:"middle",animation:"blink 0.8s step-end infinite"}}/>}
+            </div>
+            {/* 三问合一题：三问分开列、逐问录音（说完一问自动跳下一问），避免一口气说 500 字卡壳 */}
+            {segAsks && phase!=="intro" && phase!=="processing" && phase!=="feedback" && (
+              <div style={{width:"100%",display:"flex",flexDirection:"column",gap:6,marginTop:12}}>
+                {segAsks.map((ask,i)=>{
+                  const done=(segTexts[i]||"").trim();
+                  const cur=i===segIdx;
+                  return (
+                    <div key={i}
+                      onClick={()=>{ if(!isRec && !isRecognizing && i!==segIdx){ setSegIdx(i); segIdxRef.current=i; setTranscript(segTexts[i]||""); setTranscriptItems(splitToItems(segTexts[i]||"")); window._streamingTranscript=segTexts[i]||null; setRecogError(null); } }}
+                      style={{display:"flex",gap:8,alignItems:"flex-start",padding:"7px 10px",borderRadius:9,
+                        background:cur?"var(--p-red-50-a12)":"var(--p-white-100-a03)",
+                        border:`1px solid ${cur?"var(--p-red-50-a45)":"var(--p-white-100-a08)"}`,
+                        cursor:(!isRec&&!isRecognizing&&i!==segIdx)?"pointer":"default",transition:"all 0.2s"}}>
+                      <span style={{fontSize:13,flexShrink:0,lineHeight:"18px"}}>{done?"✅":(cur?"🎤":"○")}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12.5,fontWeight:cur?700:500,color:cur?"var(--p-white-100)":"var(--p-white-100-a62)",lineHeight:1.45}}>
+                          {'①②③④⑤⑥'[i]} {ask}
+                        </div>
+                        {(done||(cur&&transcript)) && (
+                          <div style={{fontSize:11,color:"var(--p-white-100-a45)",marginTop:3,lineHeight:1.5,whiteSpace:"pre-wrap"}}>
+                            {done || transcript}
+                          </div>
+                        )}
+                      </div>
+                      {cur && !done && <span style={{fontSize:11,color:"var(--p-white-100-a40)",flexShrink:0,lineHeight:"18px"}}>{isRec?"录音中":isRecognizing?"识别中":""}</span>}
+                    </div>
+                  );
+                })}
+                <div style={{fontSize:11,color:"var(--p-white-100-a35)",textAlign:"center",marginTop:1,lineHeight:1.5}}>
+                  按 ①②③ 依次口述，说完一问自动进入下一问；点任意一问可回去重录
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── 底部操作区 ── */}
+        {phase !== "feedback" ? (
+          <div style={{padding:"10px 16px 16px",display:"flex",flexDirection:"column",gap:10}}>
+            {/* 录音/识别/结果区 */}
+            <div style={{background:"var(--p-white-100-a04)",border:"1px solid var(--p-white-100-a08)",borderRadius:10,padding:"10px 14px",minHeight:90,display:"flex",flexDirection:"column",justifyContent:"center"}}>
+              {recogError ? (
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,padding:"8px 0"}}>
+                  <span style={{fontSize:18}}>⚠️</span>
+                  <span style={{fontSize:12,color:"var(--p-red-71)",fontWeight:700,textAlign:"center",lineHeight:1.5}}>{recogError}</span>
+                  <textarea
+                    placeholder="语音识别失败，请在此手动输入答案…"
+                    rows={4}
+                    style={{width:"100%",boxSizing:"border-box",background:"var(--p-white-100-a07)",border:"1px solid var(--p-white-100-a20)",borderRadius:8,color:"var(--text-on-media)",fontSize:14,padding:"8px 10px",resize:"none",fontFamily:"inherit",lineHeight:1.6,outline:"none"}}
+                    onChange={e=>{
+                      const val=e.target.value;
+                      setTranscript(val);
+                      setTranscriptItems(val.trim()?splitToItems(val):[]);
+                      if(val.trim()) setRecogError(null);
+                    }}
+                  />
+                  <span style={{fontSize:11,color:"var(--p-white-100-a35)"}}>输入后点击右侧提交按钮完成作答</span>
+                </div>
+              ) : isRec ? (
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,padding:"10px 0"}}>
+                  <div style={{display:"flex",gap:3,alignItems:"flex-end",height:40}}>
+                    {[10,22,34,28,40,32,18,36,26,14].map((h,i)=>(
+                      <div key={i} style={{width:4,borderRadius:3,background:"var(--green)",animation:`wave 0.5s ease-in-out ${i*0.07}s infinite alternate`,height:h}}/>
+                    ))}
+                  </div>
+                  <span style={{fontSize:11,color:"var(--green)",letterSpacing:1.5,fontWeight:600}}>录音中，请自然说话…</span>
+                </div>
+              ) : isRecognizing ? (
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,padding:"10px 0"}}>
+                  <div className="spinner" style={{width:22,height:22}}/>
+                  <span style={{fontSize:11,color:"var(--amber)",letterSpacing:1.5,fontWeight:600}}>正在识别…</span>
+                </div>
+              ) : transcriptItems.length > 0 ? (
+                <div>
+                  <div style={{fontSize:11,color:"var(--p-white-100-a35)",letterSpacing:2,marginBottom:4}}>语音识别结果（仅供参考）</div>
+                  <div style={{fontSize:11,color:"var(--p-green-45-a70)",marginBottom:7,lineHeight:1.4}}>✓ AI按语义理解评分，识别有误差属正常，不影响最终得分</div>
+                  {transcriptItems.map((item,idx)=>(
+                    <div key={idx} style={{display:"flex",alignItems:"flex-start",gap:7,padding:"5px 0",borderBottom:idx<transcriptItems.length-1?"1px solid var(--p-white-100-a06)":"none"}}>
+                      <span style={{fontSize:15,color:"var(--p-amber-69)",flexShrink:0,lineHeight:1.55,userSelect:"none"}}>{CIRCLE_NUMS[idx]||`${idx+1}.`}</span>
+                      {editingIdx===idx ? (
+                        <textarea
+                          autoFocus
+                          defaultValue={item}
+                          onBlur={e=>{
+                            const val=e.target.value.trim();
+                            const ni=[...transcriptItems]; ni[idx]=val||item;
+                            const newT=ni.join('');
+                            setTranscriptItems(ni); setTranscript(newT); setEditingIdx(-1);
+                            // 文本变了则重新预热
+                            if(newT!==scoreCacheRef.current?.transcript && q?.id) {
+                              const p2=apiJson("/api/score",{method:"POST",body:JSON.stringify({questionId:q.id,answer:newT})}).catch(()=>null);
+                              scoreCacheRef.current={promise:p2,transcript:newT,result:null};
+                              p2.then(r=>{if(scoreCacheRef.current?.transcript===newT)scoreCacheRef.current.result=r;});
+                            }
+                          }}
+                          onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();e.target.blur();}}}
+                          onCopy={e=>e.preventDefault()}
+                          onPaste={e=>e.preventDefault()}
+                          onCut={e=>e.preventDefault()}
+                          style={{flex:1,background:"var(--p-blue-60-a10)",border:"1px solid var(--p-blue-60-a40)",borderRadius:4,color:"var(--p-white-100-a90)",fontSize:14,lineHeight:1.6,padding:"2px 6px",fontFamily:"inherit",resize:"none",outline:"none",minHeight:36,WebkitAppearance:"none"}}
+                        />
+                      ) : (
+                        <span
+                          onClick={()=>setEditingIdx(idx)}
+                          style={{flex:1,fontSize:14,color:"var(--p-white-100-a82)",lineHeight:1.6,cursor:"pointer",borderRadius:4,padding:"1px 4px"}}
+                        >{item}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:6,padding:"6px 0"}}>
+                  <div style={{color:"var(--p-white-100-a20)",fontSize:14,textAlign:"center"}}>
+                    {phase==="intro"?"题目朗读中，稍候…":"点击下方录音按钮开始作答"}
+                  </div>
+                  {phase!=="intro"&&<div style={{display:"flex",flexDirection:"column",gap:4,background:"var(--p-green-45-a05)",border:"1px solid var(--p-green-45-a15)",borderRadius:8,padding:"8px 12px"}}>
+                    {[
+                      ["🎙️","手机靠近嘴巴 20–30cm，声音清晰"],
+                      ["🔇","尽量减少周围噪音，背对风口"],
+                      ["🗣️","语速放慢，说完整句子再停顿"],
+                    ].map(([icon,tip])=>(
+                      <div key={tip} style={{display:"flex",gap:7,alignItems:"center"}}>
+                        <span style={{fontSize:13,flexShrink:0}}>{icon}</span>
+                        <span style={{fontSize:11,color:"var(--p-white-100-a40)",lineHeight:1.4}}>{tip}</span>
+                      </div>
+                    ))}
+                  </div>}
+                </div>
+              )}
+            </div>
+
+            {/* ★ 三角按钮区：纠正 / PTT / 提交 */}
+            <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",padding:"0 8px",gap:12}}>
+              {/* 左：重录 */}
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,flex:1}}>
+                <button
+                  onClick={()=>{
+                    if(isRec) stopRec();
+                    setTranscript(""); setTranscriptItems([]); setEditingIdx(-1);
+                    window._streamingTranscript=null; scoreCacheRef.current=null;
+                    // 分段作答：重录只清当前这一问，已说完的其他问保留
+                    if(segAsksRef.current?.length>=2){
+                      setSegTexts(prev=>{ const a=[...prev]; a[segIdxRef.current]=''; return a; });
+                    }
+                  }}
+                  disabled={(!transcript&&transcriptItems.length===0)||isRecognizing||phase==="intro"||phase==="processing"}
+                  style={{width:64,height:64,borderRadius:"50%",background:"var(--p-white-100-a06)",border:"2px solid var(--p-white-100-a15)",cursor:(transcript||transcriptItems.length>0)&&!isRecognizing&&phase!=="intro"&&phase!=="processing"?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",opacity:(transcript||transcriptItems.length>0)&&!isRecognizing?1:0.3,transition:"all 0.2s"}}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--p-white-100-a60)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.96"/></svg>
+                </button>
+                <span style={{fontSize:12,fontWeight:600,color:"var(--p-white-100-a35)",letterSpacing:1}}>重录</span>
+              </div>
+
+              {/* 中：PTT 主按钮 */}
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5}}>
+                <button
+                  onClick={e=>{
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if(phase==="intro"||phase==="processing"||isRecognizing) return;
+                    if(isRec){ stopRec(); } else { startRec(); }
+                  }}
+                  disabled={phase==="intro"||phase==="processing"}
+                  style={{width:96,height:96,borderRadius:"50%",background:isRec?"linear-gradient(135deg,var(--p-red-50),var(--p-red-39))":isRecognizing?"var(--p-blue-27-h217)":"linear-gradient(135deg,var(--p-green-24),var(--green))",border:isRec?"3px solid var(--p-red-50-a50)":isRecognizing?"3px solid var(--p-white-100-a10)":"3px solid var(--p-green-45-a40)",cursor:(phase==="intro"||phase==="processing")?"not-allowed":"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,boxShadow:isRec?"0 0 0 10px var(--p-red-50-a15),0 0 0 20px var(--p-red-50-a07),0 8px 24px var(--p-red-50-a40)":"0 0 0 8px var(--p-green-45-a08),0 6px 20px var(--p-green-45-a25)",transition:"all 0.15s",userSelect:"none",WebkitUserSelect:"none",animation:isRec?"micPulse 1.5s ease-out infinite":"none",touchAction:"none",WebkitTouchCallout:"none"}}>
+                  {isRecognizing
+                    ? <div style={{width:8,height:8,borderRadius:"50%",background:"var(--amber)",animation:"blink 0.8s step-end infinite"}}/>
+                    : isRec
+                    ? <svg width="26" height="26" viewBox="0 0 24 24" fill="white"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+                    : <svg width="26" height="26" viewBox="0 0 24 24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+                  }
+                  <span style={{fontSize:13,fontWeight:700,color:"var(--p-white-100-a95)",letterSpacing:1,lineHeight:1,maxWidth:68,textAlign:"center",display:"block"}}>{isRec?"点击停止":isRecognizing?"识别中":"点击录音"}</span>
+                </button>
+                <span style={{fontSize:12,fontWeight:600,color:isRec?"var(--p-red-50)":isRecognizing?"var(--amber)":"var(--p-white-100-a35)",letterSpacing:1.5}}>{isRec?"录音中…":isRecognizing?"识别中…":"语音输入"}</span>
+              </div>
+
+              {/* 右：提交 */}
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,flex:1}}>
+                <button
+                  onClick={submitWithConfirm}
+                  disabled={!submitReady}
+                  style={{width:64,height:64,borderRadius:"50%",background:submitReady?"linear-gradient(135deg,var(--p-navy-25),var(--blue))":"var(--p-white-100-a06)",border:`2px solid ${submitReady?"var(--p-blue-60-a60)":"var(--p-white-100-a10)"}`,cursor:submitReady?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",opacity:submitReady?1:0.3,transition:"all 0.2s",boxShadow:submitReady?"0 4px 16px var(--p-blue-60-a30)":"none"}}>
+                  {phase==="processing"
+                    ? <div style={{width:8,height:8,borderRadius:"50%",background:"var(--text-on-media)",animation:"blink 0.8s step-end infinite"}}/>
+                    : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  }
+                </button>
+                <span style={{fontSize:12,fontWeight:600,color:submitReady?"var(--p-white-100-a50)":"var(--p-white-100-a20)",letterSpacing:1}}>{phase==="processing"?"分析中":"提交"}</span>
+              </div>
+            </div>
+
+                        {/* 积分条 */}
+            <div style={{display:"flex",justifyContent:"space-around",background:"var(--p-white-100-a04)",border:"1px solid var(--p-white-100-a07)",borderRadius:10,padding:"10px 0"}}>
+              {[["本题分值","+10"],["今日积分","--"],["班组排名","--"]].map(([lbl,val],i)=>(
+                <div key={i} style={{textAlign:"center",flex:1,borderRight:i<2?"1px solid var(--p-white-100-a08)":"none"}}>
+                  <div style={{fontSize:18,fontWeight:700,color:"var(--p-amber-69)",lineHeight:1,marginBottom:3}}>{val}</div>
+                  <div style={{fontSize:11,color:"var(--p-white-100-a40)",letterSpacing:1.5}}>{lbl}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          // 反馈页
+          aiRes && (
+            <div style={{padding:"12px 20px 20px",animation:"slideUp 0.3s ease"}}>
+              <div style={{background:"var(--p-navy-04-a90)",backdropFilter:"blur(16px)",border:"1px solid var(--p-white-100-a10)",borderRadius:12,padding:"16px"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                  <div style={{fontSize:36,fontWeight:900,color:"var(--text-on-media)"}}>{aiRes.score}<span style={{fontSize:13,color:"var(--p-white-100-a40)",fontWeight:400}}> 分</span></div>
+                  <Badge label={aiRes.level} color={aiRes.level==="优秀"?"var(--green)":aiRes.level==="合格"?"var(--amber)":"var(--red)"}/>
+                </div>
+                <p style={{fontSize:13,color:"var(--p-white-100-a75)",marginBottom:10,lineHeight:1.7}}>{aiRes.summary}</p>
+                {/* 标准答案 — 列表化 */}
+                {(()=>{const refItems=splitToItems(q.reference||'');return(
+                <div style={{marginBottom:10,padding:"10px 12px",background:"var(--p-green-45-a08)",border:"1px solid var(--p-green-45-a25)",borderRadius:6}}>
+                  <div style={{fontSize:11,color:"var(--green)",letterSpacing:1,marginBottom:7,fontWeight:600}}>📋 标准答案</div>
+                  {refItems.length>0?refItems.map((item,i)=>(
+                    <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"4px 0",borderBottom:i<refItems.length-1?"1px solid var(--p-green-45-a10)":"none"}}>
+                      <span style={{fontSize:14,fontWeight:700,color:"var(--green)",flexShrink:0,minWidth:22,lineHeight:1.6}}>{i+1}.</span>
+                      <span style={{fontSize:14,color:"var(--p-white-100-a88)",lineHeight:1.6}}>{item}</span>
+                    </div>
+                  )):<div style={{fontSize:14,color:"var(--p-white-100-a70)"}}>{q.reference}</div>}
+                </div>
+                );})()}
+                {/* 用户作答 — 列表化 + 染色 */}
+                {(()=>{
+                  const uItems=splitToItems(aiRes.transcript||transcript||'');
+                  const cp=aiRes.correct_points||[], op=aiRes.order_errors||[], mp=aiRes.missing_points||[];
+                  return(
+                  <div style={{marginBottom:10,padding:"10px 12px",background:"var(--p-blue-60-a08)",border:"1px solid var(--p-blue-60-a25)",borderRadius:6}}>
+                    <div style={{fontSize:11,color:"var(--blue)",letterSpacing:1,marginBottom:7,fontWeight:600}}>🎙 您的作答</div>
+                    {uItems.length===0&&<div style={{fontSize:14,color:"var(--p-white-100-a35)"}}>（未识别到内容）</div>}
+                    {uItems.map((item,i)=>{
+                      const isCorrect=hasOverlap(item,cp);
+                      const isOrder=!isCorrect&&hasOverlap(item,op);
+                      const clr=isCorrect?"var(--green)":isOrder?"var(--amber)":"var(--p-white-100-a78)";
+                      return(
+                        <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"4px 0",borderBottom:i<uItems.length-1?"1px solid var(--p-blue-60-a10)":"none"}}>
+                          <span style={{fontSize:14,fontWeight:700,color:clr,flexShrink:0,minWidth:22,lineHeight:1.6}}>{CIRCLE_NUMS[i]||`${i+1}.`}</span>
+                          <span style={{flex:1,fontSize:14,color:clr,lineHeight:1.6}}>
+                            {item}
+                            {isOrder&&<span style={{fontSize:11,color:"var(--amber)",marginLeft:6,opacity:0.85}}>→ 顺序有误</span>}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {mp.map((p,i)=>(
+                      <div key={`m${i}`} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"5px 4px",marginTop:3,background:"var(--p-red-60-a08)",borderRadius:4}}>
+                        <span style={{fontSize:14,color:"var(--red)",flexShrink:0,lineHeight:1.6}}>✗</span>
+                        <span style={{fontSize:14,color:"var(--p-red-60-a85)",lineHeight:1.6}}>未提及：{p}</span>
+                      </div>
+                    ))}
+                  </div>
+                  );
+                })()}
+                <div style={{fontSize:12,color:"var(--p-white-100-a50)",lineHeight:1.6,marginBottom:6}}>{aiRes.suggestion}</div>
+                <div style={{fontSize:12,color:"var(--p-amber-69)",fontStyle:"italic",marginBottom:14}}>「{aiRes.encouragement}」</div>
+                <div style={{height:16}}></div>
+                <button onClick={next} style={{width:"100%",padding:"15px",borderRadius:8,border:"none",background:"linear-gradient(135deg,var(--p-red-50),var(--p-red-39))",color:"white",fontFamily:"inherit",fontSize:14,fontWeight:700,letterSpacing:2,cursor:"pointer",boxShadow:"0 4px 16px var(--p-red-50-a35)",marginBottom:24}}>
+                  {qi+1>=questions.length?"查看总结 →":"下一题 →"}
+                </button>
+              </div>
+            </div>
+          )
+        )}
+      </div>
+
+      {phase==="processing"&&<div style={{position:"fixed",inset:0,background:"var(--p-black-00-a75)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:100}}><div className="spinner"/><div style={{color:"var(--p-white-100-a50)",marginTop:12,fontSize:14}}>AI 分析中…</div></div>}
+
+      {showSubmitConfirm&&<AppModal icon="📝" title="准备提交" body={"确认提交当前语音作答？\nAI将按语义理解评分，\n识别文字有偏差不影响得分。"} buttons={[{label:"再想想",onClick:()=>setShowSubmitConfirm(false)},{label:"提交",onClick:()=>{setShowSubmitConfirm(false);submit();},primary:true}]}/>}
+      {showBackConfirm&&<AppModal icon="⚠️" title="确认返回？" body={"本题尚未完成作答，\n返回将记零分并结束本次答题。"} buttons={[{label:"继续答题",onClick:()=>setShowBackConfirm(false)},{label:"记零分返回",onClick:()=>{setShowBackConfirm(false);goBack();},danger:true}]}/>}
+      {showTabWarn&&<AppModal icon="👀" title={`检测到切屏 ${tabSwitchCount} 次`} body="请专注答题，切屏次数已被记录。" buttons={[{label:"我知道了",onClick:()=>setShowTabWarn(false),primary:true}]}/>}
+      {finishWarn&&<AppModal icon="⚠️" title="交卷未完成" body={finishWarn} buttons={[{label:"返回首页",onClick:()=>{setFinishWarn(null);onBack?.();}},{label:"重试",primary:true,onClick:async()=>{setFinishWarn(null);await finishAndGo();}}]}/>}
+    </div>
+  );
+}
+
+// ─── 答题历史 ────────────────────────────────────────────────────────────────
+function HistoryScreen({ user, onBack }) {
+  const [sessions,setSessions]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [expanded,setExpanded]=useState({});
+  useEffect(()=>{
+    apiJson(`/api/me/${user.staffId}/sessions`).then(d=>{
+      setSessions(d||[]);
+      setLoading(false);
+    }).catch(()=>setLoading(false));
+  },[]);
+  const toggle=(id)=>setExpanded(e=>({...e,[id]:!e[id]}));
+  return (
+    <div className="screen" style={{padding:'16px'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
+        <button onClick={onBack} style={{background:'none',border:'none',color:'var(--blue)',fontSize:22,cursor:'pointer',padding:'0 4px'}}>←</button>
+        <span style={{fontSize:15,fontWeight:700,color:'var(--text)'}}>我的答题历史</span>
+      </div>
+      {loading&&<div style={{color:'var(--muted)',textAlign:'center',marginTop:40}}>加载中…</div>}
+      {!loading&&sessions.length===0&&<div style={{color:'var(--muted)',textAlign:'center',marginTop:40,fontSize:13}}>暂无答题记录</div>}
+      {sessions.map((s)=>{
+        const avg=Math.round(s.total_score||0);
+        const scoreCol=avg>=85?'var(--green)':avg>=60?'var(--amber)':'var(--red)';
+        const perQ=Math.round(100/(s.q_count||3));
+        const isOpen=!!expanded[s.id];
+        return(
+          <div key={s.id} className="card" style={{marginBottom:8,padding:0,overflow:'hidden'}}>
+            <div onClick={()=>toggle(s.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',cursor:'pointer'}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:12,color:'var(--muted)'}}>
+                  {s.created_at?s.created_at.slice(5,10)+' '+s.created_at.slice(11,16):'--'}
+                  {s.cycle_label&&<span style={{marginLeft:6,color:'var(--muted)'}}>{s.cycle_label}</span>}
+                  {s.is_practice?<span style={{marginLeft:6,fontSize:11,color:'var(--amber)'}}>练习</span>:null}
+                </div>
+                <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{s.q_count||0}题</div>
+              </div>
+              <span style={{fontSize:20,fontWeight:800,color:scoreCol,flexShrink:0}}>{avg}<span style={{fontSize:11,fontWeight:400,color:'var(--muted)'}}>分</span></span>
+              <span style={{fontSize:14,color:'var(--muted)',flexShrink:0,transform:isOpen?'rotate(180deg)':'none',transition:'transform 0.2s'}}>⌄</span>
+            </div>
+            {isOpen&&(
+              <div style={{borderTop:'1px solid var(--p-navy-22-a60)',padding:'8px 14px 12px'}}>
+                {s.answers?.map((a,ai)=>{
+                  const pts=Math.round(a.score/(s.q_count||3));
+                  const ac=a.score>=99?'var(--green)':a.score>=67?'var(--amber)':'var(--red)';
+                  return(
+                    <div key={ai} style={{paddingTop:ai>0?10:4,borderTop:ai>0?'1px solid var(--p-navy-22-a40)':'none'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+                        <span style={{fontSize:11,color:'var(--muted)',flex:1,lineHeight:1.4}}>{ai+1}. {a.question_text}</span>
+                        <span style={{fontSize:13,fontWeight:700,color:ac,flexShrink:0,marginLeft:8}}>{pts}<span style={{fontSize:11,color:'var(--muted)',fontWeight:400}}>/{perQ}</span></span>
+                      </div>
+                      <div style={{fontSize:11,color:'var(--muted)',lineHeight:1.5,paddingLeft:10}}>↳ {a.answer_text||'（无作答）'}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── 题库预览 ────────────────────────────────────────────────────────────────
+function BanksPreviewScreen({ onBack }) {
+  const [banks,setBanks]=useState([]);
+  const [questions,setQuestions]=useState([]);
+  const [selBank,setSelBank]=useState(null);
+  const [loading,setLoading]=useState(false);
+  useEffect(()=>{
+    apiJson('/api/banks').then(b=>{
+      setBanks(b);
+      const active=b.find(x=>x.is_active);
+      if(active){setSelBank(active.id);fetchQ(active.id);}
+    }).catch(()=>{});
+  },[]);
+  const fetchQ=(bankId)=>{
+    setLoading(true);
+    apiJson(`/api/questions?bank_id=${bankId}&limit=100`).then(d=>{
+      setQuestions(d||[]);
+      setLoading(false);
+    }).catch(()=>setLoading(false));
+  };
+  return (
+    <div className="screen" style={{padding:'16px'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
+        <button onClick={onBack} style={{background:'none',border:'none',color:'var(--blue)',fontSize:22,cursor:'pointer',padding:'0 4px'}}>←</button>
+        <span style={{fontSize:15,fontWeight:700,color:'var(--text)'}}>题库预览</span>
+      </div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}>
+        {banks.map(b=>(
+          <button key={b.id} onClick={()=>{setSelBank(b.id);fetchQ(b.id);}}
+            style={{padding:'6px 14px',borderRadius:20,border:'none',background:selBank===b.id?'var(--blue)':'var(--border)',color:'var(--text)',fontSize:12,cursor:'pointer',fontWeight:selBank===b.id?700:400}}>
+            {b.name}{b.is_active?' ✓':''}
+          </button>
+        ))}
+      </div>
+      {loading&&<div style={{color:'var(--muted)',textAlign:'center',marginTop:40}}>加载中…</div>}
+      {!loading&&questions.length===0&&<div style={{color:'var(--muted)',textAlign:'center',marginTop:40,fontSize:13}}>该题库暂无题目</div>}
+      {questions.map((q,i)=>(
+        <div key={i} className="card" style={{marginBottom:10,padding:'12px 14px'}}>
+          <div style={{display:'flex',gap:8,marginBottom:6}}>
+            <span style={{fontSize:11,color:'var(--muted)',background:'var(--border)',padding:'2px 8px',borderRadius:10}}>{q.category||'--'}</span>
+            <span style={{fontSize:11,color:'var(--muted)'}}>难度 {q.difficulty||'--'}</span>
+          </div>
+          <div style={{fontSize:13,color:'var(--muted)',lineHeight:1.6,marginBottom:6}}>{q.text||q.question_text}</div>
+          {q.reference&&<div style={{fontSize:11,color:'var(--muted)',lineHeight:1.5}}>参考：{q.reference}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// HOME
+function HomeScreen({ user, nav }) {
+  const [me, setMe] = useState(null);
+  const [lbCycle, setLbCycle] = useState([]);
+  const [lbTotal, setLbTotal] = useState([]);
+  const [lbCycleFull, setLbCycleFull] = useState([]);
+  const [lbTotalFull, setLbTotalFull] = useState([]);
+  const [cycleInfo, setCycleInfo] = useState(null);
+  const [lbModal, setLbModal] = useState(null);
+  const [lbDetail, setLbDetail] = useState(null);
+  const [lbDetailLoading, setLbDetailLoading] = useState(false);
+  const [showAllCycle, setShowAllCycle] = useState(false);
+  const [showAllTotal, setShowAllTotal] = useState(false);
+  const [periodDone, setPeriodDone] = useState(0);
+  const [periodTotal, setPeriodTotal] = useState(0);
+  const [activeBank, setActiveBank] = useState(null);
+  const [pinnedInfo, setPinnedInfo] = useState(null);
+  const [taskDone, setTaskDone] = useState(false);
+  const [todayScore, setTodayScore] = useState(null); // 本轮班答题总分
+  const [wallRefresh, setWallRefresh] = useState(0);
+  const [leaveSummary, setLeaveSummary] = useState({ annual_left:'—', marriage_left:'—', paternity_left:'—', next_week_reported:true }); // 休假卡摘要
+  const [isExempt, setIsExempt] = useState(false);
+  const [quizInProgress, setQuizInProgress] = useState(null); // null or {answered, total}
+  const [isInterrupted, setIsInterrupted] = useState(false);
+  const [makeupGrant, setMakeupGrant] = useState(null); // null or {expiresAt}
+  const [makeupPrompted, setMakeupPrompted] = useState(false);
+  const [remRecord, setRemRecord] = useState(null); // null or {result, original_score, remediation_score}
+  const [remediationGrant, setRemediationGrant] = useState(null); // null or {expiresAt}
+  const [remediationPrompted, setRemediationPrompted] = useState(false);
+  const [workshopStatus, setWorkshopStatus] = useState(null); // [{plan_id, shift_date, plan_type, relevant, checked_in, instructor_confirmed}]
+  const [yearPlanItems, setYearPlanItems] = useState(null); // [{item, trainType}] 本月年度计划项点
+
+  useEffect(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      const ip = JSON.parse(localStorage.getItem('quiz_inprogress') || 'null');
+      if (ip && ip.staffId === user.staffId && ip.date === today) {
+        setQuizInProgress({ answered: ip.answered ?? 0, total: ip.total ?? 3 });
+      }
+    } catch {}
+
+    apiJson(`/api/me/${user.staffId}`).then(d => {
+      setMe(d);
+      const exempt = !!(d.staff && d.staff.is_exempt);
+      const isTester = !!(d.staff && d.staff.is_tester);
+      setIsExempt(exempt);
+      if (d.isInterrupted) {
+        // 有数据库中断记录，清除 localStorage 残留，改由管理员重置
+        localStorage.removeItem('quiz_inprogress');
+        setQuizInProgress(null);
+        setIsInterrupted(true);
+      }
+      setRemRecord(d.remRecord || null);
+      if (!exempt && !isTester) {
+        const today2 = new Date().toISOString().slice(0, 10);
+        // 用 cycleCompletedSession 判断是否完成，避免被 is_deleted 的 session 干扰
+        const cycSess = d.cycleCompletedSession;
+        const doneToday = !!cycSess || (d.recent || []).some(r => r.created_at && r.created_at.slice(0, 10) === today2);
+        // 如果有待完成的复查授权，不标记为 done（用户需要去做复查）
+        setTaskDone(doneToday && !(d.remRecord?.result === 'pending'));
+        // 本轮班答题总分（用于主页方形卡片显示）
+        const sc = cycSess?.total_score
+          ?? (d.recent || []).find(r => r.created_at && r.created_at.slice(0, 10) === today2)?.score;
+        if (sc != null) setTodayScore(Math.round(Number(sc)));
+      }
+    }).catch(() => {});
+
+    // 休假卡摘要（失败不阻塞主页）
+    const sid0 = user?.staffId || user?.id;
+    if (sid0) {
+      apiJson('/api/leave/summary', { headers: { 'x-staff-id': String(sid0) } }).then(d => {
+        if (d && !d.error) setLeaveSummary(d);
+      }).catch(() => {});
+    }
+
+    apiJson('/api/leaderboard/cycle').then(d => {
+      const rows = d.rows || [];
+      setLbCycle(rows.slice(0, 3));
+      setLbCycleFull(rows);
+      setCycleInfo(d.cycle || null);
+    }).catch(() => {});
+    apiJson('/api/leaderboard/alltime').then(d => {
+      const rows = Array.isArray(d) ? d : (d.rows || []);
+      setLbTotal(rows.slice(0, 3));
+      setLbTotalFull(rows);
+    }).catch(() => {});
+
+    fetch('/api/admin/members', { headers: { 'x-admin-password': 'admin530' } })
+      .then(r => r.json()).then(members => {
+        const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+        const regular = members.filter(m => !m.is_exempt && !m.is_cp && !m.is_leader);
+        setPeriodTotal(regular.length);
+        // last_at is UTC ISO string; convert to CST date for comparison
+        setPeriodDone(regular.filter(m => {
+          if (!m.last_at) return false;
+          const d = new Date(m.last_at);
+          return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }) === todayStr;
+        }).length);
+      }).catch(() => {});
+
+    apiJson('/api/banks').then(banks => {
+      setActiveBank(banks.find(b => b.is_default) || banks.find(b => b.is_active) || banks[0]);
+    }).catch(() => {});
+
+    fetch('/api/admin/pinned-questions', { headers: { 'x-admin-password': 'admin530' } })
+      .then(r => r.json()).then(p => {
+        const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+        const hasContent = (p.ids?.length > 0) || (p.mode === 'random' && (p.bank_id || p.bank_ids?.length > 0)) || p.mode === 'emergency';
+        const active = hasContent && (
+          (p.scope === 'today' && p.created_date === todayStr) || p.scope === 'shift'
+        );
+        setPinnedInfo(active ? p : null);
+      }).catch(() => {});
+
+    // 车间任务状态
+    const curMonth = new Date().toISOString().slice(0, 7);
+    apiJson(`/api/workshop/my-status?month=${curMonth}&staff_id=${user.staffId}`).then(st => {
+      setWorkshopStatus(st || []);
+    }).catch(() => {});
+    // 年度培训计划本月项点
+    const curYr = new Date().getFullYear();
+    const curMo = new Date().getMonth() + 1;
+    apiJson(`/api/admin/training-year-plan?year=${curYr}`).then(d => {
+      const mo = Array.isArray(d) ? d.find(r => r.month === curMo) : null;
+      setYearPlanItems(mo?.sessions || []);
+    }).catch(() => setYearPlanItems([]));
+
+    // 补答授权查询（每30秒轮询一次）
+    const checkMakeup = () => {
+      apiJson(`/api/makeup/status/${user.staffId}`).then(d => {
+        setMakeupGrant(d.granted ? d : null);
+      }).catch(() => {});
+    };
+    checkMakeup();
+    const makeupTimer = setInterval(checkMakeup, 30000);
+
+    // 复查授权查询（每30秒轮询一次）
+    const checkRemediation = () => {
+      apiJson(`/api/remediation/status/${user.staffId}`).then(d => {
+        setRemediationGrant(d.granted ? d : null);
+      }).catch(() => {});
+    };
+    checkRemediation();
+    const remTimer = setInterval(checkRemediation, 30000);
+
+    return () => { clearInterval(makeupTimer); clearInterval(remTimer); };
+  }, [user.staffId]);
+
+  const getShiftDeadline = () => {
+    const now = new Date();
+    const base = new Date('2026-03-22');
+    const diff = Math.floor((now - base) / 86400000);
+    const phaseDay = ((diff % 4) + 4) % 4;
+    const startD = new Date(now); startD.setDate(startD.getDate() - phaseDay);
+    const endD = new Date(startD); endD.setDate(endD.getDate() + 2);
+    const fmt = d => `${d.getMonth()+1}月${d.getDate()}日`;
+    return `${fmt(startD)} — ${fmt(endD)}`;
+  };
+
+  const getMonthRange = () => {
+    const now = new Date();
+    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return `${now.getMonth()+1}月1日—${now.getMonth()+1}月${last.getDate()}日`;
+  };
+
+  const rankIcon = i => ['🥇','🥈','🥉'][i] || (i+1);
+  const rankCls  = i => ['r1','r2','r3'][i] || 'rn';
+
+  const myPoints = me?.stats?.total_points ?? 0;
+  const myAvg    = Math.round(me?.stats?.avg_score ?? 0);
+  const quizPts  = Math.max(0, myPoints - (myPoints > 0 ? 10 : 0));
+  const bonusPts = myPoints > 0 ? 10 : 0;
+
+  const SectionCard = ({ children, style }) => (
+    <div style={{
+      margin: '0 12px 14px',
+      background: 'var(--card)',
+      border: '1px solid var(--border)',
+      borderRadius: 16,
+      overflow: 'hidden',
+      ...style
+    }}>{children}</div>
+  );
+
+  const SecHeader = ({ title }) => (
+    <div style={{
+      padding: '10px 14px 8px',
+      borderBottom: '1px solid var(--border)',
+      fontSize: 11,
+      color: 'var(--muted)',
+      letterSpacing: '2.5px',
+      textTransform: 'uppercase',
+      fontWeight: 600,
+    }}>{title}</div>
+  );
+
+  const HalfDivider = () => (
+    <div style={{ width: 1, background: 'var(--border)', borderLeft: '1px dashed var(--p-blue-27-h216)', alignSelf: 'stretch' }} />
+  );
+
+  const lbEmpty = <div style={{ fontSize:11, color:'var(--muted)', textAlign:'center', padding:'14px 0' }}>暂无数据</div>;
+
+  return (
+    <div className="screen" style={{ background:'var(--bg)', paddingBottom:28 }}>
+
+      {/* ── 顶部欢迎（右上角：个人中心按钮）── */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'18px 16px 6px' }}>
+        <div style={{ fontSize:16, fontWeight:700, color:'var(--text)' }}>
+          你好，<span style={{ color:'var(--gold)' }}>{user.name || user.staffId}</span>
+          {isExempt && <span style={{ marginLeft:6, fontSize:11, color:'var(--muted)', fontWeight:400, verticalAlign:'middle' }}>班组长</span>}
+        </div>
+        <button onClick={()=>nav('profile')} style={{
+          display:'flex', alignItems:'center', gap:4,
+          background:'var(--card-deep)', border:'1px solid var(--border)', borderRadius:10,
+          padding:'6px 12px', cursor:'pointer', fontFamily:'var(--font)',
+          fontSize:11.5, fontWeight:600, color:'var(--text)', whiteSpace:'nowrap',
+          WebkitTapHighlightColor:'transparent',
+        }}>
+          个人中心 <span style={{ fontSize:12, color:'var(--muted)' }}>›</span>
+        </button>
+      </div>
+
+      {/* ══ 模块卡区（无外框，直接排列）══ */}
+      <div style={{ padding:'14px 12px 0', display:'flex', flexDirection:'column', gap:12 }}>
+
+          {/* 第一排：日常答题 | 月度任务 */}
+          <div style={{ display:'flex', gap:12, alignItems:'stretch' }}>
+
+            {/* 左卡：日常答题 */}
+            <SquareModuleCard
+              theme="quiz"
+              main={
+                isExempt ? '班组长免答'
+                : remRecord?.result === 'pending' ? '待复查'
+                : remRecord?.result === 'fail' ? '复查不合格'
+                : remRecord?.result === 'pass' ? `复查合格 ${Math.round(remRecord.remediation_score)}分`
+                : isInterrupted ? '答题已中断'
+                : taskDone ? `本轮班答题总分：${todayScore}`
+                : '未完成本轮班答题'
+              }
+              sub={
+                isExempt ? '今日无需答题'
+                : pinnedInfo
+                  ? `${pinnedInfo.count || 3}题 · 每题${Math.round(100/(pinnedInfo.count||3))}分`
+                  : '管理员尚未发布抽问'
+              }
+              badge={taskDone ? null : (pinnedInfo ? '待答' : null)}
+              warn={isInterrupted || remRecord?.result === 'fail'}
+              disabled={!pinnedInfo && !taskDone && !remRecord}
+              onClick={pinnedInfo || taskDone || remRecord ? ()=>nav('quiz') : undefined}
+            />
+
+            {/* 右卡：月度任务 */}
+            {(() => {
+              const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+              const itemDone = (itemName) => (workshopStatus || []).some(s =>
+                s.relevant &&
+                (s.completed_items || []).includes(itemName) &&
+                (s.plan_type === '中旬会' ? s.checked_in : s.instructor_confirmed)
+              );
+              const myRelevant = (workshopStatus || []).filter(s => s.relevant && s.plan_type !== '轮空');
+              // 下次待完成的实操（回段/场/中旬会）
+              const upcoming = myRelevant
+                .filter(s => s.shift_date >= today && !(s.plan_type === '中旬会' ? s.checked_in : s.instructor_confirmed))
+                .sort((a,b) => a.shift_date < b.shift_date ? -1 : 1);
+              const nextOp = upcoming[0] || null;
+              const allItemsDone = yearPlanItems && yearPlanItems.length > 0 && yearPlanItems.every(it => itemDone(it.item));
+              const dShort = d => { const x=new Date(d+'T00:00:00'); return `${x.getMonth()+1}月${x.getDate()}日`; };
+              // 方案A：主文字 = 下次培训；副文字 = 本月项点进度
+              let mainText;
+              if (nextOp) {
+                const isToday = nextOp.shift_date === today;
+                if (nextOp.plan_type === '中旬会') {
+                  mainText = `${isToday ? '今日' : '下次'}中旬会回段${isToday ? '' : ' ' + dShort(nextOp.shift_date)}`;
+                } else {
+                  mainText = `${isToday ? '今日' : '下次'} ${isToday ? '' : dShort(nextOp.shift_date) + ' '}${nextOp.location || '回段'}培训`;
+                }
+              } else if (yearPlanItems === null) {
+                mainText = '加载中…';
+              } else if (allItemsDone) {
+                mainText = '本月培训已全部完成';
+              } else if (myRelevant.length > 0) {
+                mainText = '暂无待办实操';
+              } else {
+                mainText = '本月暂无培训安排';
+              }
+              return (
+                <SquareModuleCard
+                  theme="workshop"
+                  main={mainText}
+                  sub={
+                    yearPlanItems && yearPlanItems.length > 0
+                      ? `本月 ${yearPlanItems.filter(it=>itemDone(it.item)).length}/${yearPlanItems.length} 项已完成`
+                      : '本月暂无培训项点'
+                  }
+                  badge={allItemsDone ? null : '待完成'}
+                  onClick={()=>nav('workshop')}
+                />
+              );
+            })()}
+          </div>
+
+          {/* 第二排：休假统筹 | 留言墙 */}
+          <div style={{ display:'flex', gap:12, alignItems:'stretch' }}>
+            <div style={{ flex:1, minWidth:0, display:'flex' }}>
+              <SquareModuleCard
+                theme="leave"
+                main={`${leaveSummary.total_left}天`}
+                mainLabel="总额"
+                sub={leaveSummary.breakdown}
+                badge={leaveSummary.month_reported ? null : '本月未报'}
+                warn={!leaveSummary.month_reported}
+                onClick={()=>nav('leave')}
+              />
+            </div>
+            <div style={{ flex:1, minWidth:0, display:'flex' }}>
+              <SquareModuleCard
+                theme="wall"
+                customBody={<WallCardBody refreshKey={wallRefresh} />}
+                onClick={()=>nav('wall')}
+              />
+            </div>
+          </div>
+
+      </div>
+
+      {/* ══ 班表 · 休假（两周）══ */}
+      <ShiftCalendar />
+
+      {/* 补答/复查弹窗（保留原逻辑） */}
+      <div style={{ display:'none' }}>
+        {makeupGrant&&!makeupPrompted&&(()=>{ setTimeout(()=>setMakeupPrompted(true),0); return null; })()}
+        {remediationGrant&&!remediationPrompted&&(()=>{ setTimeout(()=>setRemediationPrompted(true),0); return null; })()}
+      </div>
+      {makeupGrant&&makeupPrompted&&<AppModal
+        icon="⏰"
+        title="补答提醒"
+        body={`管理员已授权补答\n请在 ${makeupGrant.expiresAt?.slice(0,16)} 前完成本套班答题`}
+        buttons={[
+          {label:'稍后再答',onClick:()=>setMakeupPrompted(false)},
+          {label:'立即补答',primary:true,onClick:()=>{ setMakeupPrompted(false); nav('quiz'); }}
+        ]}
+      />}
+      {remediationGrant&&remediationPrompted&&<AppModal
+        icon="⚠️"
+        title="复查通知"
+        body={`班组长已授权本次复查\n请在 ${remediationGrant.expiresAt?.slice(0,16)} 前完成\n本次复查结果将记录在案`}
+        buttons={[
+          {label:'稍后再答',onClick:()=>setRemediationPrompted(false)},
+          {label:'开始复查',primary:true,onClick:()=>{ setRemediationPrompted(false); nav('quiz'); }}
+        ]}
+      />}
+
+      {/* ══ 板块三：积分榜（SHOW_LEADERBOARD=false 时隐藏，代码保留）══ */}
+      {SHOW_LEADERBOARD && (<>
+      {lbModal && (
+        <div onClick={()=>{setLbModal(null);setLbDetail(null);}} style={{position:'fixed',inset:0,background:'var(--p-black-00-a70)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+          <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'var(--input-bg)',border:'1px solid var(--p-blue-60-a30)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'75vh',overflowY:'auto'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
+              <div style={{display:'flex',gap:10,alignItems:'flex-start'}}>
+                {lbDetail?.sessions?.[0]?.avatar
+                  ? <img src={lbDetail.sessions[0].avatar} style={{width:44,height:44,borderRadius:'50%',objectFit:'cover',flexShrink:0,border:'2px solid var(--p-blue-60-a40)'}}/>
+                  : <div style={{width:44,height:44,borderRadius:'50%',background:'linear-gradient(135deg,var(--p-navy-25),var(--blue))',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'var(--text)',flexShrink:0}}>{lbModal.staffName?.[0]}</div>
+                }
+                <div>
+                  <div style={{fontSize:15,fontWeight:700,color:'var(--text)'}}>{lbModal.staffName}</div>
+                  <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{lbModal.type==='cycle'?'轮班答题记录':'本月答题记录'}</div>
+                </div>
+              </div>
+              <button onClick={()=>{setLbModal(null);setLbDetail(null);}} style={{background:'none',border:'1px solid var(--border)',color:'var(--muted)',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontSize:12,flexShrink:0}}>关闭</button>
+            </div>
+            {lbDetailLoading&&<div style={{textAlign:'center',padding:'20px 0'}}><div className="spinner" style={{margin:'0 auto'}}/></div>}
+            {!lbDetailLoading&&lbDetail&&lbDetail.sessions?.length===0&&<div style={{color:'var(--muted)',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无答题记录</div>}
+            {!lbDetailLoading&&lbDetail?.sessions?.map((s,si)=>(
+              <div key={si} style={{marginBottom:12,background:'var(--p-navy-16-a60)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                  <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+                    <span style={{fontSize:11,color:'var(--muted)'}}>{s.created_at?.slice(5,10)}{s.created_at?.length>=16?` ${s.created_at.slice(11,16)}`:''}{s.cycle_label?` · ${s.cycle_label}`:''}</span>
+                    {s.tab_switch_count>0&&<span style={{fontSize:11,color:'var(--red)',background:'var(--p-red-60-a12)',border:'1px solid var(--p-red-60-a30)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
+                  </div>
+                  <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                    <span style={{fontSize:12,fontWeight:700,color:'var(--text)'}}>{Math.round(s.total_score)}分</span>
+                  </div>
+                </div>
+                {s.answers?.map((a,ai)=>(
+                  <div key={ai} style={{padding:'6px 0',borderTop:'1px solid var(--p-navy-22-a50)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                    <span style={{fontSize:11,color:'var(--text)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
+                    <span style={{fontSize:12,fontWeight:700,flexShrink:0,color:a.score>=99?'var(--green)':a.score>=67?'var(--amber)':'var(--red)'}}>{Math.round(a.score/(s.answers.length||3))}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <SectionCard>
+        <SecHeader title="积分榜" />
+        <div style={{ display:'flex' }}>
+          <div style={{ flex:1, padding:'12px 14px' }}>
+            <div style={{ fontSize:11, fontWeight:700, color:'var(--text)', marginBottom:2 }}>轮班榜</div>
+            <div style={{ fontSize:11, color:'var(--muted)', marginBottom:8 }}>
+              {cycleInfo?.label || ''}
+            </div>
+            {lbCycleFull.length === 0 ? lbEmpty : (showAllCycle ? lbCycleFull : lbCycleFull.slice(0,3)).map((r, i) => (
+              <div key={r.staff_id} onClick={async()=>{
+                setLbModal({type:'cycle',staffId:r.staff_id,staffName:r.staff_name});
+                setLbDetail(null); setLbDetailLoading(true);
+                const d = await apiJson(`/api/leaderboard/cycle/member/${r.staff_id}`).catch(()=>null);
+                setLbDetail(d); setLbDetailLoading(false);
+              }} style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 0', borderBottom: i < lbCycleFull.length-1 ? '1px solid var(--p-navy-22-a70)' : 'none', cursor:'pointer' }}>
+                <span style={{ width:18, fontSize: i < 3 ? 13 : 11, textAlign:'center', flexShrink:0,
+                  color: ['var(--p-amber-50-h051)','var(--p-blue-74)','var(--p-amber-50)'][i] || 'var(--muted)' }}>{rankIcon(i)}</span>
+                <span style={{ flex:1, fontSize:11, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.staff_name}</span>
+                {r.is_instructor?<span style={{fontSize:11,padding:'1px 5px',borderRadius:8,background:'var(--p-indigo-67-a15)',border:'1px solid var(--p-indigo-67-a40)',color:'var(--p-blue-82)',flexShrink:0,marginRight:2}}>教员</span>:null}
+                <span style={{ fontSize:11, fontWeight:700, color:'var(--gold)', flexShrink:0 }}>{r.total_points}</span>
+              </div>
+            ))}
+            {lbCycleFull.length > 3 && (
+              <div onClick={()=>setShowAllCycle(v=>!v)} style={{textAlign:'center',marginTop:8,fontSize:13,color:'var(--p-blue-68)',cursor:'pointer',fontWeight:600,letterSpacing:0.5}}>
+                {showAllCycle ? '收起 ▲' : `查看全部 ${lbCycleFull.length} 人 ▼`}
+              </div>
+            )}
+          </div>
+          <HalfDivider />
+          <div style={{ flex:1, padding:'12px 14px' }}>
+            <div style={{ fontSize:11, fontWeight:700, color:'var(--text)', marginBottom:10 }}>总积分榜</div>
+            {lbTotalFull.length === 0 ? lbEmpty : (showAllTotal ? lbTotalFull : lbTotalFull.slice(0,3)).map((r, i) => (
+              <div key={r.staff_id} onClick={async()=>{
+                setLbModal({type:'total',staffId:r.staff_id,staffName:r.staff_name});
+                setLbDetail(null); setLbDetailLoading(true);
+                const d = await apiJson(`/api/leaderboard/alltime/member/${r.staff_id}`).catch(()=>null);
+                setLbDetail(d); setLbDetailLoading(false);
+              }} style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 0', borderBottom: i < lbTotalFull.length-1 ? '1px solid var(--p-navy-22-a70)' : 'none', cursor:'pointer' }}>
+                <span style={{ width:18, fontSize: i < 3 ? 13 : 11, textAlign:'center', flexShrink:0,
+                  color: ['var(--p-amber-50-h051)','var(--p-blue-74)','var(--p-amber-50)'][i] || 'var(--muted)' }}>{rankIcon(i)}</span>
+                <span style={{ flex:1, fontSize:11, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.staff_name}</span>
+                {r.is_instructor?<span style={{fontSize:11,padding:'1px 5px',borderRadius:8,background:'var(--p-indigo-67-a15)',border:'1px solid var(--p-indigo-67-a40)',color:'var(--p-blue-82)',flexShrink:0,marginRight:2}}>教员</span>:null}
+                <span style={{ fontSize:11, fontWeight:700, color:'var(--gold)', flexShrink:0 }}>{r.total_points}</span>
+              </div>
+            ))}
+            {lbTotalFull.length > 3 && (
+              <div onClick={()=>setShowAllTotal(v=>!v)} style={{textAlign:'center',marginTop:8,fontSize:13,color:'var(--p-blue-68)',cursor:'pointer',fontWeight:600,letterSpacing:0.5}}>
+                {showAllTotal ? '收起 ▲' : `查看全部 ${lbTotalFull.length} 人 ▼`}
+              </div>
+            )}
+          </div>
+        </div>
+      </SectionCard>
+
+      </>)}
+
+      <div style={{ textAlign:'center' }}>
+        <button onClick={() => nav('admin')} style={{ background:'none', border:'none', color:'var(--muted)', fontSize:11, cursor:'pointer', textDecoration:'underline', fontFamily:'var(--font)' }}>管理员后台</button>
+      </div>
+
+    </div>
+  );
+}
+
+function ResultScreen({ user, results, points, onHome, mode='normal', onContinuePractice }) {
+  const avg=results.length?Math.min(100,Math.round(results.reduce((s,r)=>s+r.score,0)/results.length)):0;
+  const col=avg>=85?'var(--green)':avg>=60?'var(--amber)':'var(--red)';
+  const isPractice = mode !== 'normal';
+  return(
+    <div className="screen" style={{padding:'32px 16px',alignItems:'center'}}>
+      <div style={{fontSize:36,marginBottom:8}}>{isPractice?'📝':'🎯'}</div>
+      <div style={{fontSize:20,fontWeight:700,color:'var(--text)',marginBottom:4}}>{isPractice?'练习完成！':'答题完成！'}</div>
+      <div style={{fontSize:12,color:'var(--muted)',marginBottom:24}}>{user.name} · {results.length}题 · {new Date().toLocaleDateString('zh-CN')}</div>
+      <ScoreRing score={avg} size={110}/>
+      <div style={{fontSize:11,color:'var(--muted)',marginTop:4,letterSpacing:1}}>{results.length}题综合均分</div>
+      {isPractice&&points&&(
+        <div style={{margin:'20px 0',padding:'12px 20px',background:'var(--p-amber-50-a08)',border:'1px solid var(--p-amber-50-a25)',borderRadius:12,textAlign:'center'}}>
+          {points.practiceBonus>0
+            ? <><div style={{fontSize:14,fontWeight:700,color:'var(--amber)'}}>+1 练习加分已获得</div>
+                <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>本月已用 {points.practiceUsed} / {points.practiceMax} 次加分机会</div></>
+            : <><div style={{fontSize:14,fontWeight:600,color:'var(--muted)'}}>本月练习加分已用完</div>
+                <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>下月继续加油（每月最多 +3 分）</div></>
+          }
+        </div>
+      )}
+      {!isPractice&&points&&(
+        <div style={{display:'flex',justifyContent:'center',margin:'20px 0',padding:'14px 20px',background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:12}}>
+          <div style={{textAlign:'center'}}><div style={{fontSize:32,fontWeight:900,color:'var(--green)'}}>{points.total}</div><div style={{fontSize:11,color:'var(--muted)'}}>本次得分（满分100）</div></div>
+        </div>
+      )}
+      <div style={{width:'100%',maxWidth:380,marginBottom:24}}>
+        {results.map((r,i)=>(
+          <div key={i} style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px',marginBottom:8}}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
+              <span style={{fontSize:11,color:'var(--muted)'}}>第{r.qNum}题 · {r.category}</span>
+              <div style={{display:'flex',gap:6,alignItems:'center'}}><Badge label={r.level} color={r.level==='优秀'?'var(--green)':r.level==='合格'?'var(--amber)':'var(--red)'}/><span style={{fontWeight:700,color:r.score>=99?'var(--green)':r.score>=67?'var(--amber)':'var(--red)'}}>{Math.round(r.score/results.length)}<span style={{fontSize:11,color:'var(--muted)',fontWeight:400}}>/{Math.round(100/results.length)}分</span></span></div>
+            </div>
+            <div style={{fontSize:12,color:'var(--muted)'}}>{r.questionText}</div>
+            {r.missing_points?.length>0&&<div style={{fontSize:11,color:'var(--red)',marginTop:5}}>遗漏：{r.missing_points.join('、')}</div>}
+          </div>
+        ))}
+      </div>
+      {isPractice?(
+        <div style={{width:'100%',maxWidth:380,display:'flex',flexDirection:'column',gap:10}}>
+          <button className="btn-primary" onClick={onContinuePractice} style={{background:'linear-gradient(135deg,var(--p-amber-31),var(--amber))'}}>继续练习</button>
+          <button onClick={onHome} style={{padding:'13px',borderRadius:10,border:'1px solid var(--border)',background:'none',color:'var(--muted)',fontSize:14,cursor:'pointer',fontFamily:'var(--font)'}}>返回首页</button>
+        </div>
+      ):(
+        <button className="btn-primary" style={{maxWidth:380}} onClick={onHome}>返回首页</button>
+      )}
+    </div>
+  );
+}
+
+// ─── 练习强化 ────────────────────────────────────────────────────────────────
+const PRACTICE_MODES = [
+  { key:'practice_random',     label:'随机三题', desc:'快速抽 3 题热身' },
+  { key:'practice_random_all', label:'随机全部', desc:'整库打乱顺序全过' },
+  { key:'practice_sequential', label:'顺序练习', desc:'按题库顺序逐题' },
+];
+
+function PracticeScreen({ user, onBack, onStart }) {
+  const [status, setStatus] = useState(null);
+  const [mode, setMode] = useState('practice_random');
+  const [banks, setBanks] = useState([]);
+  const [bankPickerOpen, setBankPickerOpen] = useState(false);
+  const [selectedBankId, setSelectedBankId] = useState('');
+
+  useEffect(() => {
+    apiJson(`/api/practice/monthly-status/${user.staffId}`).then(setStatus).catch(()=>{});
+    apiJson('/api/banks').then(bs=>setBanks((bs||[]).filter(b=>b.q_count>0))).catch(()=>{});
+  }, []);
+
+  // 题库分组（与管理后台保持一致：bank_id=1 为应急，其余按名称归类）
+  const isIncidentBank = b => b.id !== 1 && b.name !== '风险数据库' && b.name !== '人工提问' &&
+    (b.name.includes('事件') || b.name.includes('事故') || b.name.includes('分析') || b.name.includes('报告'));
+  const grouped = {
+    risk:     banks.filter(b => b.name === '风险数据库'),
+    incident: banks.filter(isIncidentBank),
+    theory:   banks.filter(b => b.id !== 1 && b.name !== '风险数据库' && b.name !== '人工提问' && !isIncidentBank(b)),
+  };
+
+  const startEmergency = () => onStart(mode, 1, 'short'); // 应急题库永远走语音
+  const startWithBank = () => {
+    if (!selectedBankId) return;
+    const bank = banks.find(b => String(b.id) === String(selectedBankId));
+    // bank_type_summary: 'choice' | 'fill' | 'short' | 'mixed' | 'empty'
+    // 任何含手动答题题目的（choice/fill/mixed）都走 PracticeFlowScreen；纯简答走语音
+    onStart(mode, parseInt(selectedBankId), bank?.bank_type_summary || 'short');
+  };
+
+  return (
+    <div className="screen" style={{padding:'16px'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:20}}>
+        <button onClick={onBack} style={{background:'none',border:'none',color:'var(--blue)',fontSize:22,cursor:'pointer',padding:'0 4px'}}>←</button>
+        <span style={{fontSize:16,fontWeight:700,color:'var(--text)'}}>练习强化</span>
+      </div>
+
+      {/* 月度加分状态 */}
+      <div style={{background:'var(--p-amber-50-a08)',border:'1px solid var(--p-amber-50-a20)',borderRadius:14,padding:'14px 16px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <div>
+          <div style={{fontSize:12,color:'var(--muted)',marginBottom:4}}>本月练习加分</div>
+          <div style={{fontSize:11,color:'var(--muted)'}}>每完成一次练习 +1 分，每月最多 +3 分</div>
+        </div>
+        <div style={{textAlign:'center',minWidth:52}}>
+          {status
+            ? <><div style={{fontSize:26,fontWeight:900,color:'var(--amber)',lineHeight:1}}>{status.used}</div>
+                <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>/ 3 分</div></>
+            : <div style={{width:28,height:28,border:'2px solid var(--p-amber-50-a30)',borderTop:'2px solid var(--amber)',borderRadius:'50%',animation:'spin 0.8s linear infinite',margin:'0 auto'}}/>
+          }
+        </div>
+      </div>
+
+      {/* 模式选择 */}
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,marginBottom:8,fontWeight:600}}>① 选择练习模式</div>
+        <div style={{display:'flex',gap:8}}>
+          {PRACTICE_MODES.map(m=>{
+            const active = mode===m.key;
+            return (
+              <div key={m.key} onClick={()=>setMode(m.key)}
+                style={{
+                  flex:1,padding:'10px 8px',borderRadius:10,cursor:'pointer',textAlign:'center',
+                  background: active?'var(--p-blue-60-a15)':'var(--card-deep)',
+                  border:`1px solid ${active?'var(--blue)':'var(--border)'}`,
+                  transition:'all .15s',
+                }}>
+                <div style={{fontSize:13,fontWeight:700,color:active?'var(--p-blue-68)':'var(--text)',marginBottom:2}}>{m.label}</div>
+                <div style={{fontSize:11,color:'var(--muted)',lineHeight:1.3}}>{m.desc}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,marginBottom:8,fontWeight:600}}>② 选择题库</div>
+
+      {/* 应急抽问 */}
+      <div onClick={startEmergency} style={{background:'linear-gradient(135deg,var(--task-start),var(--task-end))',border:'1px solid var(--p-blue-60-a40)',borderRadius:14,padding:'18px',marginBottom:12,cursor:'pointer',transition:'transform .15s'}}
+        onMouseEnter={e=>e.currentTarget.style.transform='translateY(-2px)'}
+        onMouseLeave={e=>e.currentTarget.style.transform='none'}>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <div style={{width:44,height:44,borderRadius:12,background:'var(--p-blue-60-a20)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>🎯</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:15,fontWeight:700,color:'var(--text)',marginBottom:4}}>应急抽问</div>
+            <div style={{fontSize:12,color:'var(--muted)',lineHeight:1.5}}>从应急题库练习 · {PRACTICE_MODES.find(m=>m.key===mode)?.label}</div>
+          </div>
+          <span style={{fontSize:20,color:'var(--muted)'}}>›</span>
+        </div>
+      </div>
+
+      {/* 选择题库 */}
+      <div style={{background:'linear-gradient(135deg,var(--p-green-11),var(--p-green-20-h140))',border:'1px solid var(--p-green-45-a30)',borderRadius:14,padding:'18px',marginBottom:12,transition:'transform .15s'}}>
+        <div onClick={()=>setBankPickerOpen(o=>!o)} style={{display:'flex',alignItems:'center',gap:12,cursor:'pointer'}}>
+          <div style={{width:44,height:44,borderRadius:12,background:'var(--p-green-45-a15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>📚</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:15,fontWeight:700,color:'var(--text)',marginBottom:4}}>选择题库</div>
+            <div style={{fontSize:12,color:'var(--muted)',lineHeight:1.5}}>从管理员上传的题库中挑选强化方向</div>
+          </div>
+          <span style={{fontSize:20,color:'var(--muted)',transition:'transform .2s',transform:bankPickerOpen?'rotate(90deg)':'none'}}>›</span>
+        </div>
+        {bankPickerOpen && (
+          <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid var(--p-green-45-a18)'}}>
+            <select value={selectedBankId} onChange={e=>setSelectedBankId(e.target.value)}
+              style={{width:'100%',padding:'10px 12px',borderRadius:8,border:'1px solid var(--p-green-45-a30)',background:'var(--card-deep)',color:'var(--text)',fontSize:13,marginBottom:10}}>
+              <option value=''>── 请选择题库 ──</option>
+              {(() => {
+                const tagOf = b => ({ choice:'选择', fill:'填空', short:'简答', mixed:'混合', empty:'' }[b.bank_type_summary] || '');
+                const renderOpt = b => <option key={b.id} value={b.id}>{b.name}（{b.q_count}题{tagOf(b)?' · '+tagOf(b):''}）</option>;
+                return <>
+                  {grouped.theory.length>0 && <optgroup label="📖 理论考试题库">{grouped.theory.map(renderOpt)}</optgroup>}
+                  {grouped.incident.length>0 && <optgroup label="📋 事件分析报告">{grouped.incident.map(renderOpt)}</optgroup>}
+                  {grouped.risk.length>0 && <optgroup label="⚠️ 风险数据库">{grouped.risk.map(renderOpt)}</optgroup>}
+                </>;
+              })()}
+            </select>
+            <button onClick={startWithBank} disabled={!selectedBankId}
+              style={{
+                width:'100%',padding:'10px',borderRadius:8,border:'none',cursor:selectedBankId?'pointer':'not-allowed',
+                background:selectedBankId?'linear-gradient(135deg,var(--green),var(--p-green-36))':'var(--p-green-45-a15)',
+                color:selectedBankId?'white':'var(--muted)',
+                fontSize:13,fontWeight:700,
+              }}>开始练习</button>
+          </div>
+        )}
+      </div>
+
+      <div style={{marginTop:8,padding:'12px 14px',background:'var(--card-deep)',borderRadius:10,border:'1px solid var(--border)'}}>
+        <div style={{fontSize:11,color:'var(--muted)',lineHeight:1.7}}>
+          · 练习分数不计入积分榜排名<br/>
+          · 每完成一次练习，总榜积分 +1（每月上限 3 次）<br/>
+          · 加分与正式答题积分合并计入排行榜
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 练习流（dispatcher：按题型分发到 选择 / 判断 / 填空）─────────────────
+// 简答题不在这里处理，由外层路由到 QuizScreen 语音模式
+const MANUAL_TYPES = new Set(['choice_single','choice_multi','true_false','fill_blank']);
+function PracticeFlowScreen({ user, mode, bankId, onBack, onHome }) {
+  const [allQuestions, setAllQuestions] = useState([]); // 服务端返回的全部
+  const [questions, setQuestions] = useState([]); // 仅手动答题类型
+  const [skippedCount, setSkippedCount] = useState(0); // 简答题被跳过的数量
+  const [sessionId, setSessionId] = useState(null);
+  const [qi, setQi] = useState(0);
+  const [phase, setPhase] = useState('loading'); // loading | answering | showing | done | error | empty
+  const [selected, setSelected] = useState([]); // 选择题：[letter,...]
+  const [textInput, setTextInput] = useState(''); // 填空题：用户输入
+  const [results, setResults] = useState([]);
+  const [points, setPoints] = useState(null);
+  const [showBackConfirm, setShowBackConfirm] = useState(false);
+
+  useEffect(() => {
+    const bankParam = bankId ? `&bank_id=${bankId}` : '';
+    const qUrl = mode === 'practice_random' ? `/api/practice/questions?mode=random&count=3${bankParam}`
+               : mode === 'practice_random_all' ? `/api/practice/questions?mode=random_all${bankParam}`
+               : `/api/practice/questions?mode=sequential${bankParam}`;
+    Promise.all([
+      apiJson(qUrl),
+      api('/api/session/start', {method:'POST', body: JSON.stringify({staffId: user.staffId, staffName: user.name, isPractice: true})}).then(async r => { const d=await r.json(); if(!r.ok) throw new Error(d.error||'启动失败'); return d; }),
+    ]).then(([qd, sd]) => {
+      const all = qd.questions || [];
+      // 把没标 type 的当 choice_single（前提：有 options）；其他无 options 当 short_answer
+      const decorated = all.map(q => ({ ...q, type: q.type || (q.options ? 'choice_single' : 'short_answer') }));
+      const manual = decorated.filter(q => MANUAL_TYPES.has(q.type));
+      const skipped = decorated.length - manual.length;
+      setAllQuestions(decorated);
+      setQuestions(manual);
+      setSkippedCount(skipped);
+      if (manual.length === 0) { setPhase('empty'); return; }
+      setSessionId(sd.sessionId);
+      setPhase('answering');
+    }).catch(() => setPhase('error'));
+  }, []);
+
+  const q = questions[qi];
+  const opts = (() => {
+    if (!q?.options) return {};
+    try { return typeof q.options === 'string' ? JSON.parse(q.options) : q.options; } catch { return {}; }
+  })();
+  const refRaw = String(q?.reference || '').trim();
+  const correctLetters = refRaw.toUpperCase().replace(/[^A-F]/g,'');
+  const isMulti = q?.type === 'choice_multi' || correctLetters.length > 1;
+  const isChoiceLike = q?.type === 'choice_single' || q?.type === 'choice_multi' || q?.type === 'true_false';
+  const isFillBlank = q?.type === 'fill_blank';
+
+  // 填空答案归一化：去空格、统一中英标点、转小写
+  const normalizeFill = (s) => String(s||'').trim().toLowerCase()
+    .replace(/[，。！？、；：""''（）()【】《》\s]+/g,'');
+  const fillCorrectVariants = (() => {
+    if (!isFillBlank) return [];
+    // 参考答案中含 ;/；/、/| 视为多种可接受写法
+    return refRaw.split(/[;；、|]/).map(normalizeFill).filter(Boolean);
+  })();
+
+  const submitAnswer = async (payload) => {
+    // payload: 选择题 = letters array; 填空 = string
+    let userAns, isCorrect;
+    if (isChoiceLike) {
+      userAns = [...payload].sort().join('');
+      isCorrect = userAns === correctLetters;
+    } else if (isFillBlank) {
+      userAns = String(payload || '').trim();
+      const u = normalizeFill(userAns);
+      isCorrect = fillCorrectVariants.some(v => v === u);
+    } else {
+      userAns = String(payload || ''); isCorrect = false;
+    }
+    try {
+      await api(`/api/session/${sessionId}/answer`, {
+        method: 'POST', keepalive: true,
+        body: JSON.stringify({
+          staffId: user.staffId, staffName: user.name,
+          questionId: q.id, questionText: q.text, category: q.category,
+          answerText: userAns, score: isCorrect?100:0, level: isCorrect?'优秀':'需加强',
+          summary: isCorrect?'答对':'答错',
+          correctPoints: [isChoiceLike ? correctLetters : refRaw],
+          missingPoints: isCorrect?[]:[isChoiceLike ? correctLetters : refRaw],
+          suggestion: '', scoreMethod: q.type,
+        }),
+      });
+    } catch {}
+    setResults(prev => [...prev, { id: q.id, text: q.text, options: opts, userAnswer: userAns, correct: isChoiceLike ? correctLetters : refRaw, isCorrect, category: q.category, type: q.type }]);
+    setPhase('showing');
+  };
+
+  const handleSelect = (letter) => {
+    if (phase !== 'answering') return;
+    if (isMulti) {
+      setSelected(prev => prev.includes(letter) ? prev.filter(l => l !== letter) : [...prev, letter]);
+    } else {
+      setSelected([letter]);
+      submitAnswer([letter]);
+    }
+  };
+
+  const handleNext = async () => {
+    if (qi < questions.length - 1) {
+      setQi(qi + 1);
+      setSelected([]);
+      setTextInput('');
+      setPhase('answering');
+    } else {
+      const correctCount = results.filter(r => r.isCorrect).length;
+      const totalScore = Math.round(correctCount / results.length * 100);
+      const expectedQuestionIds = questions.map(x=>x.id);
+      const postItem = async (item) => {
+        const payload = {staffId:user.staffId,staffName:user.name,questionId:item.id,questionText:item.text,category:item.category,
+          answerText:item.userAnswer,score:item.isCorrect?100:0,level:item.isCorrect?'优秀':'需加强',summary:item.isCorrect?'答对':'答错',
+          correctPoints:[],missingPoints:[],suggestion:'',scoreMethod:item.type};
+        try { await api(`/api/session/${sessionId}/answer`,{method:'POST',keepalive:true,body:JSON.stringify(payload)}); } catch {}
+      };
+      try {
+        let d = await (await api(`/api/session/${sessionId}/finish`, {method:'POST', keepalive:true, body: JSON.stringify({totalScore, tabSwitchCount: 0, expectedQuestionIds})})).json();
+        // 服务端校验缺题 → 补传后再交一次（防半截记录）
+        if (d?.needsRetry && Array.isArray(d.missingIds)) {
+          for (const qid of d.missingIds) { const item = results.find(x=>x.id===qid); if (item) await postItem(item); }
+          d = await (await api(`/api/session/${sessionId}/finish`, {method:'POST', body: JSON.stringify({totalScore, tabSwitchCount: 0, expectedQuestionIds})})).json();
+        }
+        setPoints(d?.points ?? null);
+      } catch {}
+      setPhase('done');
+    }
+  };
+
+  // 加载中
+  if (phase === 'loading') {
+    return (
+      <div className="screen" style={{padding:20,display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <div style={{textAlign:'center',color:'var(--muted)'}}>
+          <div className="spinner" style={{margin:'0 auto 12px'}}/>
+          加载中…
+        </div>
+      </div>
+    );
+  }
+  if (phase === 'error' || phase === 'empty') {
+    return (
+      <div className="screen" style={{padding:20}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:20}}>
+          <button onClick={onBack} style={{background:'none',border:'none',color:'var(--blue)',fontSize:22,cursor:'pointer'}}>←</button>
+          <span style={{fontSize:16,fontWeight:700,color:'var(--text)'}}>练习</span>
+        </div>
+        <div style={{color:'var(--red)',marginTop:40,textAlign:'center',lineHeight:1.6}}>
+          {phase==='empty'
+            ? (skippedCount > 0
+                ? `该题库 ${skippedCount} 道题全部是简答题\n请回到练习页通过"应急抽问"或语音模式练习`
+                : '该题库暂无可手动答题的题目')
+            : '加载失败，请稍后重试'}
+        </div>
+      </div>
+    );
+  }
+
+  // 完成总结页
+  if (phase === 'done') {
+    const correctCount = results.filter(r => r.isCorrect).length;
+    const score = Math.round(correctCount / results.length * 100);
+    return (
+      <div className="screen" style={{padding:'16px'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:20}}>
+          <button onClick={onHome} style={{background:'none',border:'none',color:'var(--blue)',fontSize:22,cursor:'pointer'}}>←</button>
+          <span style={{fontSize:16,fontWeight:700,color:'var(--text)'}}>练习完成</span>
+        </div>
+        <div style={{textAlign:'center',padding:'28px 16px',background:'linear-gradient(135deg,var(--task-start),var(--task-end))',borderRadius:14,marginBottom:16}}>
+          <div style={{fontSize:12,color:'var(--muted)',marginBottom:6}}>得分</div>
+          <div style={{fontSize:48,fontWeight:900,color:score>=80?'var(--green)':score>=60?'var(--amber)':'var(--red)',lineHeight:1}}>{score}</div>
+          <div style={{fontSize:13,color:'var(--muted)',marginTop:10}}>共 {results.length} 题 · 答对 {correctCount} 题 · 答错 {results.length-correctCount} 题</div>
+          {skippedCount > 0 && <div style={{fontSize:11,color:'var(--p-amber-50-a80)',marginTop:6}}>另有 {skippedCount} 道简答题已跳过（需语音模式）</div>}
+          {points?.practiceBonus > 0 && <div style={{fontSize:12,color:'var(--amber)',marginTop:8}}>本次练习 +{points.practiceBonus} 分（本月 {points.practiceUsed}/{points.practiceMax}）</div>}
+        </div>
+
+        <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,marginBottom:8,fontWeight:600}}>错题回顾</div>
+        {results.filter(r => !r.isCorrect).length === 0 && (
+          <div style={{textAlign:'center',color:'var(--green)',padding:20}}>🎉 全部答对！</div>
+        )}
+        {results.filter(r => !r.isCorrect).map((r, i) => (
+          <div key={i} style={{background:'var(--p-red-60-a06)',border:'1px solid var(--p-red-60-a20)',borderRadius:10,padding:'12px 14px',marginBottom:10}}>
+            <div style={{fontSize:13,color:'var(--text)',marginBottom:8,lineHeight:1.5}}>{r.text}</div>
+            {r.type === 'fill_blank' ? (
+              <div style={{fontSize:12,color:'var(--muted)',lineHeight:1.7}}>
+                <div>你的答案：<span style={{color:'var(--red)'}}>{r.userAnswer || '(未填)'}</span></div>
+                <div>正确答案：<span style={{color:'var(--green)'}}>{r.correct}</span></div>
+              </div>
+            ) : (
+              ['A','B','C','D','E','F'].filter(l => r.options[l]).map(l => (
+                <div key={l} style={{fontSize:12,color:r.correct.includes(l)?'var(--green)':(r.userAnswer.includes(l)?'var(--red)':'var(--muted)'),padding:'3px 0'}}>
+                  <span style={{fontWeight:700,marginRight:6}}>{l}.</span>{r.options[l]}
+                  {r.correct.includes(l) && <span style={{marginLeft:6,fontSize:11}}>✓ 正确</span>}
+                  {r.userAnswer.includes(l) && !r.correct.includes(l) && <span style={{marginLeft:6,fontSize:11}}>✗ 你的选择</span>}
+                </div>
+              ))
+            )}
+          </div>
+        ))}
+
+        <button onClick={onBack} style={{width:'100%',padding:'12px',marginTop:16,borderRadius:10,border:'1px solid var(--p-blue-60-a40)',background:'var(--p-blue-60-a10)',color:'var(--p-blue-68)',fontSize:14,fontWeight:700,cursor:'pointer'}}>再练一次</button>
+        <button onClick={onHome} style={{width:'100%',padding:'12px',marginTop:8,borderRadius:10,border:'none',background:'linear-gradient(135deg,var(--blue),var(--p-blue-40))',color:'var(--text)',fontSize:14,fontWeight:700,cursor:'pointer'}}>返回首页</button>
+      </div>
+    );
+  }
+
+  // 答题中
+  const last = results[results.length-1];
+  const TYPE_BADGE = { choice_single:{label:'单选',color:'var(--p-blue-68)'}, choice_multi:{label:'多选',color:'var(--amber)'}, true_false:{label:'判断',color:'var(--p-indigo-76)'}, fill_blank:{label:'填空',color:'var(--green)'} };
+  const badge = TYPE_BADGE[q?.type];
+  return (
+    <div className="screen" style={{padding:'16px'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+        <button onClick={() => setShowBackConfirm(true)} style={{background:'none',border:'none',color:'var(--blue)',fontSize:22,cursor:'pointer'}}>←</button>
+        <span style={{fontSize:16,fontWeight:700,color:'var(--text)'}}>练习</span>
+      </div>
+
+      {/* 进度 */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+        <span style={{fontSize:13,color:'var(--muted)'}}>第 {qi+1} / {questions.length} 题
+          {badge && <span style={{marginLeft:8,color:badge.color,fontSize:11,background:badge.color+'22',border:`1px solid ${badge.color}55`,borderRadius:4,padding:'1px 6px'}}>{badge.label}</span>}
+        </span>
+        <span style={{fontSize:11,color:'var(--muted)'}}>{q.category || ''}</span>
+      </div>
+      <div style={{height:4,background:'var(--card-deep)',borderRadius:2,marginBottom:18,overflow:'hidden'}}>
+        <div style={{height:'100%',width:`${(qi+(phase==='showing'?1:0))/questions.length*100}%`,background:'linear-gradient(90deg,var(--blue),var(--green))',transition:'width .3s'}}/>
+      </div>
+
+      {/* 题干 */}
+      <div style={{fontSize:15,color:'var(--text)',lineHeight:1.6,marginBottom:18,padding:'14px 16px',background:'var(--card-deep)',border:'1px solid var(--border)',borderRadius:12}}>{q.text}</div>
+
+      {/* 选择题/判断题：选项卡片 */}
+      {isChoiceLike && ['A','B','C','D','E','F'].filter(l => opts[l]).map(letter => {
+        const isSel = selected.includes(letter);
+        const isCorrectOpt = correctLetters.includes(letter);
+        const showFeedback = phase === 'showing';
+        let bg='var(--card-deep)', border='var(--border)', letterColor='var(--muted)';
+        if (showFeedback && isCorrectOpt) { bg='var(--p-green-45-a12)'; border='var(--green)'; letterColor='var(--green)'; }
+        else if (showFeedback && isSel && !isCorrectOpt) { bg='var(--p-red-60-a12)'; border='var(--red)'; letterColor='var(--red)'; }
+        else if (isSel) { bg='var(--p-blue-60-a12)'; border='var(--blue)'; letterColor='var(--p-blue-68)'; }
+        return (
+          <div key={letter} onClick={() => handleSelect(letter)}
+            style={{
+              padding:'12px 14px',background:bg,border:`1px solid ${border}`,borderRadius:10,marginBottom:8,
+              cursor: phase==='answering' ? 'pointer' : 'default',
+              display:'flex',gap:10,alignItems:'flex-start',transition:'all .15s',
+            }}>
+            <span style={{fontWeight:700,color:letterColor,minWidth:20,fontSize:15}}>{letter}</span>
+            <span style={{flex:1,fontSize:14,color:'var(--text)',lineHeight:1.5}}>{opts[letter]}</span>
+            {showFeedback && isCorrectOpt && <span style={{color:'var(--green)',fontSize:16,fontWeight:700}}>✓</span>}
+            {showFeedback && isSel && !isCorrectOpt && <span style={{color:'var(--red)',fontSize:16,fontWeight:700}}>✗</span>}
+          </div>
+        );
+      })}
+
+      {/* 多选提交按钮 */}
+      {phase==='answering' && isChoiceLike && isMulti && (
+        <button onClick={() => submitAnswer(selected)} disabled={selected.length===0}
+          style={{
+            width:'100%',padding:'12px',marginTop:8,borderRadius:10,border:'none',
+            background:selected.length>0?'linear-gradient(135deg,var(--blue),var(--p-blue-40))':'var(--p-blue-60-a15)',
+            color:selected.length>0?'white':'var(--muted)',
+            fontSize:14,fontWeight:700,cursor:selected.length>0?'pointer':'not-allowed',
+          }}>提交</button>
+      )}
+
+      {/* 填空题：文本输入 */}
+      {isFillBlank && (
+        <div>
+          <input type="text" value={textInput} onChange={e=>setTextInput(e.target.value)}
+            disabled={phase!=='answering'}
+            onKeyDown={e=>{if(e.key==='Enter' && phase==='answering' && textInput.trim()) submitAnswer(textInput);}}
+            placeholder="请输入答案，按 Enter 或点击提交"
+            style={{
+              width:'100%',padding:'14px 16px',borderRadius:10,
+              border:`1px solid ${phase==='showing' ? (last?.isCorrect?'var(--green)':'var(--red)') : 'var(--p-green-45-a40)'}`,
+              background:'var(--p-black-00-a25)',color:'var(--text)',fontSize:15,marginBottom:10,
+              outline:'none',
+            }}/>
+          {phase==='answering' && (
+            <button onClick={()=>submitAnswer(textInput)} disabled={!textInput.trim()}
+              style={{
+                width:'100%',padding:'12px',borderRadius:10,border:'none',
+                background:textInput.trim()?'linear-gradient(135deg,var(--green),var(--p-green-36))':'var(--p-green-45-a15)',
+                color:textInput.trim()?'white':'var(--muted)',
+                fontSize:14,fontWeight:700,cursor:textInput.trim()?'pointer':'not-allowed',
+              }}>提交</button>
+          )}
+        </div>
+      )}
+
+      {/* 反馈 + 下一题 */}
+      {phase==='showing' && last && (
+        <>
+          <div style={{padding:'12px 14px',background:last.isCorrect?'var(--p-green-45-a10)':'var(--p-red-60-a10)',border:`1px solid ${last.isCorrect?'var(--p-green-45-a30)':'var(--p-red-60-a30)'}`,borderRadius:10,marginTop:12,marginBottom:10}}>
+            <div style={{fontSize:14,fontWeight:700,color:last.isCorrect?'var(--green)':'var(--red)',marginBottom:last.isCorrect?0:4}}>
+              {last.isCorrect ? '✓ 答对了' : '✗ 答错了'}
+            </div>
+            {!last.isCorrect && (
+              <div style={{fontSize:12,color:'var(--muted)'}}>
+                {last.type === 'fill_blank'
+                  ? <>正确答案：{last.correct} · 你的答案：{last.userAnswer || '(未填)'}</>
+                  : <>正确答案：{last.correct} · 你的答案：{last.userAnswer || '(未选)'}</>}
+              </div>
+            )}
+          </div>
+          <button onClick={handleNext}
+            style={{
+              width:'100%',padding:'12px',borderRadius:10,border:'none',
+              background:'linear-gradient(135deg,var(--blue),var(--p-blue-40))',color:'var(--text)',
+              fontSize:14,fontWeight:700,cursor:'pointer',
+            }}>{qi < questions.length-1 ? '下一题 →' : '完成练习'}</button>
+        </>
+      )}
+
+      {/* 返回确认 */}
+      {showBackConfirm && (
+        <div onClick={() => setShowBackConfirm(false)} style={{position:'fixed',inset:0,background:'var(--p-black-00-a70)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+          <div onClick={e => e.stopPropagation()} style={{background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:14,padding:20,maxWidth:340,width:'100%'}}>
+            <div style={{fontSize:15,fontWeight:700,color:'var(--text)',marginBottom:8}}>退出练习？</div>
+            <div style={{fontSize:13,color:'var(--muted)',marginBottom:16}}>本次进度将不保存</div>
+            <div style={{display:'flex',gap:10}}>
+              <button onClick={() => setShowBackConfirm(false)} style={{flex:1,padding:'10px',borderRadius:8,border:'1px solid var(--border)',background:'none',color:'var(--muted)',fontSize:13,cursor:'pointer'}}>继续答题</button>
+              <button onClick={onBack} style={{flex:1,padding:'10px',borderRadius:8,border:'none',background:'var(--red)',color:'var(--text)',fontSize:13,fontWeight:700,cursor:'pointer'}}>确认退出</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// LEADERBOARD
+function LeaderboardScreen({ user, onBack }) {
+  const [tab,setTab]=useState('cycle');
+  const [data,setData]=useState([]);
+  const [lbModal,setLbModal]=useState(null);
+  const [lbDetail,setLbDetail]=useState(null);
+  const [lbDetailLoading,setLbDetailLoading]=useState(false);
+  useEffect(()=>{
+    const ep=tab==='cycle'?'/api/leaderboard/cycle':tab==='today'?'/api/leaderboard/today':'/api/leaderboard/monthly';
+    apiJson(ep).then(d=>setData(Array.isArray(d)?d:d.rows||[])).catch(()=>{});
+  },[tab]);
+  const openMember=async(staffId,staffName)=>{
+    const type=tab==='monthly'?'monthly':'cycle';
+    setLbModal({staffId,staffName,type});
+    setLbDetail(null); setLbDetailLoading(true);
+    const ep=type==='monthly'?`/api/leaderboard/alltime/member/${staffId}`:`/api/leaderboard/cycle/member/${staffId}`;
+    const d=await apiJson(ep).catch(()=>null);
+    setLbDetail(d); setLbDetailLoading(false);
+  };
+  const medal=['🥇','🥈','🥉'];
+  return(
+    <div className="screen">
+      <div className="page-header"><button className="back-btn" onClick={onBack}>←</button><h2>排行榜</h2><div/></div>
+      <div className="tab-row">
+        {[['cycle','本轮班组'],['today','今日'],['monthly','本月总榜']].map(([k,v])=>(
+          <button key={k} className={`tab${tab===k?' active':''}`} onClick={()=>setTab(k)}>{v}</button>
+        ))}
+      </div>
+      {/* Podium */}
+      {data.length>=3&&(
+        <div style={{display:'flex',alignItems:'flex-end',justifyContent:'center',gap:10,padding:'20px 16px 0'}}>
+          {[data[1],data[0],data[2]].map((p,i)=>p&&(
+            <div key={i} onClick={()=>openMember(p.staff_id,p.staff_name)} style={{display:'flex',flexDirection:'column',alignItems:'center',width:90,transform:i===1?'translateY(-10px)':'none',cursor:'pointer'}}>
+              <div style={{fontSize:18,height:22}}>{medal[[1,0,2][i]]||''}</div>
+              <div style={{width:46,height:46,borderRadius:23,background:i===1?'linear-gradient(135deg,var(--gold),var(--p-amber-66))':i===0?'var(--muted)':'var(--p-amber-50)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'var(--text)',marginBottom:4}}>{p.staff_name[0]}</div>
+              <div style={{fontSize:11,color:p.staff_id===user.staffId?'var(--gold)':'var(--text)',fontWeight:p.staff_id===user.staffId?700:400,textAlign:'center'}}>{p.staff_name}</div>
+              <div style={{fontSize:14,fontWeight:900,color:'var(--text)'}}>{p.total_points}</div>
+              {p.attempts>1&&<div style={{fontSize:11,color:'var(--amber)',marginTop:1}}>答了{p.attempts}次</div>}
+              {p.cycle_count>0&&<div style={{fontSize:11,color:'var(--p-blue-68)',marginTop:1}}>{p.cycle_count}轮</div>}
+              <div style={{width:90,background:'var(--card)',border:'1px solid var(--border)',borderRadius:'4px 4px 0 0',textAlign:'center',color:'var(--muted)',fontSize:12,padding:`${[32,44,24][i]}px 0 6px`,marginTop:6}}>#{[2,1,3][i]}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{padding:'8px 14px 24px'}}>
+        {data.slice(3).map((r,i)=>(
+          <div key={i} onClick={()=>openMember(r.staff_id,r.staff_name)} style={{display:'flex',alignItems:'center',gap:10,padding:'11px 13px',background:'var(--card)',border:`1px solid ${r.staff_id===user.staffId?'var(--gold)':'var(--border)'}`,borderRadius:10,marginBottom:7,cursor:'pointer'}}>
+            <span style={{width:22,color:'var(--muted)',fontWeight:700,fontSize:13,textAlign:'center'}}>{i+4}</span>
+            <div style={{width:34,height:34,borderRadius:17,background:'linear-gradient(135deg,var(--p-navy-25),var(--blue))',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,color:'var(--text)',fontSize:13}}>{r.staff_name[0]}</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontWeight:600,color:r.staff_id===user.staffId?'var(--gold)':'white',display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
+                {r.staff_name}{r.staff_id===user.staffId?' (我)':''}
+                {r.attempts>1&&<span style={{fontSize:11,color:'var(--amber)',background:'var(--p-amber-50-a12)',border:'1px solid var(--p-amber-50-a30)',borderRadius:4,padding:'0 4px',fontWeight:700}}>首次·答了{r.attempts}次</span>}
+              </div>
+              <div style={{fontSize:11,color:'var(--muted)',marginTop:1}}>
+                {r.cycle_count>0?<span>参与{r.cycle_count}轮</span>:<span>得分{r.score??r.avg_score} · {r.q_count}题</span>}
+              </div>
+            </div>
+            <div style={{fontSize:18,fontWeight:900,color:'var(--text)'}}>{r.total_points}</div>
+          </div>
+        ))}
+        {data.length===0&&<div style={{textAlign:'center',color:'var(--muted)',padding:40}}>暂无数据</div>}
+      </div>
+      {lbModal&&(
+        <div onClick={()=>{setLbModal(null);setLbDetail(null);}} style={{position:'fixed',inset:0,background:'var(--p-black-00-a70)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+          <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'var(--input-bg)',border:'1px solid var(--p-blue-60-a30)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'75vh',overflowY:'auto'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
+              <div style={{display:'flex',gap:10,alignItems:'flex-start'}}>
+                {lbDetail?.sessions?.[0]?.avatar
+                  ?<img src={lbDetail.sessions[0].avatar} style={{width:44,height:44,borderRadius:'50%',objectFit:'cover',flexShrink:0,border:'2px solid var(--p-blue-60-a40)'}}/>
+                  :<div style={{width:44,height:44,borderRadius:'50%',background:'linear-gradient(135deg,var(--p-navy-25),var(--blue))',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'var(--text)',flexShrink:0}}>{lbModal.staffName?.[0]}</div>
+                }
+                <div>
+                  <div style={{fontSize:15,fontWeight:700,color:'var(--text)'}}>{lbModal.staffName}</div>
+                  <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{lbModal.type==='monthly'?'本月答题记录':'轮班答题记录'}</div>
+                </div>
+              </div>
+              <button onClick={()=>{setLbModal(null);setLbDetail(null);}} style={{background:'none',border:'1px solid var(--border)',color:'var(--muted)',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontSize:12,flexShrink:0}}>关闭</button>
+            </div>
+            {lbDetailLoading&&<div style={{textAlign:'center',padding:'20px 0'}}><div className="spinner" style={{margin:'0 auto'}}/></div>}
+            {!lbDetailLoading&&lbDetail&&lbDetail.sessions?.length===0&&<div style={{color:'var(--muted)',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无答题记录</div>}
+            {!lbDetailLoading&&lbDetail?.sessions?.map((s,si)=>(
+              <div key={si} style={{marginBottom:12,background:'var(--p-navy-16-a60)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                  <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+                    <span style={{fontSize:11,color:'var(--muted)'}}>{s.created_at?.slice(5,10)}{s.created_at?.length>=16?` ${s.created_at.slice(11,16)}`:''}{s.cycle_label?` · ${s.cycle_label}`:''}</span>
+                    {s.tab_switch_count>0&&<span style={{fontSize:11,color:'var(--red)',background:'var(--p-red-60-a12)',border:'1px solid var(--p-red-60-a30)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
+                  </div>
+                  <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                    <span style={{fontSize:12,fontWeight:700,color:'var(--text)'}}>{Math.round(s.total_score)}分</span>
+                  </div>
+                </div>
+                {s.answers?.map((a,ai)=>(
+                  <div key={ai} style={{padding:'6px 0',borderTop:'1px solid var(--p-navy-22-a50)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                    <span style={{fontSize:11,color:'var(--text)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
+                    <span style={{fontSize:12,fontWeight:700,flexShrink:0,color:a.score>=99?'var(--green)':a.score>=67?'var(--amber)':'var(--red)'}}>{Math.round(a.score/(s.answers.length||3))}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// PROFILE
+function ProfileScreen({ user, onBack }) {
+  const [d,setD]=useState(null);
+  const [aiAnalysis,setAiAnalysis]=useState('');
+  const [aiLoading,setAiLoading]=useState(false);
+
+  useEffect(()=>{ apiJson(`/api/me/${user.staffId}`).then(setD).catch(()=>setD({})); },[]);
+
+  const loadAiAnalysis = async (data) => {
+    if(aiLoading||aiAnalysis) return;
+    setAiLoading(true);
+    try {
+      const catText = (data.catScores||[]).map(c=>`${c.category}：${c.avg}分`).join('、');
+      const weakText = (data.weakCats||[]).map(c=>c.category).join('、');
+      const trendText = (data.trend||[]).map(t=>t.score).join(',');
+      const prompt = `你是一位地铁乘务培训教练。以下是学员${user.name}的答题数据：
+答题天数：${data.stats?.total_days||0}天，平均分：${data.stats?.avg_score||0}分，连续答题：${data.streak||0}天
+各类题得分：${catText||'暂无'}
+薄弱科目：${weakText||'暂无'}
+近期得分趋势（从早到晚）：${trendText||'暂无'}
+请用100字以内给出个性化训练建议，语气专业但亲切，重点指出最需要加强的方向，结尾给一句鼓励。不要用markdown格式。`;
+      const resp = await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:300,messages:[{role:'user',content:prompt}]})
+      });
+      const json = await resp.json();
+      setAiAnalysis(json.content?.[0]?.text||'暂时无法生成分析');
+    } catch(e) {
+      setAiAnalysis('AI分析暂时不可用');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  if(!d)return(
+    <div style={{display:'flex',flex:1,alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'var(--bg)',flexDirection:'column',gap:16}}>
+      <div className="spinner"/>
+      <button onClick={onBack} style={{background:'none',border:'none',color:'var(--blue)',fontSize:14,cursor:'pointer',fontFamily:'var(--font)'}}>← 返回</button>
+    </div>
+  );
+
+  const avg = d.stats?.avg_score||0;
+  const cats = d.catScores||[];
+  const maxCat = cats.length ? cats.reduce((a,b)=>a.avg>b.avg?a:b) : null;
+  const minCat = cats.length ? cats.reduce((a,b)=>a.avg<b.avg?a:b) : null;
+  const trendData = (d.trend||[]).map(t=>t.score);
+  const trendUp = trendData.length>=2 && trendData[trendData.length-1] > trendData[0];
+
+  // 雷达图SVG
+  const RadarChart = ({cats}) => {
+    if(!cats||cats.length<3) return null;
+    const cx=110,cy=110,r=80,n=cats.length;
+    const angle = i => (i/n)*2*Math.PI - Math.PI/2;
+    const pt = (i,val) => {
+      const ratio=Math.min(val,100)/100;
+      return [cx+r*ratio*Math.cos(angle(i)), cy+r*ratio*Math.sin(angle(i))];
+    };
+    const gridPts = (ratio) => cats.map((_,i)=>{
+      const [x,y]=[ cx+r*ratio*Math.cos(angle(i)), cy+r*ratio*Math.sin(angle(i)) ];
+      return `${x},${y}`;
+    }).join(' ');
+    const dataPts = cats.map((_,i)=>pt(i,cats[i].avg)).map(([x,y])=>`${x},${y}`).join(' ');
+    return (
+      <svg width={220} height={220} style={{display:'block',margin:'0 auto'}}>
+        {[0.25,0.5,0.75,1].map(ratio=>(
+          <polygon key={ratio} points={gridPts(ratio)} fill="none" stroke="var(--p-blue-60-a15)" strokeWidth="1"/>
+        ))}
+        {cats.map((_,i)=>{
+          const [x,y]=[cx+r*Math.cos(angle(i)),cy+r*Math.sin(angle(i))];
+          return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="var(--p-blue-60-a15)" strokeWidth="1"/>;
+        })}
+        <polygon points={dataPts} fill="var(--p-blue-60-a25)" stroke="var(--blue)" strokeWidth="2"/>
+        {cats.map((c,i)=>{
+          const [x,y]=pt(i,c.avg);
+          return <circle key={i} cx={x} cy={y} r={4} fill="var(--blue)"/>;
+        })}
+        {cats.map((c,i)=>{
+          const labelR=r+18;
+          const lx=cx+labelR*Math.cos(angle(i));
+          const ly=cy+labelR*Math.sin(angle(i));
+          const anchor=lx<cx-5?'end':lx>cx+5?'start':'middle';
+          return (
+            <g key={i}>
+              <text x={lx} y={ly-4} textAnchor={anchor} fill="var(--muted)" fontSize={9}>{c.category}</text>
+              <text x={lx} y={ly+8} textAnchor={anchor} fill={c.avg>=85?'var(--green)':c.avg>=60?'var(--amber)':'var(--red)'} fontSize={10} fontWeight="700">{c.avg}</text>
+            </g>
+          );
+        })}
+      </svg>
+    );
+  };
+
+  // 趋势折线图
+  const TrendChart = ({data}) => {
+    if(!data||data.length<2) return <div style={{color:'var(--muted)',fontSize:12,textAlign:'center',padding:'20px 0'}}>答题场次不足，趋势待生成</div>;
+    const w=280,h=70,max=Math.max(...data,60),min=Math.max(0,Math.min(...data)-10);
+    const px=i=>i*(w/(data.length-1));
+    const py=v=>h-((v-min)/(max-min||1))*h;
+    const pts=data.map((v,i)=>`${px(i)},${py(v)}`).join(' ');
+    const fillPts=`${px(0)},${h} ${pts} ${px(data.length-1)},${h}`;
+    const last=data[data.length-1];
+    const col=last>=85?'var(--green)':last>=60?'var(--amber)':'var(--red)';
+    return (
+      <svg width={w} height={h+20} style={{display:'block',margin:'0 auto',overflow:'visible'}}>
+        <defs>
+          <linearGradient id="tg" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={col} stopOpacity="0.3"/>
+            <stop offset="100%" stopColor={col} stopOpacity="0"/>
+          </linearGradient>
+        </defs>
+        <polygon points={fillPts} fill="url(#tg)"/>
+        <polyline points={pts} fill="none" stroke={col} strokeWidth="2" strokeLinejoin="round"/>
+        {data.map((v,i)=>(
+          <g key={i}>
+            <circle cx={px(i)} cy={py(v)} r={i===data.length-1?5:3} fill={i===data.length-1?col:'var(--p-navy-25)'} stroke={col} strokeWidth="1.5"/>
+            {i===data.length-1&&<text x={px(i)} y={py(v)-9} textAnchor="middle" fill={col} fontSize={11} fontWeight="700">{v}</text>}
+          </g>
+        ))}
+      </svg>
+    );
+  };
+
+  return(
+    <div className="screen">
+      <div className="page-header">
+        <button className="back-btn" onClick={onBack}>←</button>
+        <h2>个人分析</h2>
+        <div/>
+      </div>
+      <div style={{padding:'14px 14px 32px',display:'flex',flexDirection:'column',gap:12}}>
+
+        {/* Hero卡片 */}
+        <div className="card" style={{background:'linear-gradient(135deg,var(--task-start),var(--task-end))',border:'1px solid var(--p-blue-60-a30)'}}>
+          <div style={{display:'flex',alignItems:'center',gap:14,marginBottom:14}}>
+            <div style={{width:52,height:52,borderRadius:26,background:'linear-gradient(135deg,var(--blue),var(--p-cyan-48))',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,fontWeight:700,color:'var(--text)',flexShrink:0,boxShadow:'0 4px 14px var(--p-blue-60-a40)'}}>{user.name[0]}</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:17,fontWeight:700,color:'var(--text)'}}>{user.name}</div>
+              <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>Y{user.staffId} · 武汉地铁5号线</div>
+            </div>
+            <div style={{textAlign:'right'}}>
+              <div style={{fontSize:24,fontWeight:900,color:'var(--text)',lineHeight:1}}>{d.streak||0}<span style={{fontSize:12,color:'var(--muted)',fontWeight:400}}>天</span></div>
+              <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>连续答题🔥</div>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:8}}>
+            {[
+              {label:'答题天数',val:d.stats?.total_days||0,unit:'天',col:'var(--blue)'},
+              {label:'累计积分',val:d.stats?.total_points||0,unit:'分',col:'var(--gold)'},
+              {label:'综合均分',val:avg,unit:'',col:avg>=85?'var(--green)':avg>=60?'var(--amber)':'var(--red)'},
+              ...(d.cycleRank?[{label:'本轮排名',val:`#${d.cycleRank}`,unit:'',col:'var(--p-purple-65)'}]:[]),
+            ].map((item,i)=>(
+              <div key={i} style={{flex:1,textAlign:'center',background:'var(--p-black-00-a25)',borderRadius:8,padding:'8px 4px'}}>
+                <div style={{fontSize:18,fontWeight:900,color:item.col,lineHeight:1}}>{item.val}<span style={{fontSize:11,color:'var(--muted)',fontWeight:400}}>{item.unit}</span></div>
+                <div style={{fontSize:11,color:'var(--muted)',marginTop:3}}>{item.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 优势/弱势快速标签 */}
+        {cats.length>0&&(
+          <div style={{display:'flex',gap:8}}>
+            {maxCat&&<div style={{flex:1,padding:'10px 12px',background:'var(--p-green-45-a08)',border:'1px solid var(--p-green-45-a25)',borderRadius:10}}>
+              <div style={{fontSize:11,color:'var(--green)',letterSpacing:1,marginBottom:4}}>💪 最强科目</div>
+              <div style={{fontSize:13,fontWeight:700,color:'var(--text)'}}>{maxCat.category}</div>
+              <div style={{fontSize:18,fontWeight:900,color:'var(--green)'}}>{maxCat.avg}<span style={{fontSize:11,fontWeight:400,color:'var(--muted)'}}>分</span></div>
+            </div>}
+            {minCat&&minCat.category!==maxCat?.category&&<div style={{flex:1,padding:'10px 12px',background:'var(--p-red-60-a08)',border:'1px solid var(--p-red-60-a25)',borderRadius:10}}>
+              <div style={{fontSize:11,color:'var(--red)',letterSpacing:1,marginBottom:4}}>⚠ 需要加强</div>
+              <div style={{fontSize:13,fontWeight:700,color:'var(--text)'}}>{minCat.category}</div>
+              <div style={{fontSize:18,fontWeight:900,color:'var(--red)'}}>{minCat.avg}<span style={{fontSize:11,fontWeight:400,color:'var(--muted)'}}>分</span></div>
+            </div>}
+          </div>
+        )}
+
+        {/* 雷达图 */}
+        {cats.length>=3&&(
+          <div className="card">
+            <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,marginBottom:12,fontWeight:600}}>各科目掌握度雷达图</div>
+            <RadarChart cats={cats}/>
+          </div>
+        )}
+
+        {/* 条形图备用（科目少于3时显示） */}
+        {cats.length>0&&cats.length<3&&(
+          <div className="card">
+            <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,marginBottom:10,fontWeight:600}}>各科目掌握度</div>
+            {cats.map((c,i)=><MiniBar key={i} label={c.category} value={c.avg}/>)}
+          </div>
+        )}
+
+        {/* 得分趋势 */}
+        <div className="card">
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+            <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,fontWeight:600}}>近期得分趋势</div>
+            {trendData.length>=2&&<span style={{fontSize:11,color:trendUp?'var(--green)':'var(--red)',fontWeight:600}}>{trendUp?'↑ 上升':'↓ 下降'}</span>}
+          </div>
+          <TrendChart data={trendData}/>
+        </div>
+
+        {/* AI教练分析 */}
+        <div className="card" style={{border:'1px solid var(--p-purple-65-a30)',background:'var(--p-purple-32-a08)'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+            <div style={{fontSize:11,color:'var(--p-purple-65)',letterSpacing:1,fontWeight:600}}>🤖 AI教练分析</div>
+            {!aiAnalysis&&!aiLoading&&(
+              <button onClick={()=>loadAiAnalysis(d)} style={{background:'linear-gradient(135deg,var(--p-purple-50),var(--p-purple-65))',border:'none',borderRadius:6,padding:'5px 12px',color:'var(--text)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}>生成分析</button>
+            )}
+          </div>
+          {aiLoading&&(
+            <div style={{display:'flex',alignItems:'center',gap:8,padding:'12px 0'}}>
+              <div className="spinner" style={{width:20,height:20,borderWidth:2}}/>
+              <span style={{fontSize:12,color:'var(--muted)'}}>AI教练分析中…</span>
+            </div>
+          )}
+          {aiAnalysis&&<div style={{fontSize:13,color:'var(--text)',lineHeight:1.8,fontStyle:'italic'}}>「{aiAnalysis}」</div>}
+          {!aiAnalysis&&!aiLoading&&<div style={{fontSize:12,color:'var(--muted)'}}>点击生成按钮，获取专属训练建议</div>}
+        </div>
+
+        {/* 薄弱知识点 */}
+        {d.weakCats?.length>0&&(
+          <div className="card" style={{border:'1px solid var(--p-red-60-a20)'}}>
+            <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,marginBottom:10,fontWeight:600}}>⚠ 重点强化科目</div>
+            {d.weakCats.map((c,i)=>(
+              <div key={i} style={{display:'flex',alignItems:'center',gap:10,marginBottom:i<d.weakCats.length-1?8:0,padding:'10px 12px',background:'var(--p-red-60-a06)',borderRadius:8,border:'1px solid var(--p-red-60-a15)'}}>
+                <div style={{width:24,height:24,borderRadius:12,background:'var(--p-red-60-a20)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:'var(--red)',flexShrink:0}}>{i+1}</div>
+                <span style={{flex:1,fontSize:13,color:'var(--text)'}}>{c.category}</span>
+                <div style={{textAlign:'right'}}>
+                  <div style={{fontSize:15,fontWeight:700,color:'var(--red)'}}>{c.avg}分</div>
+                  <div style={{fontSize:11,color:'var(--muted)'}}>需达到80+</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 近期记录 */}
+        <div className="card">
+          <div style={{fontSize:11,color:'var(--muted)',letterSpacing:1,marginBottom:10,fontWeight:600}}>近期答题记录</div>
+          {d.recent?.length>0?d.recent.map((s,i)=>(
+            <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 0',borderBottom:i<d.recent.length-1?'1px solid var(--p-navy-22-a70)':'none'}}>
+              <div style={{width:36,fontSize:11,color:'var(--muted)',flexShrink:0,textAlign:'center'}}>
+                <div>{s.created_at?.slice(5,7)}月</div>
+                <div style={{fontSize:13,fontWeight:700,color:'var(--muted)'}}>{s.created_at?.slice(8,10)}日</div>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:12,color:'var(--text)'}}>{s.q_count}题</div>
+              </div>
+              <Badge label={s.total_score>=85?'优秀':s.total_score>=60?'合格':'需加强'} color={s.total_score>=85?'var(--green)':s.total_score>=60?'var(--amber)':'var(--red)'}/>
+              <div style={{textAlign:'right',minWidth:50}}>
+                <div style={{fontWeight:700,color:'var(--text)',fontSize:14}}>{Math.round(s.total_score)}分</div>
+              </div>
+            </div>
+          )):<div style={{color:'var(--muted)',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无记录，完成答题后显示</div>}
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+// ADMIN
+
+
+
+
+// ─── App Root ─────────────────────────────────────────────────────────────
+export default function App() {
+  const [screen,setScreen]=useState("login");
+  const [user,setUser]=useState(null);
+  const [quizResults,setQuizResults]=useState([]);
+  const [quizPoints,setQuizPoints]=useState(null);
+  const [quizMode,setQuizMode]=useState('normal');
+  const [practiceMode,setPracticeMode]=useState('practice_random');
+  const [practiceBankId,setPracticeBankId]=useState(null);
+  const nav=s=>setScreen(s);
+
+  // 班次主题色：基准 2026-03-22=白班，4天一循环（白/夜/早/休）
+  useEffect(()=>{
+    const SHIFT_NAMES=['白班','夜班','早班','休息'];
+    const base=new Date('2026-03-22T00:00:00+08:00');
+    const now=new Date();
+    const diff=Math.floor((now-base)/86400000);
+    const phase=((diff%4)+4)%4;
+    document.documentElement.setAttribute('data-shift',SHIFT_NAMES[phase]);
+  },[]);
+
+  // Magic link 自动登录 + 深链导航
+  useEffect(()=>{
+    // 1. 从 /go 落地页写入的 sessionStorage 自动登录
+    try {
+      const mu = sessionStorage.getItem('magic_user');
+      const mn = sessionStorage.getItem('magic_nav');
+      if (mu) {
+        sessionStorage.removeItem('magic_user');
+        sessionStorage.removeItem('magic_nav');
+        const u = JSON.parse(mu);
+        setUser(u);
+        setScreen(mn || 'home');
+        return;
+      }
+    } catch {}
+    // 2. 普通深链：URL 带 ?_nav=workshop 等，登录后跳转
+    const urlNav = new URLSearchParams(location.search).get('_nav');
+    if (urlNav) { sessionStorage.setItem('pending_nav', urlNav); history.replaceState({},'','/'); }
+  }, []);
+
+  const handleLogin = u => {
+    setUser(u);
+    const dest = sessionStorage.getItem('pending_nav');
+    if (dest) { sessionStorage.removeItem('pending_nav'); nav(dest); }
+    else nav('home');
+  };
+
+  return(
+    <>
+      <style>{CSS}</style>
+      <div className="app-frame">
+        {screen==="login"&&<LoginScreen onLogin={handleLogin} onAdmin={()=>nav("admin")}/>}
+        {screen==="home"&&<HomeScreen user={user} nav={nav}/>}
+        {screen==="quiz"&&<QuizScreen user={user} mode="normal" onDone={(r,p,m)=>{setQuizResults(r);setQuizPoints(p);setQuizMode(m);nav("result");}} onBack={()=>nav("home")}/>}
+        {screen==="practice_quiz"&&<QuizScreen user={user} mode={practiceMode} practiceBankId={practiceBankId} onDone={(r,p,m)=>{setQuizResults(r);setQuizPoints(p);setQuizMode(m);nav("practice_result");}} onBack={()=>nav("practice")}/>}
+        {screen==="practice_mcq"&&<PracticeFlowScreen user={user} mode={practiceMode} bankId={practiceBankId} onBack={()=>nav("practice")} onHome={()=>nav("home")}/>}
+        {screen==="result"&&<ResultScreen user={user} results={quizResults} points={quizPoints} mode={quizMode} onHome={()=>nav("home")}/>}
+        {screen==="practice_result"&&<ResultScreen user={user} results={quizResults} points={quizPoints} mode={quizMode} onHome={()=>nav("home")} onContinuePractice={()=>{nav("practice_quiz");}}/>}
+        {screen==="practice"&&<PracticeScreen user={user} onBack={()=>nav("home")} onStart={(m,bankId,summary)=>{setPracticeMode(m);setPracticeBankId(bankId||null);
+          // summary: 'choice'|'fill'|'short'|'mixed'|'empty' — 含手动题（choice/fill/mixed）→ 走 PracticeFlow（混合自动跳过简答）；纯简答 → 语音
+          const useVoice = summary === 'short' || summary === 'empty';
+          nav(useVoice ? "practice_quiz" : "practice_mcq");
+        }}/>}
+        {screen==="history"&&<HistoryScreen user={user} onBack={()=>nav("home")}/>}
+        {screen==="banks"&&<BanksPreviewScreen onBack={()=>nav("home")}/>}
+        {screen==="leaderboard"&&<LeaderboardScreen user={user} onBack={()=>nav("home")}/>}
+        {screen==="profile"&&<ProfileScreen user={user} onBack={()=>nav("home")}/>}
+        {screen==="admin"&&(
+          <Suspense fallback={<LazyLoading/>}>
+            <AdminScreen onBack={()=>nav(user?"home":"login")}/>
+          </Suspense>
+        )}
+        {screen==="workshop"&&(
+          <Suspense fallback={<LazyLoading/>}>
+            <WorkshopScreen user={user} onBack={()=>nav("home")}/>
+          </Suspense>
+        )}
+        {screen==="leave"&&<LeaveScreen user={user} onBack={()=>nav("home")} onApply={()=>nav("apply")}/>}
+        {screen==="wall"&&<WallScreen user={user} onBack={()=>nav("home")}/>}
+        {screen==="apply"&&<LeaveApplyScreen user={user} onBack={()=>nav("leave")} onDone={()=>nav("leave")}/>}
+      </div>
+    </>
+  );
+}
+
+// ─── CSS ──────────────────────────────────────────────────────────────────
+const CSS=`
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{--bg:rgb(var(--p-navy-06-rgb));--card:rgb(var(--p-navy-14-h213-rgb));--border:rgb(var(--p-navy-22-rgb));--gold:rgb(var(--p-amber-54-rgb));--blue:rgb(var(--p-blue-60-rgb));--green:rgb(var(--p-green-45-rgb));--red:rgb(var(--p-red-60-rgb));--amber:rgb(var(--p-amber-50-rgb));--text:rgb(var(--p-blue-91-rgb));--muted:rgb(var(--p-blue-65-rgb));--input-bg:rgb(var(--p-navy-11-h214-rgb));--card-deep:rgb(var(--p-navy-09-h210-rgb));--task-start:rgb(var(--p-navy-16-h215-rgb));--task-end:rgb(var(--p-blue-27-h214-rgb));--modal-bg:rgba(var(--p-navy-13-rgb),0.96);--font:'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;}
+/* ── 班次主题色（任务卡片渐变 + 活跃强调色）── */
+:root[data-shift="白班"]{--task-start:rgb(var(--p-navy-16-h215-rgb));--task-end:rgb(var(--p-blue-27-h214-rgb));--shift-accent:rgb(var(--p-blue-60-rgb));}
+:root[data-shift="夜班"]{--task-start:rgb(var(--p-purple-07-rgb));--task-end:rgb(var(--p-purple-22-rgb));--shift-accent:rgb(var(--p-purple-58-rgb));}
+:root[data-shift="早班"]{--task-start:rgb(var(--p-red-11-rgb));--task-end:rgb(var(--p-orange-35-rgb));--shift-accent:rgb(var(--p-amber-53-rgb));}
+:root[data-shift="休息"]{--task-start:rgb(var(--p-navy-16-h215-rgb));--task-end:rgb(var(--p-blue-27-h214-rgb));--shift-accent:rgb(var(--p-blue-60-rgb));}
+/* ── 语义令牌层（2026-10 新增：值一律指向既有变量，纯增量、零破坏）──
+   命名规则 = 写用途不写颜色名。以后换主题/换配色只改这一块，
+   页面里的 var(--color-primary) 等引用一行都不用动。 */
+:root{
+  /* 语义色 */
+  --color-primary:var(--blue);--color-danger:var(--red);--color-success:var(--green);
+  --color-warning:var(--amber);--color-accent:var(--gold);
+  /* 语义面（层级由底到深） */
+  --surface-1:var(--bg);--surface-2:var(--card);--surface-3:var(--card-deep);--surface-input:var(--input-bg);
+  /* 语义文字 */
+  --text-primary:var(--text);--text-secondary:var(--muted);
+  /* 媒体面（照片/深色背景）上的文字与层叠 —— 浅色主题需覆盖 */
+  --text-on-media:#fff;
+  --ink-on-gold:var(--bg);
+  /* 金色实心按钮的渐变两端（与 --gold 分开：--gold 在浅色下要压深当文字，按钮底反而要亮） */
+  --cta-gold-1:var(--p-amber-33);
+  --cta-gold-2:var(--gold);
+  --hero-overlay:linear-gradient(180deg,var(--p-black-00-a50) 0%,var(--p-black-00-a15) 40%,var(--p-blue-60-a12) 70%,var(--p-black-00-a75) 100%);
+  --hero-glow:linear-gradient(to bottom,transparent,var(--p-blue-60-a80));
+  --shadow-card:0 24px 80px var(--p-black-00-a70),0 0 40px var(--p-blue-60-a10);
+  /* 尺度：字号 / 圆角 / 间距 */
+  --fs-xs:11px;--fs-sm:12px;--fs-base:13px;--fs-md:14px;--fs-lg:16px;--fs-xl:18px;--fs-2xl:22px;
+  --r-xs:4px;--r-sm:6px;--r-md:8px;--r-lg:12px;--r-xl:16px;--r-full:999px;
+  --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:24px;
+  /* 触控最小边长（安卓手指点击目标） */
+  --tap-min:44px;
+}
+/* 移动端排版稳定：关掉安卓 webview 的字体自动放大（font boosting），
+   否则长段落会被内核随机放大，同一页面在不同手机上排版不一致。 */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;color-scheme:dark;}
+body{font-family:var(--font);background:var(--bg);color:var(--text);-webkit-tap-highlight-color:transparent;}
+.app-frame{width:100%;max-width:440px;margin:0 auto;min-height:100vh;background:var(--bg);}
+.screen{height:100vh;height:100svh;display:flex;flex-direction:column;background:var(--bg);overflow-y:auto;}
+.screen>*{flex-shrink:0;}   /* 子元素不被压缩，内容超高时由 .screen 自身滚动（修主页/后台滚动） */
+/* WorkshopScreen 根容器（月度任务）：vh 兜底兼容钉钉内置 webview（不认 svh 时落回 vh）*/
+.ws-screen{height:100vh;height:100svh;overflow-y:auto;}
+/* QuizScreen 答题外壳：全屏固定高，vh 兜底兼容钉钉内置 webview（不认 svh 时落回 vh）*/
+.quiz-shell{height:100vh;height:100svh;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;}
+/* Home */
+.home-header{padding:18px 16px 10px;display:flex;align-items:flex-start;justify-content:space-between;}
+.avatar-btn{background:none;border:none;cursor:pointer;}
+.user-avatar{width:38px;height:38px;border-radius:19px;background:linear-gradient(135deg,var(--blue),var(--p-cyan-48));display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:white;}
+.task-card{background:linear-gradient(135deg,var(--task-start),var(--task-end));border:1px solid var(--p-blue-60-a40);border-radius:14px;padding:18px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;box-shadow:0 8px 22px var(--p-blue-60-a18);transition:transform .2s;}
+.task-card:hover{transform:translateY(-2px);}
+.nav-card{background:var(--card);border:1px solid var(--border);border-radius:11px;padding:12px 6px;text-align:center;cursor:pointer;transition:all .2s;}
+.nav-card:hover{border-color:var(--blue);}
+.gold-rule{height:1px;background:linear-gradient(90deg,var(--gold),transparent);margin-bottom:18px;}
+.brand{display:flex;align-items:center;gap:12px;margin-bottom:18px;}
+.brand-icon{width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,var(--p-navy-25),var(--blue));display:flex;align-items:center;justify-content:center;font-size:21px;}
+.field{margin-bottom:12px;}
+.field label{display:block;font-size:11px;color:var(--muted);margin-bottom:5px;}
+.field input{width:100%;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;padding:11px 13px;color:var(--text);font-size:15px;font-family:var(--font);outline:none;transition:border-color .2s;box-sizing:border-box;}
+.field input:focus{border-color:var(--blue);}
+.err-msg{color:var(--red);font-size:12px;margin-bottom:8px;}
+.btn-primary{width:100%;padding:13px;border-radius:9px;border:none;cursor:pointer;background:linear-gradient(135deg,var(--p-navy-25),var(--blue));color:white;font-size:15px;font-weight:600;font-family:var(--font);transition:all .2s;letter-spacing:1px;}
+.link-btn{width:100%;margin-top:12px;background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;text-decoration:underline;font-family:var(--font);}
+.page-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);background:var(--input-bg);}
+.page-header h2{font-size:15px;font-weight:700;color:var(--text);}
+.back-btn{background:none;border:1px solid var(--border);color:var(--text);width:30px;height:30px;border-radius:7px;cursor:pointer;font-size:15px;}
+.tab-row{display:flex;gap:5px;padding:10px 12px;border-bottom:1px solid var(--border);}
+.tab{flex:1;padding:7px 4px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-family:var(--font);font-size:12px;transition:all .2s;}
+.tab.active{background:var(--shift-accent,var(--blue));border-color:var(--shift-accent,var(--blue));color:white;font-weight:600;}
+.spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;}
+/* Animations */
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+@keyframes wave{from{height:4px}to{height:18px}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes bgZoom{from{transform:scale(1)}to{transform:scale(1.08)}}
+@keyframes cardIn{from{opacity:0;transform:translateY(24px) scale(0.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes liveDot{0%,100%{box-shadow:0 0 6px var(--p-red-50-a50)}50%{box-shadow:0 0 18px var(--p-red-50-a80),0 0 36px var(--p-red-50-a30)}}
+@keyframes liveDotGold{0%,100%{box-shadow:0 0 6px var(--p-amber-54-a50)}50%{box-shadow:0 0 18px var(--p-amber-54-a80),0 0 36px var(--p-amber-54-a30)}}
+@keyframes glowPulse{0%,100%{opacity:0.5}50%{opacity:1}}
+@keyframes mascotIdle{0%,100%{transform:translateY(0) rotate(0deg)}33%{transform:translateY(-5px) rotate(0.5deg)}66%{transform:translateY(-3px) rotate(-0.3deg)}}
+@keyframes mascotSpeak{from{transform:translateY(0) scale(1)}to{transform:translateY(-4px) scale(1.018)}}
+@keyframes ringOut{from{transform:scale(0.3);opacity:0.7}to{transform:scale(2.5);opacity:0}}
+@keyframes barDance{from{transform:scaleY(0.3)}to{transform:scaleY(1)}}
+@keyframes micPulse{0%{box-shadow:0 0 0 10px var(--p-red-50-a12),0 0 0 20px var(--p-red-50-a06),0 8px 24px var(--p-red-50-a40)}100%{box-shadow:0 0 0 14px var(--p-red-50-a08),0 0 0 28px var(--p-red-50-a04),0 8px 24px var(--p-red-50-a30)}}
+
+/* ══ 调色板层（2026-10 · 三层结构）══
+   ① 基色层 --p-*-rgb : 全站颜色的【唯一来源】。换主题色 / 加浅色模式 —— 只改这一层。
+   ② 实心层 --p-*     : 自动跟随所属基色。
+   ③ 透明层 --p-*-aNN : 自动跟随所属基色，改基色时全部透明度一起变。
+   页面代码不直接引用本层；语义变量（--bg/--blue/--text…）指向本层。 */
+:root{
+/* ── ① 基色（换主题改这里）── */
+--p-amber-05-rgb:26,16,0;
+--p-amber-14-rgb:66,32,6;
+--p-amber-24-rgb:124,52,0;
+--p-amber-24-h045-rgb:124,92,0;
+--p-amber-31-rgb:146,64,14;
+--p-amber-33-rgb:154,111,16;
+--p-amber-36-rgb:184,77,0;
+--p-amber-43-rgb:146,114,74;
+--p-amber-44-rgb:217,119,6;
+--p-amber-47-rgb:234,179,8;
+--p-amber-50-rgb:245,158,11;
+--p-amber-50-h030-rgb:205,127,50;
+--p-amber-50-h051-rgb:255,215,0;
+--p-amber-53-rgb:249,115,22;
+--p-amber-54-rgb:200,168,75;
+--p-amber-56-rgb:251,191,36;
+--p-amber-61-rgb:251,146,60;
+--p-amber-66-rgb:232,201,106;
+--p-amber-69-rgb:232,201,122;
+--p-black-00-rgb:0,0,0;
+--p-blue-27-rgb:51,65,85;
+--p-blue-27-h214-rgb:26,74,138;
+--p-blue-27-h216-rgb:42,64,96;
+--p-blue-27-h217-rgb:55,65,81;
+--p-blue-33-rgb:42,74,127;
+--p-blue-35-rgb:71,85,105;
+--p-blue-40-rgb:30,64,175;
+--p-blue-47-rgb:100,116,139;
+--p-blue-53-rgb:37,99,235;
+--p-blue-55-rgb:100,130,180;
+--p-blue-57-rgb:124,143,166;
+--p-blue-60-rgb:59,130,246;
+--p-blue-65-rgb:148,163,184;
+--p-blue-68-rgb:96,165,250;
+--p-blue-74-rgb:176,184,200;
+--p-blue-78-rgb:147,197,253;
+--p-blue-82-rgb:165,180,252;
+--p-blue-91-rgb:226,232,240;
+--p-cyan-48-rgb:14,165,233;
+--p-cyan-60-rgb:56,189,248;
+--p-green-09-rgb:2,44,22;
+--p-green-10-rgb:5,46,22;
+--p-green-11-rgb:13,45,26;
+--p-green-20-rgb:20,83,45;
+--p-green-20-h140-rgb:26,74,42;
+--p-green-24-rgb:22,101,52;
+--p-green-36-rgb:22,163,74;
+--p-green-45-rgb:34,197,94;
+--p-green-52-rgb:52,211,153;
+--p-green-58-rgb:74,222,128;
+--p-green-73-rgb:134,239,172;
+--p-indigo-67-rgb:99,102,241;
+--p-indigo-76-rgb:167,139,250;
+--p-indigo-85-rgb:196,181,253;
+--p-navy-04-rgb:8,10,12;
+--p-navy-06-rgb:7,16,31;
+--p-navy-07-rgb:13,17,23;
+--p-navy-09-rgb:7,20,40;
+--p-navy-09-h210-rgb:8,24,40;
+--p-navy-10-rgb:10,25,41;
+--p-navy-11-rgb:15,23,42;
+--p-navy-11-h214-rgb:13,30,53;
+--p-navy-12-rgb:13,30,50;
+--p-navy-13-rgb:28,32,48;
+--p-navy-14-rgb:15,33,56;
+--p-navy-14-h213-rgb:15,38,66;
+--p-navy-16-rgb:15,39,68;
+--p-navy-16-h215-rgb:13,45,90;
+--p-navy-17-rgb:30,41,59;
+--p-navy-22-rgb:27,50,85;
+--p-navy-25-rgb:30,58,95;
+--p-orange-35-rgb:194,65,12;
+--p-purple-07-rgb:30,10,74;
+--p-purple-22-rgb:91,33,182;
+--p-purple-28-rgb:59,31,110;
+--p-purple-32-rgb:88,28,135;
+--p-purple-50-rgb:109,40,217;
+--p-purple-58-rgb:124,58,237;
+--p-purple-65-rgb:168,85,247;
+--p-purple-75-rgb:192,132,252;
+--p-red-11-rgb:67,20,7;
+--p-red-30-rgb:124,29,29;
+--p-red-31-rgb:127,29,29;
+--p-red-39-rgb:158,42,57;
+--p-red-50-rgb:200,57,75;
+--p-red-51-rgb:220,38,38;
+--p-red-60-rgb:239,68,68;
+--p-red-71-rgb:248,113,113;
+--p-red-82-rgb:252,165,165;
+--p-slate-08-rgb:20,20,20;
+--p-slate-12-rgb:30,30,30;
+--p-slate-33-rgb:85,85,85;
+--p-slate-39-rgb:100,100,100;
+--p-slate-45-rgb:120,113,108;
+--p-slate-46-rgb:107,114,128;
+--p-slate-65-rgb:156,163,175;
+--p-white-100-rgb:255,255,255;
+/* ── ② 实心令牌 ── */
+--p-amber-05:rgb(var(--p-amber-05-rgb));
+--p-amber-14:rgb(var(--p-amber-14-rgb));
+--p-amber-24:rgb(var(--p-amber-24-rgb));
+--p-amber-24-h045:rgb(var(--p-amber-24-h045-rgb));
+--p-amber-31:rgb(var(--p-amber-31-rgb));
+--p-amber-33:rgb(var(--p-amber-33-rgb));
+--p-amber-36:rgb(var(--p-amber-36-rgb));
+--p-amber-43:rgb(var(--p-amber-43-rgb));
+--p-amber-44:rgb(var(--p-amber-44-rgb));
+--p-amber-47:rgb(var(--p-amber-47-rgb));
+--p-amber-50:rgb(var(--p-amber-50-rgb));
+--p-amber-50-h030:rgb(var(--p-amber-50-h030-rgb));
+--p-amber-50-h051:rgb(var(--p-amber-50-h051-rgb));
+--p-amber-53:rgb(var(--p-amber-53-rgb));
+--p-amber-54:rgb(var(--p-amber-54-rgb));
+--p-amber-56:rgb(var(--p-amber-56-rgb));
+--p-amber-61:rgb(var(--p-amber-61-rgb));
+--p-amber-66:rgb(var(--p-amber-66-rgb));
+--p-amber-69:rgb(var(--p-amber-69-rgb));
+--p-black-00:rgb(var(--p-black-00-rgb));
+--p-blue-27:rgb(var(--p-blue-27-rgb));
+--p-blue-27-h214:rgb(var(--p-blue-27-h214-rgb));
+--p-blue-27-h216:rgb(var(--p-blue-27-h216-rgb));
+--p-blue-27-h217:rgb(var(--p-blue-27-h217-rgb));
+--p-blue-33:rgb(var(--p-blue-33-rgb));
+--p-blue-35:rgb(var(--p-blue-35-rgb));
+--p-blue-40:rgb(var(--p-blue-40-rgb));
+--p-blue-47:rgb(var(--p-blue-47-rgb));
+--p-blue-53:rgb(var(--p-blue-53-rgb));
+--p-blue-55:rgb(var(--p-blue-55-rgb));
+--p-blue-57:rgb(var(--p-blue-57-rgb));
+--p-blue-60:rgb(var(--p-blue-60-rgb));
+--p-blue-65:rgb(var(--p-blue-65-rgb));
+--p-blue-68:rgb(var(--p-blue-68-rgb));
+--p-blue-74:rgb(var(--p-blue-74-rgb));
+--p-blue-78:rgb(var(--p-blue-78-rgb));
+--p-blue-82:rgb(var(--p-blue-82-rgb));
+--p-blue-91:rgb(var(--p-blue-91-rgb));
+--p-cyan-48:rgb(var(--p-cyan-48-rgb));
+--p-cyan-60:rgb(var(--p-cyan-60-rgb));
+--p-green-09:rgb(var(--p-green-09-rgb));
+--p-green-10:rgb(var(--p-green-10-rgb));
+--p-green-11:rgb(var(--p-green-11-rgb));
+--p-green-20:rgb(var(--p-green-20-rgb));
+--p-green-20-h140:rgb(var(--p-green-20-h140-rgb));
+--p-green-24:rgb(var(--p-green-24-rgb));
+--p-green-36:rgb(var(--p-green-36-rgb));
+--p-green-45:rgb(var(--p-green-45-rgb));
+--p-green-52:rgb(var(--p-green-52-rgb));
+--p-green-58:rgb(var(--p-green-58-rgb));
+--p-green-73:rgb(var(--p-green-73-rgb));
+--p-indigo-67:rgb(var(--p-indigo-67-rgb));
+--p-indigo-76:rgb(var(--p-indigo-76-rgb));
+--p-indigo-85:rgb(var(--p-indigo-85-rgb));
+--p-navy-04:rgb(var(--p-navy-04-rgb));
+--p-navy-06:rgb(var(--p-navy-06-rgb));
+--p-navy-07:rgb(var(--p-navy-07-rgb));
+--p-navy-09:rgb(var(--p-navy-09-rgb));
+--p-navy-09-h210:rgb(var(--p-navy-09-h210-rgb));
+--p-navy-10:rgb(var(--p-navy-10-rgb));
+--p-navy-11:rgb(var(--p-navy-11-rgb));
+--p-navy-11-h214:rgb(var(--p-navy-11-h214-rgb));
+--p-navy-12:rgb(var(--p-navy-12-rgb));
+--p-navy-13:rgb(var(--p-navy-13-rgb));
+--p-navy-14:rgb(var(--p-navy-14-rgb));
+--p-navy-14-h213:rgb(var(--p-navy-14-h213-rgb));
+--p-navy-16:rgb(var(--p-navy-16-rgb));
+--p-navy-16-h215:rgb(var(--p-navy-16-h215-rgb));
+--p-navy-17:rgb(var(--p-navy-17-rgb));
+--p-navy-22:rgb(var(--p-navy-22-rgb));
+--p-navy-25:rgb(var(--p-navy-25-rgb));
+--p-orange-35:rgb(var(--p-orange-35-rgb));
+--p-purple-07:rgb(var(--p-purple-07-rgb));
+--p-purple-22:rgb(var(--p-purple-22-rgb));
+--p-purple-28:rgb(var(--p-purple-28-rgb));
+--p-purple-32:rgb(var(--p-purple-32-rgb));
+--p-purple-50:rgb(var(--p-purple-50-rgb));
+--p-purple-58:rgb(var(--p-purple-58-rgb));
+--p-purple-65:rgb(var(--p-purple-65-rgb));
+--p-purple-75:rgb(var(--p-purple-75-rgb));
+--p-red-11:rgb(var(--p-red-11-rgb));
+--p-red-30:rgb(var(--p-red-30-rgb));
+--p-red-31:rgb(var(--p-red-31-rgb));
+--p-red-39:rgb(var(--p-red-39-rgb));
+--p-red-50:rgb(var(--p-red-50-rgb));
+--p-red-51:rgb(var(--p-red-51-rgb));
+--p-red-60:rgb(var(--p-red-60-rgb));
+--p-red-71:rgb(var(--p-red-71-rgb));
+--p-red-82:rgb(var(--p-red-82-rgb));
+--p-slate-08:rgb(var(--p-slate-08-rgb));
+--p-slate-12:rgb(var(--p-slate-12-rgb));
+--p-slate-33:rgb(var(--p-slate-33-rgb));
+--p-slate-39:rgb(var(--p-slate-39-rgb));
+--p-slate-45:rgb(var(--p-slate-45-rgb));
+--p-slate-46:rgb(var(--p-slate-46-rgb));
+--p-slate-65:rgb(var(--p-slate-65-rgb));
+--p-white-100:rgb(var(--p-white-100-rgb));
+/* ── ③ 半透明变体（自动跟随基色）── */
+--p-amber-47-a06:rgba(var(--p-amber-47-rgb),0.06);
+--p-amber-47-a10:rgba(var(--p-amber-47-rgb),0.1);
+--p-amber-47-a12:rgba(var(--p-amber-47-rgb),0.12);
+--p-amber-47-a15:rgba(var(--p-amber-47-rgb),0.15);
+--p-amber-47-a20:rgba(var(--p-amber-47-rgb),0.2);
+--p-amber-47-a40:rgba(var(--p-amber-47-rgb),0.4);
+--p-amber-47-a50:rgba(var(--p-amber-47-rgb),0.5);
+--p-amber-50-a06:rgba(var(--p-amber-50-rgb),0.06);
+--p-amber-50-a08:rgba(var(--p-amber-50-rgb),0.08);
+--p-amber-50-a10:rgba(var(--p-amber-50-rgb),0.1);
+--p-amber-50-a12:rgba(var(--p-amber-50-rgb),0.12);
+--p-amber-50-a15:rgba(var(--p-amber-50-rgb),0.15);
+--p-amber-50-a20:rgba(var(--p-amber-50-rgb),0.2);
+--p-amber-50-a25:rgba(var(--p-amber-50-rgb),0.25);
+--p-amber-50-a30:rgba(var(--p-amber-50-rgb),0.3);
+--p-amber-50-a35:rgba(var(--p-amber-50-rgb),0.35);
+--p-amber-50-a38:rgba(var(--p-amber-50-rgb),0.38);
+--p-amber-50-a40:rgba(var(--p-amber-50-rgb),0.4);
+--p-amber-50-a80:rgba(var(--p-amber-50-rgb),0.8);
+--p-amber-53-a07:rgba(var(--p-amber-53-rgb),0.07);
+--p-amber-53-a25:rgba(var(--p-amber-53-rgb),0.25);
+--p-amber-53-a28:rgba(var(--p-amber-53-rgb),0.28);
+--p-amber-54-a12:rgba(var(--p-amber-54-rgb),0.12);
+--p-amber-54-a30:rgba(var(--p-amber-54-rgb),0.3);
+--p-amber-54-a35:rgba(var(--p-amber-54-rgb),0.35);
+--p-amber-54-a45:rgba(var(--p-amber-54-rgb),0.45);
+--p-amber-54-a50:rgba(var(--p-amber-54-rgb),0.5);
+--p-amber-54-a60:rgba(var(--p-amber-54-rgb),0.6);
+--p-amber-54-a80:rgba(var(--p-amber-54-rgb),0.8);
+--p-amber-56-a04:rgba(var(--p-amber-56-rgb),0.04);
+--p-amber-56-a06:rgba(var(--p-amber-56-rgb),0.06);
+--p-amber-56-a07:rgba(var(--p-amber-56-rgb),0.07);
+--p-amber-56-a08:rgba(var(--p-amber-56-rgb),0.08);
+--p-amber-56-a12:rgba(var(--p-amber-56-rgb),0.12);
+--p-amber-56-a18:rgba(var(--p-amber-56-rgb),0.18);
+--p-amber-56-a20:rgba(var(--p-amber-56-rgb),0.2);
+--p-amber-56-a30:rgba(var(--p-amber-56-rgb),0.3);
+--p-amber-56-a35:rgba(var(--p-amber-56-rgb),0.35);
+--p-amber-56-a40:rgba(var(--p-amber-56-rgb),0.4);
+--p-amber-56-a50:rgba(var(--p-amber-56-rgb),0.5);
+--p-amber-56-a60:rgba(var(--p-amber-56-rgb),0.6);
+--p-black-00-a08:rgba(var(--p-black-00-rgb),0.08);
+--p-black-00-a10:rgba(var(--p-black-00-rgb),0.1);
+--p-black-00-a12:rgba(var(--p-black-00-rgb),0.12);
+--p-black-00-a15:rgba(var(--p-black-00-rgb),0.15);
+--p-black-00-a20:rgba(var(--p-black-00-rgb),0.2);
+--p-black-00-a25:rgba(var(--p-black-00-rgb),0.25);
+--p-black-00-a30:rgba(var(--p-black-00-rgb),0.3);
+--p-black-00-a32:rgba(var(--p-black-00-rgb),0.32);
+--p-black-00-a40:rgba(var(--p-black-00-rgb),0.4);
+--p-black-00-a50:rgba(var(--p-black-00-rgb),0.5);
+--p-black-00-a55:rgba(var(--p-black-00-rgb),0.55);
+--p-black-00-a60:rgba(var(--p-black-00-rgb),0.6);
+--p-black-00-a70:rgba(var(--p-black-00-rgb),0.7);
+--p-black-00-a75:rgba(var(--p-black-00-rgb),0.75);
+--p-black-00-a80:rgba(var(--p-black-00-rgb),0.8);
+--p-black-00-a82:rgba(var(--p-black-00-rgb),0.82);
+--p-black-00-a85:rgba(var(--p-black-00-rgb),0.85);
+--p-black-00-a92:rgba(var(--p-black-00-rgb),0.92);
+--p-black-00-a97:rgba(var(--p-black-00-rgb),0.97);
+--p-blue-35-a10:rgba(var(--p-blue-35-rgb),0.1);
+--p-blue-35-a30:rgba(var(--p-blue-35-rgb),0.3);
+--p-blue-35-a50:rgba(var(--p-blue-35-rgb),0.5);
+--p-blue-47-a06:rgba(var(--p-blue-47-rgb),0.06);
+--p-blue-47-a07:rgba(var(--p-blue-47-rgb),0.07);
+--p-blue-47-a10:rgba(var(--p-blue-47-rgb),0.1);
+--p-blue-47-a20:rgba(var(--p-blue-47-rgb),0.2);
+--p-blue-47-a25:rgba(var(--p-blue-47-rgb),0.25);
+--p-blue-47-a28:rgba(var(--p-blue-47-rgb),0.28);
+--p-blue-47-a40:rgba(var(--p-blue-47-rgb),0.4);
+--p-blue-47-a50:rgba(var(--p-blue-47-rgb),0.5);
+--p-blue-55-a45:rgba(var(--p-blue-55-rgb),0.45);
+--p-blue-55-a50:rgba(var(--p-blue-55-rgb),0.5);
+--p-blue-60-a04:rgba(var(--p-blue-60-rgb),0.04);
+--p-blue-60-a06:rgba(var(--p-blue-60-rgb),0.06);
+--p-blue-60-a07:rgba(var(--p-blue-60-rgb),0.07);
+--p-blue-60-a08:rgba(var(--p-blue-60-rgb),0.08);
+--p-blue-60-a10:rgba(var(--p-blue-60-rgb),0.1);
+--p-blue-60-a12:rgba(var(--p-blue-60-rgb),0.12);
+--p-blue-60-a15:rgba(var(--p-blue-60-rgb),0.15);
+--p-blue-60-a18:rgba(var(--p-blue-60-rgb),0.18);
+--p-blue-60-a20:rgba(var(--p-blue-60-rgb),0.2);
+--p-blue-60-a25:rgba(var(--p-blue-60-rgb),0.25);
+--p-blue-60-a28:rgba(var(--p-blue-60-rgb),0.28);
+--p-blue-60-a30:rgba(var(--p-blue-60-rgb),0.3);
+--p-blue-60-a35:rgba(var(--p-blue-60-rgb),0.35);
+--p-blue-60-a40:rgba(var(--p-blue-60-rgb),0.4);
+--p-blue-60-a50:rgba(var(--p-blue-60-rgb),0.5);
+--p-blue-60-a55:rgba(var(--p-blue-60-rgb),0.55);
+--p-blue-60-a60:rgba(var(--p-blue-60-rgb),0.6);
+--p-blue-60-a80:rgba(var(--p-blue-60-rgb),0.8);
+--p-blue-65-a06:rgba(var(--p-blue-65-rgb),0.06);
+--p-blue-65-a08:rgba(var(--p-blue-65-rgb),0.08);
+--p-blue-65-a10:rgba(var(--p-blue-65-rgb),0.1);
+--p-blue-65-a15:rgba(var(--p-blue-65-rgb),0.15);
+--p-blue-65-a18:rgba(var(--p-blue-65-rgb),0.18);
+--p-blue-65-a25:rgba(var(--p-blue-65-rgb),0.25);
+--p-blue-65-a30:rgba(var(--p-blue-65-rgb),0.3);
+--p-blue-65-a40:rgba(var(--p-blue-65-rgb),0.4);
+--p-blue-65-a60:rgba(var(--p-blue-65-rgb),0.6);
+--p-blue-68-a06:rgba(var(--p-blue-68-rgb),0.06);
+--p-blue-68-a15:rgba(var(--p-blue-68-rgb),0.15);
+--p-blue-68-a35:rgba(var(--p-blue-68-rgb),0.35);
+--p-blue-68-a40:rgba(var(--p-blue-68-rgb),0.4);
+--p-blue-68-a45:rgba(var(--p-blue-68-rgb),0.45);
+--p-blue-68-a50:rgba(var(--p-blue-68-rgb),0.5);
+--p-blue-68-a60:rgba(var(--p-blue-68-rgb),0.6);
+--p-blue-68-a70:rgba(var(--p-blue-68-rgb),0.7);
+--p-green-36-a90:rgba(var(--p-green-36-rgb),0.9);
+--p-green-45-a05:rgba(var(--p-green-45-rgb),0.05);
+--p-green-45-a06:rgba(var(--p-green-45-rgb),0.06);
+--p-green-45-a07:rgba(var(--p-green-45-rgb),0.07);
+--p-green-45-a08:rgba(var(--p-green-45-rgb),0.08);
+--p-green-45-a09:rgba(var(--p-green-45-rgb),0.09);
+--p-green-45-a10:rgba(var(--p-green-45-rgb),0.1);
+--p-green-45-a12:rgba(var(--p-green-45-rgb),0.12);
+--p-green-45-a14:rgba(var(--p-green-45-rgb),0.14);
+--p-green-45-a15:rgba(var(--p-green-45-rgb),0.15);
+--p-green-45-a18:rgba(var(--p-green-45-rgb),0.18);
+--p-green-45-a20:rgba(var(--p-green-45-rgb),0.2);
+--p-green-45-a22:rgba(var(--p-green-45-rgb),0.22);
+--p-green-45-a25:rgba(var(--p-green-45-rgb),0.25);
+--p-green-45-a30:rgba(var(--p-green-45-rgb),0.3);
+--p-green-45-a35:rgba(var(--p-green-45-rgb),0.35);
+--p-green-45-a40:rgba(var(--p-green-45-rgb),0.4);
+--p-green-45-a50:rgba(var(--p-green-45-rgb),0.5);
+--p-green-45-a53:rgba(var(--p-green-45-rgb),0.53);
+--p-green-45-a70:rgba(var(--p-green-45-rgb),0.7);
+--p-green-45-a80:rgba(var(--p-green-45-rgb),0.8);
+--p-green-45-a90:rgba(var(--p-green-45-rgb),0.9);
+--p-green-73-a70:rgba(var(--p-green-73-rgb),0.7);
+--p-indigo-67-a15:rgba(var(--p-indigo-67-rgb),0.15);
+--p-indigo-67-a40:rgba(var(--p-indigo-67-rgb),0.4);
+--p-indigo-85-a08:rgba(var(--p-indigo-85-rgb),0.08);
+--p-indigo-85-a20:rgba(var(--p-indigo-85-rgb),0.2);
+--p-indigo-85-a40:rgba(var(--p-indigo-85-rgb),0.4);
+--p-navy-04-a60:rgba(var(--p-navy-04-rgb),0.6);
+--p-navy-04-a80:rgba(var(--p-navy-04-rgb),0.8);
+--p-navy-04-a85:rgba(var(--p-navy-04-rgb),0.85);
+--p-navy-04-a90:rgba(var(--p-navy-04-rgb),0.9);
+--p-navy-07-a30:rgba(var(--p-navy-07-rgb),0.3);
+--p-navy-07-a40:rgba(var(--p-navy-07-rgb),0.4);
+--p-navy-07-a50:rgba(var(--p-navy-07-rgb),0.5);
+--p-navy-07-a60:rgba(var(--p-navy-07-rgb),0.6);
+--p-navy-09-a40:rgba(var(--p-navy-09-rgb),0.4);
+--p-navy-10-a60:rgba(var(--p-navy-10-rgb),0.6);
+--p-navy-10-a80:rgba(var(--p-navy-10-rgb),0.8);
+--p-navy-11-a40:rgba(var(--p-navy-11-rgb),0.4);
+--p-navy-12-a50:rgba(var(--p-navy-12-rgb),0.5);
+--p-navy-14-a60:rgba(var(--p-navy-14-rgb),0.6);
+--p-navy-16-a60:rgba(var(--p-navy-16-rgb),0.6);
+--p-navy-16-a95:rgba(var(--p-navy-16-rgb),0.95);
+--p-navy-22-a20:rgba(var(--p-navy-22-rgb),0.2);
+--p-navy-22-a25:rgba(var(--p-navy-22-rgb),0.25);
+--p-navy-22-a30:rgba(var(--p-navy-22-rgb),0.3);
+--p-navy-22-a35:rgba(var(--p-navy-22-rgb),0.35);
+--p-navy-22-a40:rgba(var(--p-navy-22-rgb),0.4);
+--p-navy-22-a50:rgba(var(--p-navy-22-rgb),0.5);
+--p-navy-22-a60:rgba(var(--p-navy-22-rgb),0.6);
+--p-navy-22-a70:rgba(var(--p-navy-22-rgb),0.7);
+--p-navy-22-a80:rgba(var(--p-navy-22-rgb),0.8);
+--p-purple-32-a08:rgba(var(--p-purple-32-rgb),0.08);
+--p-purple-65-a07:rgba(var(--p-purple-65-rgb),0.07);
+--p-purple-65-a08:rgba(var(--p-purple-65-rgb),0.08);
+--p-purple-65-a10:rgba(var(--p-purple-65-rgb),0.1);
+--p-purple-65-a20:rgba(var(--p-purple-65-rgb),0.2);
+--p-purple-65-a25:rgba(var(--p-purple-65-rgb),0.25);
+--p-purple-65-a30:rgba(var(--p-purple-65-rgb),0.3);
+--p-purple-65-a35:rgba(var(--p-purple-65-rgb),0.35);
+--p-purple-65-a40:rgba(var(--p-purple-65-rgb),0.4);
+--p-red-50-a04:rgba(var(--p-red-50-rgb),0.04);
+--p-red-50-a06:rgba(var(--p-red-50-rgb),0.06);
+--p-red-50-a07:rgba(var(--p-red-50-rgb),0.07);
+--p-red-50-a08:rgba(var(--p-red-50-rgb),0.08);
+--p-red-50-a12:rgba(var(--p-red-50-rgb),0.12);
+--p-red-50-a15:rgba(var(--p-red-50-rgb),0.15);
+--p-red-50-a20:rgba(var(--p-red-50-rgb),0.2);
+--p-red-50-a30:rgba(var(--p-red-50-rgb),0.3);
+--p-red-50-a35:rgba(var(--p-red-50-rgb),0.35);
+--p-red-50-a40:rgba(var(--p-red-50-rgb),0.4);
+--p-red-50-a45:rgba(var(--p-red-50-rgb),0.45);
+--p-red-50-a50:rgba(var(--p-red-50-rgb),0.5);
+--p-red-50-a70:rgba(var(--p-red-50-rgb),0.7);
+--p-red-50-a80:rgba(var(--p-red-50-rgb),0.8);
+--p-red-51-a08:rgba(var(--p-red-51-rgb),0.08);
+--p-red-51-a30:rgba(var(--p-red-51-rgb),0.3);
+--p-red-51-a90:rgba(var(--p-red-51-rgb),0.9);
+--p-red-60-a04:rgba(var(--p-red-60-rgb),0.04);
+--p-red-60-a05:rgba(var(--p-red-60-rgb),0.05);
+--p-red-60-a06:rgba(var(--p-red-60-rgb),0.06);
+--p-red-60-a08:rgba(var(--p-red-60-rgb),0.08);
+--p-red-60-a10:rgba(var(--p-red-60-rgb),0.1);
+--p-red-60-a12:rgba(var(--p-red-60-rgb),0.12);
+--p-red-60-a15:rgba(var(--p-red-60-rgb),0.15);
+--p-red-60-a20:rgba(var(--p-red-60-rgb),0.2);
+--p-red-60-a25:rgba(var(--p-red-60-rgb),0.25);
+--p-red-60-a30:rgba(var(--p-red-60-rgb),0.3);
+--p-red-60-a40:rgba(var(--p-red-60-rgb),0.4);
+--p-red-60-a50:rgba(var(--p-red-60-rgb),0.5);
+--p-red-60-a55:rgba(var(--p-red-60-rgb),0.55);
+--p-red-60-a70:rgba(var(--p-red-60-rgb),0.7);
+--p-red-60-a80:rgba(var(--p-red-60-rgb),0.8);
+--p-red-60-a85:rgba(var(--p-red-60-rgb),0.85);
+--p-red-71-a07:rgba(var(--p-red-71-rgb),0.07);
+--p-red-71-a10:rgba(var(--p-red-71-rgb),0.1);
+--p-red-71-a35:rgba(var(--p-red-71-rgb),0.35);
+--p-red-71-a40:rgba(var(--p-red-71-rgb),0.4);
+--p-red-71-a45:rgba(var(--p-red-71-rgb),0.45);
+--p-red-71-a60:rgba(var(--p-red-71-rgb),0.6);
+--p-slate-08-a30:rgba(var(--p-slate-08-rgb),0.3);
+--p-slate-12-a20:rgba(var(--p-slate-12-rgb),0.2);
+--p-slate-39-a30:rgba(var(--p-slate-39-rgb),0.3);
+--p-white-100-a03:rgba(var(--p-white-100-rgb),0.03);
+--p-white-100-a04:rgba(var(--p-white-100-rgb),0.04);
+--p-white-100-a06:rgba(var(--p-white-100-rgb),0.06);
+--p-white-100-a07:rgba(var(--p-white-100-rgb),0.07);
+--p-white-100-a08:rgba(var(--p-white-100-rgb),0.08);
+--p-white-100-a10:rgba(var(--p-white-100-rgb),0.1);
+--p-white-100-a15:rgba(var(--p-white-100-rgb),0.15);
+--p-white-100-a20:rgba(var(--p-white-100-rgb),0.2);
+--p-white-100-a30:rgba(var(--p-white-100-rgb),0.3);
+--p-white-100-a35:rgba(var(--p-white-100-rgb),0.35);
+--p-white-100-a40:rgba(var(--p-white-100-rgb),0.4);
+--p-white-100-a45:rgba(var(--p-white-100-rgb),0.45);
+--p-white-100-a50:rgba(var(--p-white-100-rgb),0.5);
+--p-white-100-a60:rgba(var(--p-white-100-rgb),0.6);
+--p-white-100-a62:rgba(var(--p-white-100-rgb),0.62);
+--p-white-100-a70:rgba(var(--p-white-100-rgb),0.7);
+--p-white-100-a75:rgba(var(--p-white-100-rgb),0.75);
+--p-white-100-a78:rgba(var(--p-white-100-rgb),0.78);
+--p-white-100-a80:rgba(var(--p-white-100-rgb),0.8);
+--p-white-100-a82:rgba(var(--p-white-100-rgb),0.82);
+--p-white-100-a85:rgba(var(--p-white-100-rgb),0.85);
+--p-white-100-a88:rgba(var(--p-white-100-rgb),0.88);
+--p-white-100-a90:rgba(var(--p-white-100-rgb),0.9);
+--p-white-100-a95:rgba(var(--p-white-100-rgb),0.95);
+}
+/* ── ④ 图片与背景配套（随主题变化）──
+   同一张照片靠 hue-rotate 跟着主题走，不必为每个主题准备一套图；
+   再叠一层主题色（--img-tint），照片就有了该主题的色偏。 */
+:root{
+--img-hero:url(/img-elevated.jpeg);
+--img-quiz:url(/img-tunnel.jpeg);
+--img-hue-rotate:0deg;
+--img-hero-filter:brightness(.42) saturate(.8);
+--img-quiz-filter:brightness(.32) saturate(.65);
+--img-quiz-dim-filter:brightness(.3) saturate(.65);
+--img-tint-rgb:var(--p-blue-60-rgb);
+--img-tint-a:0;
+--img-tint:rgba(var(--img-tint-rgb),var(--img-tint-a));
+--img-quiz-tint-a:0;
+--img-quiz-tint:rgba(var(--img-tint-rgb),var(--img-quiz-tint-a));
+}
+
+/* ══ 主题层 ══
+   切换方式：index.html 的 <html data-theme="...">；不设 = 地铁蓝（当前默认）。
+   换主题只改这一层，页面代码与调色板都不用动。 */
+/* 首义红（5号线线路色） */
+:root[data-theme="shouyi"]{
+/* 主色族：随主题做色相旋转（OKLCh，保持感知明度/彩度）*/
+--p-blue-27-h214-rgb:125,45,42;
+--p-blue-33-rgb:117,52,49;
+--p-blue-40-rgb:150,0,21;
+--p-blue-53-rgb:205,32,43;
+--p-blue-60-rgb:222,80,77;
+--p-blue-68-rgb:236,126,119;
+--p-blue-78-rgb:246,170,163;
+--p-blue-82-rgb:242,160,153;
+/* 底色族：随之偏色，避免「蓝底红点」的拼贴感 */
+--p-navy-04-rgb:12,9,9;
+--p-navy-06-rgb:29,9,8;
+--p-navy-07-rgb:23,14,14;
+--p-navy-09-rgb:37,11,10;
+--p-navy-09-h210-rgb:38,15,14;
+--p-navy-10-rgb:39,17,15;
+--p-navy-11-rgb:39,16,14;
+--p-navy-11-h214-rgb:50,19,17;
+--p-navy-12-rgb:47,20,18;
+--p-navy-13-rgb:46,27,25;
+--p-navy-14-rgb:53,22,20;
+--p-navy-14-h213-rgb:62,24,22;
+--p-navy-16-rgb:64,25,23;
+--p-navy-16-h215-rgb:82,23,22;
+--p-navy-17-rgb:57,33,31;
+--p-navy-22-rgb:80,34,32;
+--p-navy-25-rgb:90,40,38;
+/* 图片配套：同一张照片色相旋转 + 主题色叠加 */
+--img-hue-rotate:138deg;
+--img-hero-filter:brightness(.42) saturate(.6) hue-rotate(138deg);
+--img-quiz-filter:brightness(.32) saturate(.55) hue-rotate(138deg);
+--img-quiz-dim-filter:brightness(.3) saturate(.55) hue-rotate(138deg);
+--img-tint-a:0.2;
+--img-tint-a:0.20;
+--img-quiz-tint-a:0.20;
+}
+/* 首义红·深绛（与录音红拉开明度） */
+:root[data-theme="shouyi-deep"]{
+/* 主色族：随主题做色相旋转（OKLCh，保持感知明度/彩度）*/
+--p-blue-27-h214-rgb:97,22,27;
+--p-blue-33-rgb:90,31,32;
+--p-blue-40-rgb:109,1,20;
+--p-blue-53-rgb:156,0,32;
+--p-blue-60-rgb:175,41,52;
+--p-blue-68-rgb:183,84,84;
+--p-blue-78-rgb:189,121,119;
+--p-blue-82-rgb:187,113,111;
+/* 底色族：随之偏色，避免「蓝底红点」的拼贴感 */
+--p-navy-04-rgb:12,9,9;
+--p-navy-06-rgb:29,9,9;
+--p-navy-07-rgb:23,14,14;
+--p-navy-09-rgb:37,11,11;
+--p-navy-09-h210-rgb:38,15,15;
+--p-navy-10-rgb:39,17,16;
+--p-navy-11-rgb:39,16,15;
+--p-navy-11-h214-rgb:50,19,19;
+--p-navy-12-rgb:47,20,19;
+--p-navy-13-rgb:46,27,26;
+--p-navy-14-rgb:53,22,21;
+--p-navy-14-h213-rgb:62,24,24;
+--p-navy-16-rgb:64,24,24;
+--p-navy-16-h215-rgb:82,22,25;
+--p-navy-17-rgb:57,33,32;
+--p-navy-22-rgb:80,34,34;
+--p-navy-25-rgb:90,40,40;
+/* 图片配套：同一张照片色相旋转 + 主题色叠加 */
+--img-hue-rotate:138deg;
+--img-hero-filter:brightness(.42) saturate(.6) hue-rotate(138deg);
+--img-quiz-filter:brightness(.32) saturate(.55) hue-rotate(138deg);
+--img-quiz-dim-filter:brightness(.3) saturate(.55) hue-rotate(138deg);
+--img-tint-a:0.22;
+--img-quiz-tint-a:0.22;
+}
+/* 编钟青（8号线线路色） */
+:root[data-theme="bianzhong"]{
+/* 主色族：随主题做色相旋转（OKLCh，保持感知明度/彩度）*/
+--p-blue-27-h214-rgb:0,86,93;
+--p-blue-33-rgb:4,86,93;
+--p-blue-40-rgb:0,89,97;
+--p-blue-53-rgb:8,127,138;
+--p-blue-60-rgb:7,153,165;
+--p-blue-68-rgb:20,184,198;
+--p-blue-78-rgb:110,211,222;
+--p-blue-82-rgb:90,204,217;
+/* 底色族：随之偏色，避免「蓝底红点」的拼贴感 */
+--p-navy-04-rgb:7,10,11;
+--p-navy-06-rgb:0,20,23;
+--p-navy-07-rgb:9,19,20;
+--p-navy-09-rgb:0,25,28;
+--p-navy-09-h210-rgb:0,28,31;
+--p-navy-10-rgb:0,29,32;
+--p-navy-11-rgb:0,28,32;
+--p-navy-11-h214-rgb:0,35,39;
+--p-navy-12-rgb:0,35,38;
+--p-navy-13-rgb:12,37,40;
+--p-navy-14-rgb:0,38,42;
+--p-navy-14-h213-rgb:0,44,48;
+--p-navy-16-rgb:0,45,49;
+--p-navy-16-h215-rgb:0,54,59;
+--p-navy-17-rgb:15,46,49;
+--p-navy-22-rgb:0,58,63;
+--p-navy-25-rgb:0,66,72;
+/* 图片配套：同一张照片色相旋转 + 主题色叠加 */
+--img-hue-rotate:333deg;
+--img-hero-filter:brightness(.42) saturate(.6) hue-rotate(333deg);
+--img-quiz-filter:brightness(.32) saturate(.55) hue-rotate(333deg);
+--img-quiz-dim-filter:brightness(.3) saturate(.55) hue-rotate(333deg);
+--img-tint-a:0.16;
+--img-quiz-tint-a:0.16;
+}
+/* 芳草绿（4号线线路色） */
+:root[data-theme="fangcao"]{
+/* 主色族：随主题做色相旋转（OKLCh，保持感知明度/彩度）*/
+--p-blue-27-h214-rgb:5,91,40;
+--p-blue-33-rgb:25,89,45;
+--p-blue-40-rgb:5,95,41;
+--p-blue-53-rgb:4,135,61;
+--p-blue-60-rgb:0,162,74;
+--p-blue-68-rgb:86,187,113;
+--p-blue-78-rgb:148,210,160;
+--p-blue-82-rgb:135,204,150;
+/* 底色族：随之偏色，避免「蓝底红点」的拼贴感 */
+--p-navy-04-rgb:8,10,9;
+--p-navy-06-rgb:5,20,8;
+--p-navy-07-rgb:12,19,14;
+--p-navy-09-rgb:3,26,9;
+--p-navy-09-h210-rgb:8,28,13;
+--p-navy-10-rgb:10,29,15;
+--p-navy-11-rgb:9,29,14;
+--p-navy-11-h214-rgb:9,36,16;
+--p-navy-12-rgb:11,35,18;
+--p-navy-13-rgb:22,37,25;
+--p-navy-14-rgb:12,39,19;
+--p-navy-14-h213-rgb:11,45,21;
+--p-navy-16-rgb:10,47,21;
+--p-navy-16-h215-rgb:0,57,21;
+--p-navy-17-rgb:27,46,31;
+--p-navy-22-rgb:19,60,30;
+--p-navy-25-rgb:24,68,36;
+/* 图片配套：同一张照片色相旋转 + 主题色叠加 */
+--img-hue-rotate:283deg;
+--img-hero-filter:brightness(.42) saturate(.6) hue-rotate(283deg);
+--img-quiz-filter:brightness(.32) saturate(.55) hue-rotate(283deg);
+--img-quiz-dim-filter:brightness(.3) saturate(.55) hue-rotate(283deg);
+--img-tint-a:0.16;
+--img-quiz-tint-a:0.16;
+}
+/* ══ 浅色主题：Win11 / Fluent 风 ══
+   干净、清爽、纯色底 + 柔和阴影；主色为 Win11 accent 蓝。
+   只覆盖基色层与媒体面变量，页面代码一行不用动。 */
+:root[data-theme="light"]{
+/* ① 底色族 → 浅色面 */
+--p-navy-04-rgb:255,255,255;
+--p-navy-06-rgb:243,243,243;
+--p-navy-07-rgb:250,250,250;
+--p-navy-09-rgb:247,247,247;
+--p-navy-09-h210-rgb:250,250,250;
+--p-navy-10-rgb:245,245,245;
+--p-navy-11-rgb:255,255,255;
+--p-navy-11-h214-rgb:255,255,255;
+--p-navy-12-rgb:245,245,245;
+--p-navy-13-rgb:255,255,255;
+--p-navy-14-rgb:255,255,255;
+--p-navy-14-h213-rgb:255,255,255;
+--p-navy-16-rgb:240,240,240;
+--p-navy-16-h215-rgb:232,232,232;
+--p-navy-17-rgb:238,238,238;
+--p-navy-22-rgb:229,229,229;
+--p-navy-25-rgb:225,225,225;
+/* ② 主色族 → Win11 accent 蓝 */
+--p-blue-27-h214-rgb:11,80,145;
+--p-blue-33-rgb:13,88,158;
+--p-blue-40-rgb:12,95,170;
+--p-blue-53-rgb:12,105,185;
+--p-blue-60-rgb:15,108,189;
+--p-blue-68-rgb:43,135,209;
+--p-blue-78-rgb:120,180,230;
+--p-blue-82-rgb:66,110,160;
+/* ③ 文字：深墨 / 中灰 */
+--p-blue-91-rgb:26,26,26;
+--p-blue-65-rgb:95,95,95;
+/* ④ 白叠加层反转为黑叠加层（浅色面上变成淡灰描边/高光） */
+--p-white-100-rgb:0,0,0;
+/* ⑤ 媒体面 */
+--text-on-media:rgb(26,26,26);
+--img-hero:linear-gradient(155deg,#eef4fb 0%,#f7f9fc 45%,#e9eff7 100%);
+--img-hero-filter:none;
+--img-hue-rotate:0deg;
+--img-quiz:linear-gradient(200deg,#f7f9fc 0%,#eef2f8 60%,#e7edf5 100%);
+--img-quiz-filter:none;
+--img-quiz-dim-filter:none;
+--img-tint-a:0;
+--img-quiz-tint-a:0;
+--hero-overlay:none;
+--hero-glow:none;
+--shadow-card:0 2px 4px rgba(0,0,0,.04),0 10px 28px rgba(0,0,0,.08);
+/* ⑥ 浅色面上需压深才可读的强调色（金色/绿色/金色按钮文字） */
+--p-amber-54-rgb:140,110,18;
+--cta-gold-1:#e0a82e;
+--cta-gold-2:#c8901a;
+--p-green-45-rgb:21,128,61;
+--ink-on-gold:#1a1a1a;
+}
+/* ══ Win11 / Fluent 深色 ══
+   中性炭灰面 + 亮蓝 accent（#60CDFF），与浅色成对；
+   不与功能色（录音红 / 金按钮 / 早班橙）冲突。 */
+:root[data-theme="fluent-dark"]{
+/* ① 底色族 → 中性炭灰面 */
+--p-navy-04-rgb:32,32,32;
+--p-navy-06-rgb:32,32,32;
+--p-navy-07-rgb:39,39,39;
+--p-navy-09-rgb:40,40,40;
+--p-navy-09-h210-rgb:43,43,43;
+--p-navy-10-rgb:45,45,45;
+--p-navy-11-rgb:45,45,45;
+--p-navy-11-h214-rgb:45,45,45;
+--p-navy-12-rgb:48,48,48;
+--p-navy-13-rgb:43,43,43;
+--p-navy-14-rgb:43,43,43;
+--p-navy-14-h213-rgb:43,43,43;
+--p-navy-16-rgb:52,52,52;
+--p-navy-16-h215-rgb:58,58,58;
+--p-navy-17-rgb:56,56,56;
+--p-navy-22-rgb:61,61,61;
+--p-navy-25-rgb:70,70,70;
+/* ② 主色族 → Win11 深色 accent 亮蓝 */
+--p-blue-27-h214-rgb:12,74,110;
+--p-blue-33-rgb:16,84,122;
+--p-blue-40-rgb:20,95,138;
+--p-blue-53-rgb:40,145,199;
+--p-blue-60-rgb:96,205,255;
+--p-blue-68-rgb:130,220,255;
+--p-blue-78-rgb:160,230,255;
+--p-blue-82-rgb:185,238,255;
+/* ③ 文字：纯白 / 浅灰 */
+--p-blue-91-rgb:255,255,255;
+--p-blue-65-rgb:197,197,197;
+}
+
+
+
+`;
