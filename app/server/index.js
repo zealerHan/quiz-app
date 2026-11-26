@@ -10,6 +10,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const { ensureCurrentCycle } = require('./helpers');
+require('./db_leave'); // 休假模块建表（幂等，已存在则跳过）
+// 登录设备留痕建表（老韩 2026-11-26：只留痕不拦，让「替人答」可发现）
+{ const { loginDevices } = require('./loginDevices'); const { db: _db } = require('./db'); loginDevices(_db); }
 const workshopRouter = require('./routes/workshop');
 const quizRouter = require('./routes/quiz');
 const adminRouter = require('./routes/admin');
@@ -25,6 +28,10 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, '..', 'dist')));
 app.use('/training-photos', express.static(path.join(__dirname, '..', 'data', 'training-photos')));
+// 留言墙图片（压缩后落盘，public 只读）
+app.use('/wall-images', express.static(path.join(__dirname, '..', 'data', 'wall-images')));
+// 下周休假申报图（钉钉 markdown 嵌图用，必须公网匿名可访问，不能加鉴权）
+app.use('/leave-charts', express.static(path.join(__dirname, '..', 'data', 'leave-charts')));
 // ─── 本地录音二次识别（流式 ASR 失败/超时时兜底）────────────────────────────
 // 前端把本地留存的 PCM(16k/16bit/mono) 原样 POST 上来，这里重放给 paraformer-realtime-v2
 function replayPcmToDashScope(pcmBuf, key) {
@@ -101,6 +108,41 @@ app.post('/api/asr/replay', express.raw({ type: 'application/octet-stream', limi
 app.use(workshopRouter);
 app.use(quizRouter);
 app.use(adminRouter);
+app.use(require('./routes/leave'));
+
+// ─── 全局错误兜底（2026-11-26）────────────────────────────────────────────
+// 为什么需要：quiz.js 有 40 个路由但只有 4 个 try-catch，/answer /finish /score
+// 三个核心路由都没有。实测给非法 session id 会返回 500 白屏 —— 学生答完题看到
+// 报错页，以为没交上，实际可能已经写了一半。
+//
+// 这里兜住所有路由抛出的异常：
+//   · 记录完整堆栈到日志（排查用）
+//   · 给前端返回结构化 JSON，前端能弹正常提示而不是白屏
+//   · 绝不吞掉 —— 4xx 保持原样，只有真异常才走这里
+app.use((err, req, res, next) => {
+  // body-parser 的 JSON 解析错误属于客户端问题，给 400 更准确
+  const isBadJson = err && (err.type === 'entity.parse.failed' || err instanceof SyntaxError);
+  const isTooLarge = err && err.type === 'entity.too.large';
+
+  console.error('[ERROR]', req.method, req.originalUrl || req.url);
+  console.error('       ', err && (err.stack || err.message || String(err)));
+
+  if (res.headersSent) return next(err);   // 已经开始响应就不再插手
+
+  if (isTooLarge) return res.status(413).json({ error: '请求内容过大' });
+  if (isBadJson) return res.status(400).json({ error: '请求格式错误' });
+  return res.status(500).json({ error: '服务器处理出错，请重试或联系管理员' });
+});
+
+// ─── 进程级兜底（2026-11-26）──────────────────────────────────────────────
+// Express 兜不住的（async 里 reject 没人接、定时器里抛错）会冒到这里。
+// 只记录，不退出 —— 一场答题中途重启服务比留个错更糟。
+process.on('uncaughtException', (e) => {
+  console.error('[UNCAUGHT]', e && (e.stack || e.message || String(e)));
+});
+process.on('unhandledRejection', (e) => {
+  console.error('[UNHANDLED-REJECTION]', e && (e.stack || e.message || String(e)));
+});
 
 // ─── DashScope Paraformer-realtime-v2 实时语音识别 ───────────────────────────
 const wss = new WebSocket.Server({ noServer: true });
@@ -251,7 +293,7 @@ httpServer.listen(PORT,'0.0.0.0',()=>{
   const nets=os.networkInterfaces(); let ip='localhost';
   for(const n of Object.values(nets)) for(const i of n) if(i.family==='IPv4'&&!i.internal){ip=i.address;break;}
   const spark=process.env.XFYUN_APP_ID&&process.env.XFYUN_APP_ID!=='你的AppID';
-  console.log(`\n🚇 武汉地铁5号线 乘务考核系统 v3\n${'═'.repeat(40)}`);
+  console.log(`\n🚇 武汉地铁5号线 · 乘务四组 乘务系统\n${'═'.repeat(40)}`);
   console.log(`  本机: http://localhost:${PORT}  内网: http://${ip}:${PORT}`);
   console.log(`  AI评分: ${spark?'✅ 讯飞星火':'⚠  关键词模式（未配置讯飞）'}\n`);
 });

@@ -1,4 +1,5 @@
 const express = require('express');
+const { describeUA, clientIp } = require('../loginDevices');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -23,18 +24,48 @@ const PORT = process.env.PORT || 3000;
 
 // ─── Staff API ─────────────────────────────────────────────────────────────
 // 登录验证：工号 + 手机尾号 → 返回真实姓名
+// 工号容错（老韩 2026-11-26）：库里格式不统一（3743 / 00216 / 07512 / 22640），
+// 用户可能输 3743、03743、Y3743、y03743、Y 03743、216、00216 任何一种。
+// 统一策略：去掉 Y/y 前缀和所有空白 → 只留数字（去前导零）→ 转整数比较。
+// 注意 parseInt('abc') 是 NaN，NaN !== NaN，所以必须先过正则再比较。
+const normalizeStaffId = (id) => {
+  if (id === null || id === undefined) return null;
+  const digits = String(id).replace(/^[Yy]/, '').replace(/\s/g, '').replace(/[^0-9]/g, '');
+  if (!digits) return null;
+  const n = parseInt(digits, 10);
+  return Number.isFinite(n) ? n : null;
+};
+
 router.post('/api/login', (req, res) => {
   const { staffId, phoneTail } = req.body;
   if (!staffId || !phoneTail) return res.status(400).json({ error: '缺少工号或手机尾号' });
-  // 规范化：去掉Y前缀后提取纯数字，转为整数再比较，兼容03743/3743/Y03743/673/00673
-  const normalize = id => parseInt(id.replace(/^Y/i, ''), 10);
-  const inputNum = normalize(staffId);
+  const inputNum = normalizeStaffId(staffId);
+  if (inputNum === null) return res.status(400).json({ error: '工号格式不正确' });
   const all = db.prepare('SELECT * FROM staff').all();
-  const s = all.find(r => normalize(r.id) === inputNum);
+  const s = all.find(r => normalizeStaffId(r.id) === inputNum);
   if (!s) return res.status(404).json({ error: '工号不存在，请联系班组长' });
-  if (s.phone_tail && s.phone_tail !== phoneTail) return res.status(401).json({ error: '手机尾号不匹配' });
+  // 尾号也容错：去空格、去非数字
+  const tailIn = String(phoneTail).replace(/\s/g, '').replace(/[^0-9]/g, '');
+  if (s.phone_tail && s.phone_tail !== tailIn) return res.status(401).json({ error: '手机尾号不匹配' });
   // 检查是否有编辑权限：staff.is_instructor=1 或 在training_groups担任教员
   const isInstructor = !!s.is_instructor || !!db.prepare('SELECT 1 FROM training_groups WHERE instructor_id=? LIMIT 1').get(s.id);
+
+  // 登录留痕（2026-11-26）：只记录不拦截。
+  // 目的是让「用别人工号登录」可被班长看到 —— 见 server/loginDevices.js 说明。
+  try {
+    const ua = String(req.headers['user-agent'] || '');
+    db.prepare(`INSERT INTO login_devices (staff_id, staff_name, device_id, ip, ua, ua_short, action)
+                VALUES (?,?,?,?,?,?,?)`).run(
+      s.id,
+      s.real_name || s.name || '',
+      String(req.body.deviceId || '').slice(0, 64),
+      clientIp(req),
+      ua.slice(0, 300),
+      describeUA(ua),
+      'login'
+    );
+  } catch (e) { console.error('[loginDevices] 记录失败:', e.message); }   // 留痕失败不能挡住登录
+
   res.json({ ok: true, staffId: s.id, realName: s.real_name || s.name, phoneTail: s.phone_tail || '', isExempt: !!s.is_exempt, isTester: !!s.is_tester, isInstructor, isLeader: !!s.is_leader });
 });
 
@@ -783,8 +814,10 @@ router.post('/api/admin/dingtalk/notify-training-preview', adminAuth, async (req
   const dateLabel = `${tomorrow.getMonth()+1}月${tomorrow.getDate()}日（周${dow}）`;
   const bodyLines = formatTrainingLines(plan, dateLabel, 'preview');
 
+  // 中旬会与普通培训标题区分（用户口径：是中就改成「中旬会通知」）
+  const title = plan.plan_type === '中旬会' ? '🔔 明日中旬会通知' : '🔔 明日早班培训提醒';
   try {
-    await sendDingTalkCard({ title: '🔔 明日早班培训提醒', bodyLines, plan, logTag: `次日培训预告：${tomorrowStr}`, operator: req.adminName });
+    await sendDingTalkCard({ title, bodyLines, plan, logTag: `次日培训预告：${tomorrowStr}`, operator: req.adminName });
     res.json({ ok: true, date: tomorrowStr });
   } catch(e) { res.status(500).json({ ok: false, error: e.message }); }
 });
@@ -806,8 +839,9 @@ router.post('/api/admin/dingtalk/notify-training-reminder', adminAuth, async (re
   const dateLabel = `${d.getMonth()+1}月${d.getDate()}日（周${dow}）`;
   const bodyLines = formatTrainingLines(plan, dateLabel, 'reminder');
 
+  const title = plan.plan_type === '中旬会' ? '📣 中旬会通知' : '📣 今日早班培训通知';
   try {
-    await sendDingTalkCard({ title: '📣 今日早班培训通知', bodyLines, plan, logTag: `当天培训提醒：${todayStr}`, operator: req.adminName });
+    await sendDingTalkCard({ title, bodyLines, plan, logTag: `当天培训提醒：${todayStr}`, operator: req.adminName });
     res.json({ ok: true, date: todayStr });
   } catch(e) { res.status(500).json({ ok: false, error: e.message }); }
 });
@@ -839,6 +873,59 @@ router.put('/api/admin/staff/batch-identity', adminAuth, (req, res) => {
 router.get('/api/admin/logs', adminAuth, (req, res) => {
   const rows = db.prepare('SELECT * FROM admin_logs ORDER BY created_at DESC LIMIT 300').all();
   res.json(rows);
+});
+
+// ─── 登录/答题设备留痕（2026-11-26）───────────────────────────────────────
+// 只读，不改任何数据。用途：发现「同一个工号在多台设备上答题」。
+// 判断口径：
+//   · 同一人同一天出现 ≥2 个不同 device_id（设备指纹）→ 可疑
+//   · 同一人同一 device_id 被 ≥2 个人用 → 设备共用（同一台手机换着答）
+//   · ip 只作参考，班组都走同一个 WiFi/基站时 IP 可能一样，不能当唯一依据
+router.get('/api/admin/login-devices', adminAuth, (req, res) => {
+  const days = Math.min(parseInt(req.query.days) || 7, 60);
+  const action = req.query.action || '';   // 可选：login / answer_start
+
+  const rows = db.prepare(`
+    SELECT id, staff_id, staff_name, device_id, ip, ua_short, action, created_at
+    FROM login_devices
+    WHERE datetime(created_at) >= datetime('now','localtime','-' || ? || ' days')
+      ${action ? 'AND action = ?' : ''}
+    ORDER BY created_at DESC
+    LIMIT 800
+  `).all(...(action ? [days, action] : [days]));
+
+  // 按人聚合：今天用了几个设备
+  const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+  const byStaff = {};
+  for (const r of rows) {
+    const d = String(r.created_at || '').slice(0, 10);
+    if (d !== today) continue;
+    const k = r.staff_id;
+    if (!byStaff[k]) byStaff[k] = { staffId: k, staffName: r.staff_name, devices: new Set(), count: 0 };
+    byStaff[k].count++;
+    // 没 device_id 的老客户端用 ip+ua 兜底算一个设备
+    byStaff[k].devices.add(r.device_id || (r.ip || '') + '|' + (r.ua_short || ''));
+  }
+
+  // 多设备 = 今天用了几台不同设备
+  const multiDevice = Object.values(byStaff)
+    .map(x => ({ staffId: x.staffId, staffName: x.staffName, deviceCount: x.devices.size, records: x.count }))
+    .filter(x => x.deviceCount > 1)
+    .sort((a, b) => b.deviceCount - a.deviceCount);
+
+  // 设备共用：同一 device_id 今天被几个人使用
+  const byDevice = {};
+  for (const r of rows) {
+    const d = String(r.created_at || '').slice(0, 10);
+    if (d !== today || !r.device_id) continue;
+    if (!byDevice[r.device_id]) byDevice[r.device_id] = new Set();
+    byDevice[r.device_id].add(r.staff_id);
+  }
+  const sharedDevice = Object.entries(byDevice)
+    .filter(([, set]) => set.size > 1)
+    .map(([deviceId, set]) => ({ deviceId, staffIds: [...set] }));
+
+  res.json({ rows, multiDevice, sharedDevice, today });
 });
 
 // ─── Session hide / delete ─────────────────────────────────────────────────
@@ -1250,7 +1337,7 @@ async function callQwenVision(KEY, imageBase64, mimeType, prompt) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${KEY}` },
     body: JSON.stringify({
-      model: 'qwen-vl-plus',
+      model: 'qwen3-vl-plus',
       messages: [{ role: 'user', content: [
         { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
         { type: 'text', text: prompt }

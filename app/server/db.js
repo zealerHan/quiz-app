@@ -466,4 +466,25 @@ if (bankCount.c === 0) {
   ['shift_label', '白班'],
 ].forEach(([k,v]) => db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)").run(k,v));
 
+// ─── 查询索引（2026-11-27 建，写进代码保证可重现）──────────────────────────
+// 为什么放这里：这些索引原本只在数据库文件里手工建过，一旦从备份恢复、
+// 或换机器重新部署，索引就全没了 —— 而「没有索引」不会报错，只会悄悄变慢。
+// 用 IF NOT EXISTS + 包在 try 里：老库已有索引不会重复建，新库自动建。
+//
+// 实测收益（5 万条数据规模）：
+//   按 session 查答案  1.811ms → 0.029ms （62 倍，答题时每题都要查）
+//   按人查答案         4.478ms → 2.841ms
+[
+  ['idx_answers_session',    'CREATE INDEX IF NOT EXISTS idx_answers_session ON answers(session_id)'],
+  ['idx_answers_staff',      'CREATE INDEX IF NOT EXISTS idx_answers_staff ON answers(staff_id)'],
+  ['idx_answers_question',   'CREATE INDEX IF NOT EXISTS idx_answers_question ON answers(question_id)'],
+  ['idx_sessions_staff',     'CREATE INDEX IF NOT EXISTS idx_sessions_staff ON sessions(staff_id)'],
+  ['idx_sessions_cycle',     'CREATE INDEX IF NOT EXISTS idx_sessions_cycle ON sessions(cycle_id)'],
+  ['idx_questions_bank',     'CREATE INDEX IF NOT EXISTS idx_questions_bank ON questions(bank_id)'],
+  ['idx_adminlogs_created',  'CREATE INDEX IF NOT EXISTS idx_adminlogs_created ON admin_logs(created_at)'],
+  ['idx_trainingphotos_plan','CREATE INDEX IF NOT EXISTS idx_trainingphotos_plan ON training_photos(plan_id)'],
+].forEach(([name, sql]) => {
+  try { db.exec(sql); } catch (e) { console.error(`[db] 建索引 ${name} 失败: ${e.message}`); }
+});
+
 module.exports = { db, PHOTO_DIR, getTodayShift };

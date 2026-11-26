@@ -1,9 +1,47 @@
 const express = require('express');
 const { db } = require('../db');
 const { adminAuth, logAdmin } = require('../middleware');
+const { describeUA, clientIp } = require('../loginDevices');
 const { getSetting, getCurrentCycle, calcPoints, backfillQuestionTypes, getTrainingPlanForDate, getShiftInfo } = require('../helpers');
 
 const router = express.Router();
+
+// ─── 多题库均衡随机：每个题库先各抽 1 题，剩余名额再从全部池子随机补足 ───
+// 避免题量少的题库（如风险数据库10题）在大量题库混合时几乎抽不到
+function pickBalanced(db, bankIds, count) {
+  if (!bankIds?.length || count <= 0) return [];
+  const ph = bankIds.map(() => '?').join(',');
+  const picked = [];
+
+  // 阶段1：每个题库各抽 1 题（题库题量不足时抽到多少算多少）
+  for (const bid of bankIds) {
+    if (picked.length >= count) break;
+    const one = db.prepare(
+      'SELECT * FROM questions WHERE bank_id=? AND active=1 ORDER BY RANDOM() LIMIT 1'
+    ).get(bid);
+    if (one) picked.push(one);
+  }
+
+  // 阶段2：剩余名额从整个池子（排除已抽中的题）随机补足
+  const need = count - picked.length;
+  if (need > 0) {
+    const excludeIds = picked.map(q => q.id);
+    const exPh = excludeIds.length ? ` AND id NOT IN (${excludeIds.map(() => '?').join(',')})` : '';
+    const rest = db.prepare(
+      `SELECT * FROM questions WHERE bank_id IN (${ph}) AND active=1${exPh} ORDER BY RANDOM() LIMIT ?`
+    ).all(...bankIds, ...excludeIds, need);
+    picked.push(...rest);
+  }
+
+  // 打乱最终顺序
+  for (let i = picked.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [picked[i], picked[j]] = [picked[j], picked[i]];
+  }
+  return picked.slice(0, count);
+}
+
+
 
 // 服务端评分缓存：key = `${questionId}:${answerText前200字}`，20分钟TTL
 const scoreCache = new Map();
@@ -36,9 +74,8 @@ router.get('/api/questions', (req, res) => {
             qs = db.prepare('SELECT * FROM questions WHERE bank_id=1 AND active=1 ORDER BY RANDOM() LIMIT ?').all(count);
           } else if (mode === 'random') {
             if (pinned.bank_ids?.length > 0) {
-              // 多题库混合随机
-              const placeholders = pinned.bank_ids.map(() => '?').join(',');
-              qs = db.prepare(`SELECT * FROM questions WHERE bank_id IN (${placeholders}) AND active=1 ORDER BY RANDOM() LIMIT ?`).all(...pinned.bank_ids, count);
+              // 多题库均衡随机：每题库先各抽1题，再补足剩余
+              qs = pickBalanced(db, pinned.bank_ids, count);
             } else if (pinned.bank_id) {
               qs = db.prepare('SELECT * FROM questions WHERE bank_id=? AND active=1 ORDER BY RANDOM() LIMIT ?').all(pinned.bank_id, count);
             } else if (pinned.ids?.length > 0) {
@@ -217,6 +254,21 @@ router.get('/api/practice/monthly-status/:staffId', (req, res) => {
 router.post('/api/session/start', (req, res) => {
   const { staffId, staffName, isPractice } = req.body;
   if (!staffId || !staffName) return res.status(400).json({ error: '缺少工号或姓名' });
+
+  // 答题设备留痕（2026-11-26）：正式答题才记，练习不记。
+  // 配合登录留痕，班长能看出「同一个人今天用了两台不同手机答题」。
+  // 只记录，不拦 —— 记录失败也不能影响答题。
+  if (!isPractice) {
+    try {
+      const ua = String(req.headers['user-agent'] || '');
+      db.prepare(`INSERT INTO login_devices (staff_id, staff_name, device_id, ip, ua, ua_short, action)
+                  VALUES (?,?,?,?,?,?,?)`).run(
+        String(staffId), String(staffName), String(req.body.deviceId || '').slice(0, 64),
+        clientIp(req), ua.slice(0, 300), describeUA(ua), 'answer_start'
+      );
+    } catch (e) { console.error('[loginDevices] 答题留痕失败:', e.message); }
+  }
+
   const cycle = getCurrentCycle();
   const cycleId = cycle?.id || 'default';
 
@@ -496,6 +548,14 @@ router.post('/api/score', async (req, res) => {
 router.post('/api/session/:id/answer', (req, res) => {
   const { staffId, staffName, questionId, questionText, category, answerText, durationSeconds } = req.body;
 
+  // 入参校验（2026-11-26）：原来非法 session id 会撞 FOREIGN KEY 返回 500 白屏，
+  // 学生看到「服务器错误」以为没交上。session 不存在就该是 404，题意很清楚。
+  const sessId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(sessId)) return res.status(400).json({ error: '答题会话编号不合法' });
+  const sessRow = db.prepare('SELECT id FROM sessions WHERE id=?').get(sessId);
+  if (!sessRow) return res.status(404).json({ error: '答题会话不存在，请重新进入答题' });
+  if (!Number.isFinite(parseInt(questionId, 10))) return res.status(400).json({ error: '题目编号不合法' });
+
   // 从服务端缓存取评分，不信任客户端上传的 score 等字段
   const cacheKey = `${questionId}:${(answerText || '').slice(0, 200)}`;
   const cached = scoreCache.get(cacheKey);
@@ -526,7 +586,12 @@ router.post('/api/session/:id/answer', (req, res) => {
 });
 
 router.post('/api/session/:id/finish', (req, res) => {
-  const sess = db.prepare('SELECT staff_id, is_practice, cycle_id, COALESCE(is_remediation,0) as is_remediation FROM sessions WHERE id=?').get(req.params.id);
+  // 入参校验（2026-11-26）：非法 id 直接 404，不要走到 SQL 才报错
+  const finSessId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(finSessId)) return res.status(400).json({ error: '答题会话编号不合法' });
+
+  const sess = db.prepare('SELECT staff_id, is_practice, cycle_id, COALESCE(is_remediation,0) as is_remediation FROM sessions WHERE id=?').get(finSessId);
+  if (!sess) return res.status(404).json({ error: '答题会话不存在，请重新进入答题' });
   if (sess) {
     const staffRow = db.prepare('SELECT is_tester FROM staff WHERE id=?').get(sess.staff_id);
     if (staffRow?.is_tester) {
