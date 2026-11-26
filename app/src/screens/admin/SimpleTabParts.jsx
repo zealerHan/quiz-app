@@ -292,6 +292,7 @@ export function DevicesTab({ devices, setDevices, hdrs }) {
             </div>
           ))}
         </div>
+        </div>
   );
 }
 

@@ -9,6 +9,7 @@ import { BANK_TYPES, BANK_TYPE_MAP, groupBanksByType } from "./admin/bankConstan
 
 // 人员 tab 子组件（2026-11-27 从本文件抽出）
 import { MembersTab, TrainingGroupsSection } from "./admin/MembersParts.jsx";
+import { LeaveTab, DevicesTab, LogsTab } from "./admin/SimpleTabParts.jsx";
 
 // 供下拉选择框使用的分组 select
 function AdminScreen({ onBack }) {
