@@ -4,6 +4,14 @@
 //
 // 只验证「页面能开、关键内容在、没有 JS 报错」。不测交互细节。
 // 组员端不需要密码，用测试账号 19991（韩思成）登录。
+//
+// ⚠️ 测试会在 login_devices 表留下登录记录，污染「设备留痕」的真实数据。
+// 清理方法（按 UA 标记精确删除，不误伤真人记录）：
+//   docker exec peixun node -e "
+//     const {db}=require('/app/server/db');
+//     db.prepare(\"DELETE FROM login_devices WHERE ua LIKE '%CrewUISMokeTest%'\").run();
+//   "
+// 所以下面给测试浏览器设了专属 UA —— 没有这个标记就分不清测试和真人。
 
 const { test, expect } = require("@playwright/test");
 

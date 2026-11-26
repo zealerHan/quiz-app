@@ -40,6 +40,11 @@ module.exports = defineConfig({
     // 用已下载的 chromium，不去重新下
     ...devices["Desktop Chrome"],
     viewport: { width: 1280, height: 900 },
+    // ★ 专属 UA 标记：测试会在 login_devices 表留记录，
+    //   有了这个标记才能和真人记录区分开、精确清理。
+    //   清理 SQL：DELETE FROM login_devices WHERE ua LIKE '%CrewUISMokeTest%'
+    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+             + "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 CrewUISMokeTest",
     // 忽略 https 证书问题（Cloudflare 正常不该有，但别让它挡测试）
     ignoreHTTPSErrors: true,
   },
@@ -47,10 +52,15 @@ module.exports = defineConfig({
     {
       name: "chromium",
       use: {
-        ...devices["Desktop Chrome"],
         // 用本机已装的 Chrome，不另外下载 Playwright 自带浏览器
         // （缓存里的版本号与 playwright 1.64 要的对不上，下载又要走代理）
         channel: "chrome",
+        // ⚠️ 注意顺序：devices 展开在前，userAgent 在后。
+        // devices["Desktop Chrome"] 自带 userAgent，放后面会把标记覆盖掉
+        // （踩过一次：标记没生效，测试记录和真人记录混在一起没法清）。
+        ...devices["Desktop Chrome"],
+        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                 + "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 CrewUISMokeTest",
       },
     },
   ],
