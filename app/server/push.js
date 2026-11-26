@@ -34,13 +34,13 @@ function formatTrainingLines(plan, dateLabel, mode) {
     const memberNames = (plan.zhxhMembers || []).map(m => m.real_name || m.name);
     const total       = plan.zhxhTotal || (leaderNames.length + memberNames.length);
     const attending   = memberNames.filter(n => !leaveNames.has(n));
+    // 班组长行保留名字，但去掉请假的（与「请假」「实到」联动，不写死）
     const leaderAttending = leaderNames.filter(n => !leaveNames.has(n));
     const actualCount = leaderAttending.length + attending.length;
 
-    if (leaderNames.length > 0) lines.push(`班组长：${leaderNames.join(' ')}`);
-    if (attending.length > 0)   lines.push(`👥 ${attending.join('、')}`);
+    if (leaderAttending.length > 0) lines.push(`班组长：${leaderAttending.join(' ')}`);
     if (leaveNames.size > 0)    lines.push(`🏖 请假：${[...leaveNames].join('、')}`);
-    lines.push(`应到 ${total} 人，实到 ${actualCount} 人`);
+    lines.push(`应到组内班表${total}人，实到${actualCount}人`);
   } else if (g) {
     const fixedIds = new Set((plan.fixedStaff || []).map(f => f.staff_id));
     const normalMembers = (g.members || []).filter(m => !fixedIds.has(m.id));
@@ -76,8 +76,9 @@ function formatTrainingLines(plan, dateLabel, mode) {
     const leaveContact = isZhxh ? '班组长' : '教员';
     lines.push(`⚠️ 如需请假，请在今晚 18:00 前联系${leaveContact}登记。`);
   } else if (mode === 'reminder') {
-    const verb = isZhxh ? '参加中旬会' : `前往${location}参加实操培训`;
-    lines.push(`🚀 请以上人员退勤后尽快${verb}！`);
+    // 中旬会固定 10:00 集合；普通培训仍按各自场地
+    const verb = isZhxh ? '10:00集合，请退勤后尽快回段避免影响会议进程。' : `前往${location}参加实操培训`;
+    lines.push(isZhxh ? `🚀 ${verb}` : `🚀 请以上人员退勤后尽快${verb}！`);
     // 底部追加本月培训项点（中旬会跳过）
     if (!isZhxh) {
       const parts = (plan.shift_date || '').split('-');
@@ -112,9 +113,78 @@ function logSkip(kind, detail) {
   console.log(`[push] 跳过${kind}（测试/调试模式）: ${String(detail || '').replace(/\n/g, ' ').slice(0, 80)}`);
 }
 
-// ── 教员群实时推送（纯文本）──────────────────────────────────────────────────
-async function sendGroupPush(text) {
-  if (pushDisabled()) { logSkip('群消息', text); return; }
+// ── 按群推送 ──────────────────────────────────────────────────────────────────
+// 现在有多个钉钉群，各自用途不同（老韩 2026-11-25 定）：
+//   CREW_MAIN_*  「乘务四组」大群    —— 全体组员群，申报预告/提醒发这里
+//   DINGTALK_GROUP_* 「四组办事情」群（骨干+管理群，狗蛋在此）
+//                 —— 顶班确认、申报/撤销变动都发这里
+//   DINGTALK_*      管理员群        —— 培训计划卡
+// 注意：狗蛋 = 培训系统接入钉钉群的机器人，它所在的群就是「四组办事情」群，
+// 所以 crewOps 与 group 是同一个 webhook（老韩 2026-11-25 确认）。
+// 不另设 CREW_OPS_* 变量，避免两份相同的值各自漂移。
+// 传 channel 决定发哪个群，默认沿用原来的狗蛋群，保持既有调用不变。
+const GROUP_CHANNELS = {
+  crewMain: { webhook: 'CREW_MAIN_WEBHOOK',       secret: 'CREW_MAIN_SECRET',       name: '乘务四组大群' },
+  crewOps:  { webhook: 'DINGTALK_GROUP_WEBHOOK',  secret: 'DINGTALK_GROUP_SECRET',  name: '四组办事情群' },
+  group:    { webhook: 'DINGTALK_GROUP_WEBHOOK',  secret: 'DINGTALK_GROUP_SECRET',  name: '四组办事情群（狗蛋）' },
+  admin:    { webhook: 'DINGTALK_WEBHOOK',        secret: 'DINGTALK_SECRET',        name: '管理员群' },
+};
+
+async function sendToChannel(channel, text, opts = {}) {
+  const conf = GROUP_CHANNELS[channel] || GROUP_CHANNELS.group;
+  const asMarkdown = !!opts.markdown;
+  const webhook = process.env[conf.webhook];
+  const secret  = process.env[conf.secret];
+
+  if (!webhook || !secret) {
+    console.error(`[push] 未配置「${conf.name}」的 webhook/secret（${conf.webhook}），跳过发送`);
+    return { errcode: -1, errmsg: `未配置${conf.name}` };
+  }
+  if (pushDisabled()) { logSkip(`${conf.name}${asMarkdown ? 'markdown' : '消息'}`, text); return { skipped: true }; }
+
+  try {
+    const timestamp = Date.now();
+    const sign = crypto.createHmac('sha256', secret).update(`${timestamp}\n${secret}`).digest('base64');
+    const url = `${webhook}&timestamp=${timestamp}&sign=${encodeURIComponent(sign)}`;
+    const payload = asMarkdown
+      ? { msgtype: 'markdown', markdown: { title: opts.title || '通知', text } }
+      : { msgtype: 'text', text: { content: text } };
+    // @ 人：官方要求 at 字段 + 正文里带 @手机号 同时存在才生效
+    if (opts.at && (opts.at.atMobiles?.length || opts.at.atUserIds?.length || opts.at.isAtAll)) {
+      payload.at = {
+        atMobiles: opts.at.atMobiles || [],
+        atUserIds: opts.at.atUserIds || [],
+        isAtAll: !!opts.at.isAtAll,
+      };
+    }
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (data && data.errcode !== undefined && data.errcode !== 0) {
+      console.error(`[push] 「${conf.name}」发送失败: ${data.errcode} ${data.errmsg}`);
+    }
+    return data;
+  } catch (e) {
+    console.error(`[push] 「${conf.name}」发送异常:`, e.message);
+    return { errcode: -1, errmsg: e.message };
+  }
+}
+
+// ── 教员群实时推送 ────────────────────────────────────────────────────────────
+// 默认 text；传 { markdown: true } 走 markdown 消息（可嵌 ![图片](URL)）。
+// 为什么需要 markdown：钉钉群机器人 Webhook 【不支持 image 消息】
+// （官方文档「消息类型」表：图片 Image 类型 接口方式 ✅ / Webhook 方式 ❌），
+// 想发图只能走 markdown 嵌图，且图片必须公网可访问。
+async function sendGroupPush(text, opts = {}) {
+  // opts.channel 可指定群；不传则沿用教员群（既有调用不受影响）
+  if (opts.channel && opts.channel !== 'group') {
+    return sendToChannel(opts.channel, text, opts);
+  }
+  const asMarkdown = !!opts.markdown;
+  if (pushDisabled()) { logSkip(asMarkdown ? '群markdown' : '群消息', text); return; }
   const webhook = process.env.DINGTALK_GROUP_WEBHOOK;
   const secret  = process.env.DINGTALK_GROUP_SECRET;
   if (!webhook || !secret) return;
@@ -122,12 +192,22 @@ async function sendGroupPush(text) {
     const timestamp = Date.now();
     const sign = crypto.createHmac('sha256', secret).update(`${timestamp}\n${secret}`).digest('base64');
     const url = `${webhook}&timestamp=${timestamp}&sign=${encodeURIComponent(sign)}`;
-    await fetch(url, {
+    const payload = asMarkdown
+      ? { msgtype: 'markdown', markdown: { title: opts.title || '通知', text } }
+      : { msgtype: 'text', text: { content: text } };
+    const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ msgtype: 'text', text: { content: text } }),
+      body: JSON.stringify(payload),
     });
-  } catch(e) { /* 推送失败不影响主流程 */ }
+    const data = await resp.json().catch(() => ({}));
+    if (data && data.errcode !== undefined && data.errcode !== 0) {
+      console.error(`[push] 钉钉群消息失败: ${data.errcode} ${data.errmsg}`);
+    }
+    return data;
+  } catch(e) {
+    console.error('[push] 钉钉群消息异常:', e.message);
+  }
 }
 
 // 格式化日期为 "4月13日"
@@ -228,4 +308,4 @@ async function flushMemberNotice(planId) {
   return text;
 }
 
-module.exports = { generateMagicToken, formatTrainingLines, sendGroupPush, fmtDate, getPlanMemberNames, sendDingTalkCard, isPushDisabled: pushDisabled, queueMemberNotice, flushMemberNotice };
+module.exports = { generateMagicToken, formatTrainingLines, sendGroupPush, sendToChannel, GROUP_CHANNELS, fmtDate, getPlanMemberNames, sendDingTalkCard, isPushDisabled: pushDisabled, queueMemberNotice, flushMemberNotice };

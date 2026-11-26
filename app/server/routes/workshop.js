@@ -717,7 +717,7 @@ month是1到12的数字。item是培训项点列的完整文字，不要省略�
         return;
       }
 
-      const model = messages[0].content?.[0]?.type === 'image_url' ? 'qwen-vl-plus' : 'qwen-plus';
+      const model = messages[0].content?.[0]?.type === 'image_url' ? 'qwen3-vl-plus' : 'qwen-plus';
       const resp = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${KEY}` },

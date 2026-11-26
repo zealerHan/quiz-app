@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { api, apiJson, adminHeaders, AppModal, Badge, ScoreRing, MiniBar } from "../shared.jsx";
+import { api, apiJson, adminHeaders, AppModal, Badge, ScoreRing, MiniBar, SHOW_LEADERBOARD } from "../shared.jsx";
 
 // ─── 题库分类常量（5分类体系 v2 · 用户定版 2026-09）──────────────────────────
 // 口径: emergency=车上设备故障（司机自办）/ abnormal=车外环境设施因素（多专业联动）
@@ -1667,6 +1667,71 @@ function AdminScreen({ onBack }) {
   const [pwd,setPwd]=useState(()=>localStorage.getItem('admin_pwd')||'');
   const [pwdErr,setPwdErr]=useState('');
   const [tab,setTab]=useState('overview');
+  const [wallPosts,setWallPosts]=useState([]);
+  const [leavePending,setLeavePending]=useState([]);
+  const [leavePendLoading,setLeavePendLoading]=useState(false);
+  // 周报批清单
+  const [weekBatch,setWeekBatch]=useState(null);
+  const [weekLoading,setWeekLoading]=useState(false);
+  const [weekAnchor,setWeekAnchor]=useState('');   // 空=默认下周
+
+  const loadWeekBatch = (week) => {
+    setWeekLoading(true);
+    const q = week ? `?week=${week}` : '';
+    apiJson('/api/leave/week-batch'+q,{headers:hdrs()})
+      .then(d=>{ if(d?.error) alert('加载失败：'+d.error); else setWeekBatch(d); })
+      .catch(e=>alert('加载失败：'+e))
+      .finally(()=>setWeekLoading(false));
+  };
+
+  const markReported = async () => {
+    if(!weekBatch) return;
+    if(!confirm(`确认「${weekBatch.week_start} ~ ${weekBatch.week_end}」已报车场组？\n本周已批准的休假会推进到「已报车场组」。`)) return;
+    try{
+      const r = await apiJson('/api/leave/week-batch/report',{
+        method:'POST', headers:hdrs(),
+        body: JSON.stringify({ week_start: weekBatch.week_start }),
+      });
+      if(r?.error) alert('操作失败：'+r.error);
+      else { alert(`已标记 ${r.reported_at}，推进 ${r.advanced} 条记录`); loadWeekBatch(weekAnchor||undefined); loadLeavePending(); }
+    }catch(e){ alert('操作失败：'+e); }
+  };
+
+  const copyBatchText = async () => {
+    if(!weekBatch?.text) return;
+    try{
+      await navigator.clipboard.writeText(weekBatch.text);
+      alert('已复制，可直接粘贴到车场组群里');
+    }catch(e){
+      // 兜底：选中文本让用户手动复制
+      const ta=document.createElement('textarea');
+      ta.value=weekBatch.text; document.body.appendChild(ta); ta.select();
+      try{ document.execCommand('copy'); alert('已复制'); }catch(_){ alert('复制失败，请手动长按选择'); }
+      document.body.removeChild(ta);
+    }
+  };
+
+  const loadLeavePending = () => {
+    setLeavePendLoading(true);
+    apiJson('/api/leave/pending',{headers:hdrs()})
+      .then(d=>setLeavePending(d?.records||[]))
+      .catch(()=>setLeavePending([]))
+      .finally(()=>setLeavePendLoading(false));
+  };
+
+  const reviewLeave = async (id, action, reason) => {
+    try {
+      const r = await apiJson(`/api/leave/${id}/review`, {
+        method:'POST', headers:hdrs(),
+        body: JSON.stringify({ action, reason }),
+      });
+      if (r?.error) alert('操作失败：'+r.error);
+      else { setRejectModal(null); setRejectReason(''); loadLeavePending(); }
+    } catch(e) { alert('操作失败：'+e); }
+  };
+  const [rejectModal,setRejectModal]=useState(null);
+  const [rejectReason,setRejectReason]=useState('');
+  const [wallLoaded,setWallLoaded]=useState(false);
   const [overview,setOverview]=useState(null);
   const [members,setMembers]=useState([]);
   const [selectedMember,setSelectedMember]=useState(null);
@@ -1675,6 +1740,7 @@ function AdminScreen({ onBack }) {
   const [settings,setSettings]=useState({});
   const [qr,setQr]=useState(null);
   const [logs,setLogs]=useState([]);
+  const [devices,setDevices]=useState(null);   // 登录/答题设备留痕
   const [lbSessions,setLbSessions]=useState([]);
   const [lbSessionsAlltime,setLbSessionsAlltime]=useState([]);
   const [lbMode,setLbMode]=useState('cycle'); // 'cycle'|'alltime'
@@ -1738,6 +1804,7 @@ function AdminScreen({ onBack }) {
   const [pinCancelModal,setPinCancelModal]=useState(false);
   const [quizCat,setQuizCat]=useState(null);   // 新版选题来源分类
   const [quizBankId,setQuizBankId]=useState(null); // null=整类随机, '<id>'=指定题库
+  const [multiBankIds,setMultiBankIds]=useState([]); // 多选题库（跨分类均衡随机）
   const ah=useMemo?undefined:adminHeaders(pwd); // will pass inline
   const hdrs=(extra={})=>({...adminHeaders(pwd),'Content-Type':'application/json',...extra});
 
@@ -1752,9 +1819,12 @@ function AdminScreen({ onBack }) {
     if(!authed)return;
     if(tab==='overview'){apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});apiJson('/api/admin/leaderboard/alltime',{headers:hdrs()}).then(d=>setLbSessionsAlltime(Array.isArray(d)?d:(d.rows||[]))).catch(()=>{});apiJson('/api/admin/weak-questions',{headers:hdrs()}).then(setWeakQuestions).catch(()=>{});apiJson('/api/export/months',{headers:hdrs()}).then(setExportMonths).catch(()=>{});apiJson('/api/admin/month-plan-completion',{headers:hdrs()}).then(setMonthPlanCompletion).catch(()=>{});apiJson('/api/admin/month-member-completion',{headers:hdrs()}).then(setMonthMemberCompletion).catch(()=>{});apiJson('/api/admin/remediation/records',{headers:hdrs()}).then(setRemRecords).catch(()=>{});}
     if(tab==='members')apiJson('/api/admin/members',{headers:hdrs()}).then(setMembers).catch(()=>{});
-    if(tab==='banks'){apiJson('/api/banks',{headers:hdrs()}).then(d=>{setBanks(d);if(d.length>0){setAiBankId(String(d[0].id));setPinFallback(String(d[0].id));}const manualBank=d.find(b=>b.name==='人工提问');if(manualBank)setAddQ(q=>({...q,bank_id:String(manualBank.id)}));}).catch(()=>{});apiJson('/api/settings',{headers:hdrs()}).then(setSettings).catch(()=>{});apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(d=>{setQPinned(d);setQSelected(d.ids||[]);setPinScope(d.scope==='none'?'shift':d.scope);setPinFallback(d.bank_fallback_id?String(d.bank_fallback_id):'');setPinCount(d.count||3);setPinMode(d.bank_ids?.length>0?'manual':d.mode||'emergency');setPinRandomBankId(d.bank_id||null);setCheckedBankIds(d.bank_ids||[]);}).catch(()=>{});}
+    if(tab==='banks'){apiJson('/api/banks',{headers:hdrs()}).then(d=>{setBanks(d);if(d.length>0){setAiBankId(String(d[0].id));setPinFallback(String(d[0].id));}const manualBank=d.find(b=>b.name==='人工提问');if(manualBank)setAddQ(q=>({...q,bank_id:String(manualBank.id)}));}).catch(()=>{});apiJson('/api/settings',{headers:hdrs()}).then(setSettings).catch(()=>{});apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(d=>{setQPinned(d);setQSelected(d.ids||[]);setPinScope(d.scope==='none'?'shift':d.scope);setPinFallback(d.bank_fallback_id?String(d.bank_fallback_id):'');setPinCount(d.count||3);setPinMode(d.bank_ids?.length>0?'manual':d.mode||'emergency');setPinRandomBankId(d.bank_id||null);setCheckedBankIds(d.bank_ids||[]);setMultiBankIds(d.bank_ids||[]);}).catch(()=>{});}
+    if(tab==='leave'){ loadLeavePending(); loadWeekBatch(weekAnchor||undefined); }
+    if(tab==='wall'){ apiJson('/api/wall/admin/posts',{headers:hdrs()}).then(d=>{setWallPosts(d?.posts||[]);setWallLoaded(true);}).catch(()=>{setWallPosts([]);setWallLoaded(true);}); }
     if(tab==='qr')apiJson('/api/qrcode').then(setQr).catch(()=>{});
     if(tab==='logs')apiJson('/api/admin/logs',{headers:hdrs()}).then(setLogs).catch(()=>{});
+    if(tab==='devices')apiJson('/api/admin/login-devices?days=7',{headers:hdrs()}).then(setDevices).catch(()=>{});
   },[tab,authed]);
   useEffect(()=>{
     if(!authed||tab!=='overview')return;
@@ -1795,7 +1865,7 @@ function AdminScreen({ onBack }) {
     <div className="screen admin-screen">
       <div className="page-header"><button className="back-btn" onClick={onBack}>←</button><h2>管理员后台</h2><button onClick={logout} style={{fontSize:11,color:'var(--muted)',background:'none',border:'1px solid var(--border)',borderRadius:5,padding:'3px 9px',cursor:'pointer'}}>退出登录</button></div>
       <div className="tab-row" style={{flexWrap:'wrap',gap:5}}>
-        {[['overview','概览'],['members','人员'],['banks','题库'],['settings','设置'],['logs','日志'],['qr','扫码']].map(([k,v])=>(
+        {[['overview','概览'],['members','人员'],['leave','休假'],['banks','题库'],['wall','留言'],['settings','设置'],['logs','日志'],['devices','设备'],['qr','扫码']].map(([k,v])=>(
           <button key={k} className={`tab${tab===k?' active':''}`} style={{flex:'none',padding:'7px 12px'}} onClick={()=>setTab(k)}>{v}</button>
         ))}
       </div>
@@ -2364,8 +2434,8 @@ function AdminScreen({ onBack }) {
             </div>
           )}
 
-          {/* ── 积分榜（双列） ── */}
-          {(()=>{
+          {/* ── 积分榜（双列）· SHOW_LEADERBOARD=false 时隐藏，代码保留 ── */}
+          {SHOW_LEADERBOARD && (()=>{
             const AdminLbCol = ({title, rows, mode, collapsed, setCollapsed})=>{
               const shown = collapsed ? rows.slice(0,3) : rows;
               const badges = r => (<>
@@ -2577,6 +2647,252 @@ function AdminScreen({ onBack }) {
 
         {tab==='members'&&<MembersTab members={members} pwd={pwd} onRefresh={()=>apiJson('/api/admin/members',{headers:hdrs()}).then(setMembers).catch(()=>{})} selectedMember={selectedMember} setSelectedMember={setSelectedMember} memberDetail={memberDetail} loadMemberDetail={loadMemberDetail}/>}
 
+        {tab==='wall'&&(
+          <div style={{padding:'0 2px'}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+              <span style={{fontSize:12.5,fontWeight:700,color:'var(--text)'}}>留言管理</span>
+              <span style={{fontSize:10.5,color:'var(--muted)'}}>共 {wallPosts.length} 条 · 前台显示署名，真身仅后台可见</span>
+              <button onClick={()=>{apiJson('/api/wall/admin/posts',{headers:hdrs()}).then(d=>setWallPosts(d?.posts||[])).catch(()=>{});}}
+                style={{marginLeft:'auto',fontSize:11,padding:'4px 10px',borderRadius:6,background:'var(--card)',border:'1px solid var(--border)',color:'var(--text)',cursor:'pointer'}}>刷新</button>
+            </div>
+            {!wallLoaded&&<div style={{fontSize:11.5,color:'var(--muted)',padding:'20px 0',textAlign:'center'}}>加载中…</div>}
+            {wallLoaded&&wallPosts.length===0&&<div style={{fontSize:11.5,color:'var(--muted)',padding:'20px 0',textAlign:'center'}}>还没有留言</div>}
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {wallPosts.map(p=>(
+                <div key={p.id} style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:11,padding:'10px 12px',opacity:p.is_hidden?0.45:1}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:5}}>
+                    <span style={{fontSize:12.5,fontWeight:700,color:'#7ec8f0'}}>{p.nick}</span>
+                    <span style={{fontSize:10,color:'var(--muted)'}}>{p.created_at}</span>
+                    {p.is_hidden?<span style={{fontSize:9.5,color:'var(--p-red-60)',border:'1px solid var(--p-red-60)',borderRadius:4,padding:'0 4px'}}>已隐藏</span>:null}
+                    <button onClick={async()=>{
+                        try{
+                          await apiJson(`/api/wall/admin/${p.id}/hide`,{method:'POST',headers:hdrs(),body:JSON.stringify({hidden:!p.is_hidden})});
+                          const d=await apiJson('/api/wall/admin/posts',{headers:hdrs()});setWallPosts(d?.posts||[]);
+                        }catch(e){alert('操作失败：'+e);}
+                      }}
+                      style={{marginLeft:'auto',fontSize:10.5,padding:'3px 9px',borderRadius:5,cursor:'pointer',
+                        background:'transparent',border:'1px solid var(--border)',color:p.is_hidden?'var(--p-green-52)':'var(--p-red-60)'}}>
+                      {p.is_hidden?'恢复':'隐藏'}
+                    </button>
+                  </div>
+                  <div style={{fontSize:12.5,lineHeight:1.5,color:'var(--text)',wordBreak:'break-word',marginBottom:6}}>{p.content}</div>
+                  <div style={{fontSize:10,color:'var(--muted)',borderTop:'1px dashed var(--border)',paddingTop:5}}>
+                    真身：{p.real_name||'未知'}（{p.staff_id||'-'}）
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab==='leave'&&(
+          <div style={{padding:'0 2px'}}>
+            {/* ══ 周报批清单 ══ */}
+            <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:11,padding:'11px 13px',marginBottom:12}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:9}}>
+                <span style={{fontSize:12.5,fontWeight:700,color:'var(--text)'}}>周报批清单</span>
+                {weekBatch && (
+                  <span style={{fontSize:10.5,color:'var(--muted)'}}>
+                    {weekBatch.week_start} ~ {weekBatch.week_end}
+                  </span>
+                )}
+                {weekBatch?.reported_at && (
+                  <span style={{fontSize:9.5,padding:'1px 6px',borderRadius:5,
+                    background:'rgba(92,194,124,0.16)',border:'1px solid rgba(92,194,124,0.5)',color:'#5cc27c'}}>已报</span>
+                )}
+              </div>
+
+              <div style={{display:'flex',gap:6,marginBottom:10,flexWrap:'wrap'}}>
+                <input type="date" value={weekAnchor} onChange={e=>{setWeekAnchor(e.target.value); if(e.target.value) loadWeekBatch(e.target.value);}}
+                  style={{flex:'1 1 120px',fontSize:11.5,padding:'6px 8px',borderRadius:7,
+                    background:'var(--card-deep)',border:'1px solid var(--border)',color:'var(--text)',fontFamily:'var(--font)'}}/>
+                <button onClick={()=>loadWeekBatch(undefined)}
+                  style={{fontSize:11.5,padding:'6px 12px',borderRadius:7,background:'rgba(91,155,250,0.16)',
+                    border:'1px solid rgba(91,155,250,0.5)',color:'#7ec8f0',cursor:'pointer',fontWeight:600}}>
+                  {weekBatch ? '刷新' : '加载下周'}
+                </button>
+              </div>
+
+              {weekLoading && <div style={{fontSize:11.5,color:'var(--muted)',padding:'14px 0',textAlign:'center'}}>加载中…</div>}
+
+              {!weekLoading && weekBatch && (
+                <>
+                  {/* 汇总行 */}
+                  <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:9,fontSize:11.5}}>
+                    <span style={{color:'var(--text)'}}>休假 <b>{weekBatch.total_people}</b> 人</span>
+                    <span style={{color:'var(--muted)'}}>日名额 {weekBatch.quota} 人</span>
+                    {weekBatch.over_quota_days.length > 0 && (
+                      <span style={{color:'#e8723c',fontWeight:700}}>⚠ {weekBatch.over_quota_days.length} 天超名额</span>
+                    )}
+                  </div>
+
+                  {/* 每日人数条形 */}
+                  <div style={{display:'flex',gap:4,marginBottom:11}}>
+                    {weekBatch.per_day.map(d=>{
+                      const over = d.count > weekBatch.quota;
+                      return (
+                        <div key={d.date} style={{flex:1,textAlign:'center'}}>
+                          <div style={{fontSize:9,color:'var(--muted)',marginBottom:3}}>{d.label}</div>
+                          <div style={{
+                            height:26,borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',
+                            fontSize:11,fontWeight:800,
+                            background: d.count===0 ? 'var(--card-deep)' : over ? 'rgba(232,114,60,0.22)' : 'rgba(91,155,250,0.20)',
+                            border: `1px solid ${d.count===0 ? 'var(--border)' : over ? 'rgba(232,114,60,0.6)' : 'rgba(91,155,250,0.5)'}`,
+                            color: d.count===0 ? 'var(--muted)' : over ? '#e8723c' : '#7ec8f0',
+                          }}>{d.count}</div>
+                          <div style={{fontSize:8.5,color:'var(--muted)',marginTop:2}}>{d.date.slice(8)}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* 名单 */}
+                  {weekBatch.people.length === 0 ? (
+                    <div style={{fontSize:11.5,color:'var(--muted)',padding:'12px 0',textAlign:'center'}}>本周无已批准的休假</div>
+                  ) : (
+                    <div style={{marginBottom:10}}>
+                      {weekBatch.people.map((p,i)=>(
+                        <div key={p.staff_id} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 0',
+                          borderBottom:i<weekBatch.people.length-1?'1px solid var(--border)':'none',fontSize:11.5}}>
+                          <span style={{width:16,color:'var(--muted)',fontSize:10}}>{i+1}</span>
+                          <span style={{fontWeight:700,color:'var(--text)',minWidth:52}}>{p.real_name}</span>
+                          <span style={{flex:1,color:'var(--muted)',fontSize:10.5}}>
+                            {p.items.map(it=>`${it.start.slice(5)}~${it.end.slice(5)}${it.leave_type?'（'+it.leave_type+'）':''}`).join('、')}
+                          </span>
+                          <span style={{fontWeight:700,color:'var(--text)'}}>{p.total_days}天</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 操作 */}
+                  <div style={{display:'flex',gap:7}}>
+                    <button onClick={copyBatchText}
+                      style={{flex:1,padding:'8px 0',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',
+                        background:'rgba(91,155,250,0.18)',border:'1px solid rgba(91,155,250,0.5)',color:'#7ec8f0'}}>
+                      复制清单
+                    </button>
+                    {!weekBatch.reported_at && (
+                      <button onClick={markReported}
+                        style={{flex:1,padding:'8px 0',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',
+                          background:'rgba(92,194,124,0.18)',border:'1px solid rgba(92,194,124,0.5)',color:'#5cc27c'}}>
+                        标记已报
+                      </button>
+                    )}
+                  </div>
+                  {weekBatch.reported_at && (
+                    <div style={{fontSize:10.5,color:'#5cc27c',marginTop:8,textAlign:'center'}}>
+                      已于 {weekBatch.reported_at} 报车场组
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+              <span style={{fontSize:12.5,fontWeight:700,color:'var(--text)'}}>休假审批</span>
+              <span style={{fontSize:10.5,color:'var(--muted)'}}>待审 {leavePending.length} 条</span>
+              <button onClick={loadLeavePending}
+                style={{marginLeft:'auto',fontSize:11,padding:'4px 10px',borderRadius:6,background:'var(--card)',border:'1px solid var(--border)',color:'var(--text)',cursor:'pointer'}}>刷新</button>
+            </div>
+
+            {leavePendLoading && <div style={{fontSize:11.5,color:'var(--muted)',padding:'20px 0',textAlign:'center'}}>加载中…</div>}
+            {!leavePendLoading && leavePending.length===0 && (
+              <div style={{fontSize:11.5,color:'var(--muted)',padding:'24px 0',textAlign:'center'}}>没有待审的休假申请</div>
+            )}
+
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {leavePending.map(r=>{
+                const isCancel = r.status==='cancel_pending';
+                const bal = r.balance;
+                return (
+                <div key={r.id} style={{background:'var(--card)',border:`1px solid ${isCancel?'rgba(232,167,38,0.55)':'var(--border)'}`,borderRadius:11,padding:'11px 13px'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+                    <span style={{fontSize:13,fontWeight:700,color:'var(--text)'}}>{r.real_name||r.name||r.staff_id}</span>
+                    <span style={{fontSize:10,color:'var(--muted)'}}>{r.staff_id}</span>
+                    <span style={{fontSize:10.5,padding:'1px 7px',borderRadius:5,
+                      background:'rgba(91,155,250,0.16)',border:'1px solid rgba(91,155,250,0.4)',color:'#7ec8f0'}}>{r.leave_type}</span>
+                    {isCancel && (
+                      <span style={{fontSize:10,padding:'1px 7px',borderRadius:5,
+                        background:'rgba(232,167,38,0.16)',border:'1px solid rgba(232,167,38,0.5)',color:'#e8a726'}}>撤销待批</span>
+                    )}
+                    <span style={{marginLeft:'auto',fontSize:10,color:'var(--muted)'}}>{r.created_at}</span>
+                  </div>
+                  <div style={{fontSize:12.5,color:'var(--text)',marginBottom:6}}>
+                    {r.start_date} ~ {r.end_date}
+                    <span style={{marginLeft:8,fontSize:11.5,fontWeight:700,color:isCancel?'var(--muted)':'var(--p-amber-61,#e4bd48)'}}>扣 {r.days} 天</span>
+                  </div>
+
+                  {/* 撤销原因 */}
+                  {isCancel && r.cancel_reason && (
+                    <div style={{fontSize:11,color:'#e8a726',background:'rgba(232,167,38,0.10)',
+                      border:'1px solid rgba(232,167,38,0.3)',borderRadius:8,padding:'6px 9px',marginBottom:8,lineHeight:1.6}}>
+                      撤销原因：{r.cancel_reason}
+                    </div>
+                  )}
+
+                  {/* 余额提示（仅年休） */}
+                  {bal && (
+                    <div style={{
+                      fontSize:10.5,lineHeight:1.7,marginBottom:8,padding:'6px 9px',borderRadius:8,
+                      background: bal.enough ? 'rgba(92,194,124,0.10)' : 'rgba(232,114,60,0.12)',
+                      border: `1px solid ${bal.enough ? 'rgba(92,194,124,0.32)' : 'rgba(232,114,60,0.42)'}`,
+                      color: bal.enough ? '#5cc27c' : '#e8723c',
+                    }}>
+                      年休余额 {bal.left} 天（应得 {bal.total} · 已休 {bal.used}）
+                      ，本次扣 {bal.need} 天 → 批后剩 <b>{bal.after}</b> 天
+                      {!bal.enough && <><br/>余额不够，请人工确认后再批</>}
+                    </div>
+                  )}
+
+                  <div style={{display:'flex',gap:8}}>
+                    {isCancel ? (
+                      <>
+                        <button onClick={()=>reviewLeave(r.id,'approve-cancel')}
+                          style={{flex:1,padding:'7px 0',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',
+                            background:'rgba(92,194,124,0.18)',border:'1px solid rgba(92,194,124,0.5)',color:'#5cc27c'}}>同意撤销</button>
+                        <button onClick={()=>reviewLeave(r.id,'reject-cancel','撤销未被同意')}
+                          style={{flex:1,padding:'7px 0',borderRadius:8,fontSize:12,cursor:'pointer',
+                            background:'transparent',border:'1px solid var(--p-red-60)',color:'var(--p-red-60)'}}>不同意</button>
+                      </>
+                    ) : (
+                      <>
+                        <button onClick={()=>reviewLeave(r.id,'approve')}
+                          style={{flex:1,padding:'7px 0',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',
+                            background:bal&&!bal.enough?'rgba(232,114,60,0.18)':'rgba(92,194,124,0.18)',
+                            border:`1px solid ${bal&&!bal.enough?'rgba(232,114,60,0.55)':'rgba(92,194,124,0.5)'}`,
+                            color:bal&&!bal.enough?'#e8723c':'#5cc27c'}}>批准</button>
+                        <button onClick={()=>{setRejectModal(r);setRejectReason('');}}
+                          style={{flex:1,padding:'7px 0',borderRadius:8,fontSize:12,cursor:'pointer',
+                            background:'transparent',border:'1px solid var(--p-red-60)',color:'var(--p-red-60)'}}>驳回</button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                );
+              })}
+            </div>
+
+            {rejectModal && (
+              <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.65)',display:'flex',alignItems:'center',justifyContent:'center',padding:20,zIndex:50}}
+                onClick={()=>setRejectModal(null)}>
+                <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:340,background:'var(--card)',border:'1px solid var(--border)',borderRadius:16,padding:'18px 16px'}}>
+                  <div style={{fontSize:14,fontWeight:700,color:'var(--text)',marginBottom:10}}>驳回 {rejectModal.real_name||rejectModal.staff_id} 的申请</div>
+                  <input value={rejectReason} onChange={e=>setRejectReason(e.target.value)}
+                    placeholder="驳回原因（会告知本人）" maxLength={60}
+                    style={{width:'100%',boxSizing:'border-box',background:'var(--card-deep)',border:'1px solid var(--border)',borderRadius:9,padding:'9px 11px',fontSize:12.5,color:'var(--text)',outline:'none',marginBottom:12}} />
+                  <div style={{display:'flex',gap:8}}>
+                    <button onClick={()=>setRejectModal(null)}
+                      style={{flex:1,padding:'9px 0',borderRadius:9,fontSize:12.5,background:'var(--card-deep)',border:'1px solid var(--border)',color:'var(--text)',cursor:'pointer'}}>取消</button>
+                    <button onClick={()=>reviewLeave(rejectModal.id,'reject',rejectReason||'未说明')}
+                      style={{flex:1,padding:'9px 0',borderRadius:9,fontSize:12.5,fontWeight:700,background:'rgba(220,80,80,0.85)',border:'1px solid rgba(220,80,80,0.6)',color:'#fff',cursor:'pointer'}}>确认驳回</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {tab==='banks'&&<>
 
           {/* 子导航 */}
@@ -2602,12 +2918,17 @@ function AdminScreen({ onBack }) {
             const quizBanksInCat = quizCat ? (bankGroups2[quizCat]||[]) : [];
             const canSave = pinMode==='manual'
               ? qSelected.length > 0
-              : !!quizCat && (quizCat==='emergency' || quizBanksInCat.length > 0);
+              : multiBankIds.length > 0
+                ? true
+                : !!quizCat && (quizCat==='emergency' || quizBanksInCat.length > 0);
 
             const doSave = async()=>{
               let mode, bank_id=null, bank_ids=[], ids=[], count=pinCount;
               if (pinMode==='manual') {
                 mode = 'manual'; ids = qSelected; count = Math.min(pinCount, qSelected.length);
+              } else if (multiBankIds.length > 0) {
+                // 多选题库：均衡随机
+                mode = 'random'; bank_ids = multiBankIds;
               } else if (quizCat==='emergency') {
                 mode = 'emergency';
               } else if (quizBankId) {
@@ -2623,7 +2944,7 @@ function AdminScreen({ onBack }) {
                   if(d.mode==='manual'){setPinMode('manual');setQSelected(d.ids||[]);}
                   else if(d.mode==='emergency'){setPinMode('emergency');setQuizCat('emergency');}
                   else if(d.bank_id){setPinMode('random');const b=banks.find(x=>x.id===d.bank_id);if(b){setQuizCat(b.bank_type||'essential');setQuizBankId(String(b.id));}}
-                  else if(d.bank_ids?.length>0){setPinMode('random');const b=banks.find(x=>x.id===d.bank_ids[0]);if(b){setQuizCat(b.bank_type||'essential');setQuizBankId(null);}}
+                  else if(d.bank_ids?.length>0){setPinMode('random');const b=banks.find(x=>x.id===d.bank_ids[0]);if(b){setQuizCat(b.bank_type||'essential');setQuizBankId(null);}setMultiBankIds(d.bank_ids);}
                 });
                 setPinSaveModal(false); setPinFormOpen(false);
                 apiJson('/api/admin/dingtalk/notify-start',{method:'POST',headers:hdrs(),body:JSON.stringify({ids,mode,count,bank_id,bank_ids,scope:pinScope})}).catch(()=>null);
@@ -2732,23 +3053,39 @@ function AdminScreen({ onBack }) {
                   </div>
                   {quizCat && quizCat!=='emergency' && quizBanksInCat.length > 0 && (
                     <div style={{marginTop:8,padding:'8px 10px',background:'var(--p-navy-07-a50)',border:'1px solid var(--border)',borderRadius:8}}>
+                      <div style={{fontSize:11,color:'var(--muted)',marginTop:2,marginBottom:6}}>可只选一个，也可多选混合（多选时按题库均衡抽取，保证每个题库都能抽到）</div>
                       <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
-                        {quizBanksInCat.length > 1 && (
-                          <button onClick={()=>setQuizBankId(null)}
-                            style={{padding:'5px 10px',borderRadius:6,border:`1px solid ${!quizBankId?'var(--blue)':'var(--border)'}`,background:!quizBankId?'var(--p-blue-60-a15)':'none',color:!quizBankId?'var(--p-blue-68)':'var(--muted)',fontSize:11,cursor:'pointer',fontWeight:!quizBankId?700:400}}>
-                            🎲 全类随机
-                          </button>
-                        )}
-                        {quizBanksInCat.map(b=>(
-                          <button key={b.id} onClick={()=>setQuizBankId(String(b.id))}
-                            style={{padding:'5px 10px',borderRadius:6,border:`1px solid ${quizBankId===String(b.id)?'var(--blue)':'var(--border)'}`,background:quizBankId===String(b.id)?'var(--p-blue-60-a15)':'none',color:quizBankId===String(b.id)?'var(--p-blue-68)':'var(--muted)',fontSize:11,cursor:'pointer',maxWidth:'100%',textAlign:'left'}}>
-                            {b.name} <span style={{opacity:0.6,fontSize:11}}>({b.q_count||0}题)</span>
-                          </button>
-                        ))}
+                        <button onClick={()=>{setQuizBankId(null);setMultiBankIds([]);}}
+                          style={{padding:'5px 10px',borderRadius:6,border:`1px solid ${!quizBankId&&multiBankIds.length===0?'var(--blue)':'var(--border)'}`,background:!quizBankId&&multiBankIds.length===0?'var(--p-blue-60-a15)':'none',color:!quizBankId&&multiBankIds.length===0?'var(--p-blue-68)':'var(--muted)',fontSize:11,cursor:'pointer',fontWeight:!quizBankId&&multiBankIds.length===0?700:400}}>
+                          🎲 全类随机
+                        </button>
+                        {quizBanksInCat.map(b=>{
+                          const multiSel = multiBankIds.includes(b.id);
+                          const singleSel = quizBankId===String(b.id);
+                          const sel = multiSel||singleSel;
+                          return (
+                            <button key={b.id} onClick={()=>{
+                              // 点第一个题库→单选；再点其他题库→转多选
+                              if (singleSel) { setQuizBankId(null); setMultiBankIds([]); return; }
+                              if (quizBankId && !multiSel) { setMultiBankIds([parseInt(quizBankId), b.id]); setQuizBankId(null); return; }
+                              if (multiSel) { const nx=multiBankIds.filter(x=>x!==b.id); setMultiBankIds(nx); if(nx.length===1) setQuizBankId(String(nx[0])); if(nx.length===0) setQuizBankId(null); return; }
+                              if (multiBankIds.length>0) { setMultiBankIds([...multiBankIds, b.id]); return; }
+                              setQuizBankId(String(b.id));
+                            }}
+                              style={{padding:'5px 10px',borderRadius:6,border:`1px solid ${sel?'var(--blue)':'var(--border)'}`,background:sel?'var(--p-blue-60-a15)':'none',color:sel?'var(--p-blue-68)':'var(--muted)',fontSize:11,cursor:'pointer',maxWidth:'100%',textAlign:'left',fontWeight:sel?700:400}}>
+                              {sel?'✓ ':''}{b.name} <span style={{opacity:0.6,fontSize:11}}>({b.q_count||0}题)</span>
+                            </button>
+                          );
+                        })}
                       </div>
                       {quizBankId && <div style={{marginTop:6,fontSize:11,color:'var(--muted)'}}>已选：{banks.find(b=>String(b.id)===quizBankId)?.name}</div>}
-                      {!quizBankId && quizBanksInCat.length > 1 && <div style={{marginTop:6,fontSize:11,color:'var(--muted)'}}>将从该分类 {quizBanksInCat.length} 个题库混合随机出题</div>}
-                      {!quizBankId && quizBanksInCat.length === 1 && (()=>{setQuizBankId(String(quizBanksInCat[0].id));return null;})()}
+                      {multiBankIds.length>0 && (
+                        <div style={{marginTop:6,fontSize:11,color:'var(--p-blue-68)'}}>
+                          已选 {multiBankIds.length} 个题库混合随机（均衡抽取，每个题库至少 1 题）
+                        </div>
+                      )}
+                      {!quizBankId && multiBankIds.length===0 && quizBanksInCat.length > 1 && <div style={{marginTop:6,fontSize:11,color:'var(--muted)'}}>将从该分类 {quizBanksInCat.length} 个题库混合随机出题</div>}
+                      {!quizBankId && multiBankIds.length===0 && quizBanksInCat.length === 1 && (()=>{setQuizBankId(String(quizBanksInCat[0].id));return null;})()}
                     </div>
                   )}
                   {quizCat==='emergency' && (
@@ -3140,6 +3477,72 @@ function AdminScreen({ onBack }) {
           </div>
         )}
 
+        {tab==='devices'&&(()=>{
+          // 设备留痕：只读。用途是发现「替人答题」——
+          // 一人多设备 = 同一个人今天用了几台不同手机
+          // 设备共用 = 同一台手机换着给几个人答
+          const d = devices;
+          const card = {background:'var(--card)',border:'1px solid var(--border)',borderRadius:10,padding:12,marginBottom:10};
+          const h = {fontSize:11,color:'var(--muted)',fontWeight:600,letterSpacing:0.5,marginBottom:8};
+          if(!d) return <div className="card"><div style={{fontSize:13,color:'var(--muted)'}}>加载中…</div></div>;
+          return (
+            <div>
+              <div className="card">
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+                  <div style={{fontSize:13,fontWeight:700,color:'var(--text)'}}>🔍 登录/答题设备留痕</div>
+                  <button onClick={()=>apiJson('/api/admin/login-devices?days=7',{headers:hdrs()}).then(setDevices).catch(()=>{})}
+                    style={{fontSize:11,color:'var(--blue)',background:'none',border:'none',cursor:'pointer'}}>刷新</button>
+                </div>
+                <div style={{fontSize:11,color:'var(--muted)',lineHeight:1.7,marginBottom:10}}>
+                  只记录、不拦截。用途是发现「用别人工号答题」。<br/>
+                  统计口径是<b>今天</b>：一个人用了几台设备、一台设备被几个人用。
+                </div>
+
+                <div style={card}>
+                  <div style={h}>⚠ 今天用了多台设备</div>
+                  {d.multiDevice.length===0
+                    ? <div style={{fontSize:12,color:'var(--muted)'}}>无 —— 每人只用了一台</div>
+                    : d.multiDevice.map(x=>(
+                        <div key={x.staffId} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid var(--p-navy-22-a30)',fontSize:12}}>
+                          <span style={{color:'var(--text)'}}>{x.staffName} <span style={{color:'var(--muted)',fontSize:11}}>Y{x.staffId}</span></span>
+                          <span style={{color:'var(--amber)',fontWeight:600}}>{x.deviceCount} 台设备 · {x.records} 次</span>
+                        </div>
+                      ))}
+                </div>
+
+                <div style={card}>
+                  <div style={h}>⚠ 今天一台设备被多人使用</div>
+                  {d.sharedDevice.length===0
+                    ? <div style={{fontSize:12,color:'var(--muted)'}}>无</div>
+                    : d.sharedDevice.map(x=>(
+                        <div key={x.deviceId} style={{padding:'6px 0',borderBottom:'1px solid var(--p-navy-22-a30)',fontSize:12}}>
+                          <span style={{color:'var(--amber)',fontWeight:600}}>{x.staffIds.length} 人共用一台设备：</span>
+                          <span style={{color:'var(--text)'}}>{x.staffIds.join('、')}</span>
+                        </div>
+                      ))}
+                </div>
+              </div>
+
+              <div className="card" style={{padding:0,overflow:'hidden'}}>
+                <div style={{padding:'12px 14px 8px',fontSize:11,color:'var(--muted)',fontWeight:600,letterSpacing:1,borderBottom:'1px solid var(--border)'}}>
+                  最近 7 天记录（{d.rows.length} 条）
+                </div>
+                {d.rows.length===0&&<div style={{textAlign:'center',color:'var(--muted)',padding:'24px 0',fontSize:13}}>暂无记录</div>}
+                {d.rows.map(r=>(
+                  <div key={r.id} style={{padding:'8px 14px',borderBottom:'1px solid var(--p-navy-22-a60)',fontSize:11}}>
+                    <div style={{display:'flex',justifyContent:'space-between',gap:8}}>
+                      <span style={{color:'var(--text)',fontWeight:600}}>{r.staff_name} <span style={{color:'var(--muted)',fontWeight:400}}>Y{r.staff_id}</span></span>
+                      <span style={{color:'var(--muted)',flexShrink:0}}>{r.created_at?.slice(5,16)}</span>
+                    </div>
+                    <div style={{color:'var(--muted)',marginTop:2}}>
+                      {r.action==='answer_start'?'📝 开始答题':'🔑 登录'} · {r.ua_short||'?'} {r.ip?('· '+r.ip):''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
         {tab==='logs'&&(
           <div className="card" style={{padding:0,overflow:'hidden'}}>
             <div style={{padding:'12px 14px 8px',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:'1px solid var(--border)'}}>

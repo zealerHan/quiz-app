@@ -1,7 +1,56 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { api, apiJson, AppModal, Badge, ScoreRing, MiniBar } from "./shared.jsx";
-import WorkshopScreen from "./screens/WorkshopScreen.jsx";
-import AdminScreen from "./screens/AdminScreen.jsx";
+import { api, apiJson, AppModal, Badge, ScoreRing, MiniBar, SHOW_LEADERBOARD } from "./shared.jsx";
+import { SquareModuleCard } from "./ModuleCard.jsx";
+// 代码分割（2026-11-27）：管理后台 266KB + 车间培训 168KB 拆成独立包。
+// 组员只答个题，不该被迫下载管理后台那 3500 行代码。实测原来首字节 1.3~3.3 秒。
+// 这两个页面组员基本不碰，等真进到那页再下载。
+import { lazy, Suspense } from "react";
+const WorkshopScreen = lazy(() => import("./screens/WorkshopScreen.jsx"));
+const AdminScreen = lazy(() => import("./screens/AdminScreen.jsx"));
+import LeaveScreen from "./screens/LeaveScreen.jsx";
+import ShiftCalendar from "./ShiftCalendar.jsx";
+import WallScreen, { WallCardBody } from "./screens/WallScreen.jsx";
+import LeaveApplyScreen from "./screens/LeaveApplyScreen.jsx";
+
+// 设备指纹（2026-11-26）：给「登录/答题留痕」用。
+// 目的不是精确识别设备（伪造很容易），而是让同一台手机有个稳定的标识 ——
+// 班长就能看出「同一个人今天用了两台不同手机答题」。
+// 存 localStorage，换浏览器/清缓存会变，这是已知局限，不影响用途。
+function getDeviceId() {
+  try {
+    let v = localStorage.getItem('quiz_device_id');
+    if (!v) {
+      v = (crypto.randomUUID ? crypto.randomUUID() : 'dev-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10));
+      localStorage.setItem('quiz_device_id', v);
+    }
+    return v;
+  } catch (_) { return ''; }
+}
+
+// 按需加载时的过渡画面（2026-11-27）。
+// 只在第一次进管理后台/车间培训时出现，通常一闪而过；网络慢时给个明确提示，
+// 而不是白屏让人以为点坏了。
+function LazyLoading() {
+  return (
+    <div style={{
+      minHeight: '100vh', display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center', gap: 14,
+      background: '#0d1b2a', color: '#8fb8dd',
+    }}>
+      <div style={{
+        width: 28, height: 28, borderRadius: '50%',
+        border: '3px solid rgba(143,184,221,.25)', borderTopColor: '#6ba5fb',
+        animation: 'lazySpin .8s linear infinite',
+      }}/>
+      <div style={{ fontSize: 13 }}>正在加载…</div>
+      <style>{`@keyframes lazySpin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
+
+
+
 
 // ─── Assets ────────────────────────────────────────────────────────────────
 // 背景图与滤镜已令牌化：见 CSS 的「④ 图片与背景配套」层（随主题变化）
@@ -25,7 +74,7 @@ function LoginScreen({ onLogin, onAdmin }) {
     if(!/^\d{4}$/.test(phone)){setErr("请输入手机号后4位");return;}
     setLoading(true);
     try{
-      const r = await api("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({staffId:id.trim(),phoneTail:phone.trim()})});
+      const r = await api("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({staffId:id.trim(),phoneTail:phone.trim(),deviceId:getDeviceId()})});
       const d = await r.json();
       if(!r.ok){ setErr(d.error||"登录失败"); return; }
       localStorage.setItem(LOGIN_STORAGE_KEY, JSON.stringify({staffId:id.trim(),phoneTail:phone.trim()}));
@@ -47,11 +96,11 @@ function LoginScreen({ onLogin, onAdmin }) {
         <div style={{textAlign:"center",marginBottom:28}}>
           <div style={{display:"inline-flex",alignItems:"center",gap:8,marginBottom:14}}>
             <div style={{width:8,height:8,borderRadius:"50%",background:"var(--color-accent)",boxShadow:"0 0 12px var(--p-amber-54-a60)",animation:"liveDotGold 2s ease-in-out infinite"}}/>
-            <span style={{fontSize:11,fontWeight:600,letterSpacing:3,color:"var(--color-accent)"}}>培训系统</span>
+            <span style={{fontSize:11,fontWeight:600,letterSpacing:3,color:"var(--color-accent)"}}>乘务四组</span>
             <div style={{width:8,height:8,borderRadius:"50%",background:"var(--color-accent)",boxShadow:"0 0 12px var(--p-amber-54-a60)",animation:"liveDotGold 2s ease-in-out infinite"}}/>
           </div>
-          <div style={{fontSize:20,fontWeight:700,letterSpacing:5,color:"var(--text-on-media)",marginBottom:5}}>乘务培训系统</div>
-          <div style={{fontSize:11,fontWeight:300,color:"var(--p-white-100-a50)",letterSpacing:2}}>OPERATIONS TRAINING SYSTEM</div>
+          <div style={{fontSize:20,fontWeight:700,letterSpacing:5,color:"var(--text-on-media)",marginBottom:5}}>乘务系统</div>
+          <div style={{fontSize:11,fontWeight:300,color:"var(--p-white-100-a50)",letterSpacing:2}}>CREW OPERATIONS SYSTEM</div>
         </div>
 
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:22}}>
@@ -91,7 +140,7 @@ function LoginScreen({ onLogin, onAdmin }) {
           </button>
         </form>
         <button onClick={onAdmin} style={{width:"100%",marginTop:12,background:"none",border:"none",color:"var(--p-white-100-a20)",fontSize:11,cursor:"pointer",fontFamily:"inherit",letterSpacing:1}}>管理员入口</button>
-        <div style={{marginTop:16,textAlign:"center",fontSize:11,color:"var(--p-white-100-a15)",letterSpacing:1}}>武汉地铁5号线乘务四组内训专用</div>
+        <div style={{marginTop:16,textAlign:"center",fontSize:11,color:"var(--p-white-100-a15)",letterSpacing:1}}>武汉地铁5号线 · 乘务四组</div>
       </div>
     </div>
   );
@@ -225,7 +274,7 @@ function QuizScreen({ user, onDone, onBack, mode='normal', practiceBankId=null }
                : '/api/questions';
     Promise.all([
       apiJson(qUrl),
-      api("/api/session/start",{method:"POST",body:JSON.stringify({staffId:user.staffId,staffName:user.name,isPractice})})
+      api("/api/session/start",{method:"POST",body:JSON.stringify({staffId:user.staffId,staffName:user.name,isPractice,deviceId:getDeviceId()})})
         .then(async r=>{ const d=await r.json(); if(!r.ok){ const err=new Error(d.error||'启动失败'); err.alreadyDone=d.alreadyDone; err.shiftDeadline=d.shiftDeadline; throw err; } return d; })
     ]).then(([qData,sData])=>{
       setQuestions(qData.questions||[]);
@@ -1177,6 +1226,9 @@ function HomeScreen({ user, nav }) {
   const [activeBank, setActiveBank] = useState(null);
   const [pinnedInfo, setPinnedInfo] = useState(null);
   const [taskDone, setTaskDone] = useState(false);
+  const [todayScore, setTodayScore] = useState(null); // 本轮班答题总分
+  const [wallRefresh, setWallRefresh] = useState(0);
+  const [leaveSummary, setLeaveSummary] = useState({ annual_left:'—', marriage_left:'—', paternity_left:'—', next_week_reported:true }); // 休假卡摘要
   const [isExempt, setIsExempt] = useState(false);
   const [quizInProgress, setQuizInProgress] = useState(null); // null or {answered, total}
   const [isInterrupted, setIsInterrupted] = useState(false);
@@ -1216,8 +1268,20 @@ function HomeScreen({ user, nav }) {
         const doneToday = !!cycSess || (d.recent || []).some(r => r.created_at && r.created_at.slice(0, 10) === today2);
         // 如果有待完成的复查授权，不标记为 done（用户需要去做复查）
         setTaskDone(doneToday && !(d.remRecord?.result === 'pending'));
+        // 本轮班答题总分（用于主页方形卡片显示）
+        const sc = cycSess?.total_score
+          ?? (d.recent || []).find(r => r.created_at && r.created_at.slice(0, 10) === today2)?.score;
+        if (sc != null) setTodayScore(Math.round(Number(sc)));
       }
     }).catch(() => {});
+
+    // 休假卡摘要（失败不阻塞主页）
+    const sid0 = user?.staffId || user?.id;
+    if (sid0) {
+      apiJson('/api/leave/summary', { headers: { 'x-staff-id': String(sid0) } }).then(d => {
+        if (d && !d.error) setLeaveSummary(d);
+      }).catch(() => {});
+    }
 
     apiJson('/api/leaderboard/cycle').then(d => {
       const rows = d.rows || [];
@@ -1349,267 +1413,156 @@ function HomeScreen({ user, nav }) {
   return (
     <div className="screen" style={{ background:'var(--bg)', paddingBottom:28 }}>
 
-      {/* ── 顶部欢迎 ── */}
+      {/* ── 顶部欢迎（右上角：个人中心按钮）── */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'18px 16px 6px' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <div style={{ fontSize:16, fontWeight:700, color:'var(--text)' }}>
-            你好，<span style={{ color:'var(--gold)' }}>{user.name || user.staffId}</span>
-            {isExempt && <span style={{ marginLeft:6, fontSize:11, color:'var(--muted)', fontWeight:400, verticalAlign:'middle' }}>班组长</span>}
-          </div>
+        <div style={{ fontSize:16, fontWeight:700, color:'var(--text)' }}>
+          你好，<span style={{ color:'var(--gold)' }}>{user.name || user.staffId}</span>
+          {isExempt && <span style={{ marginLeft:6, fontSize:11, color:'var(--muted)', fontWeight:400, verticalAlign:'middle' }}>班组长</span>}
         </div>
-        {/* 右侧：两排状态 */}
-        {(() => {
-          const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
-          const nextOp = (workshopStatus || []).find(s =>
-            s.relevant && s.plan_type !== '轮空' && s.shift_date >= today &&
-            !(s.plan_type === '中旬会' ? s.checked_in : s.instructor_confirmed)
-          );
-          const dateShort = d => { const x=new Date(d+'T00:00:00'); return `${x.getMonth()+1}月${x.getDate()}日`; };
-          return (
-            <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
-              {/* 行1：本轮班答题 */}
-              <div style={{ background:'var(--p-amber-54-a12)', border:'1px solid var(--p-amber-54-a35)', borderRadius:20, padding:'3px 11px', fontSize:11, color:'var(--gold)', fontWeight:700, whiteSpace:'nowrap' }}>
-                本轮班答题 {isExempt ? '免答' : taskDone ? '✅' : `${periodDone}/${periodTotal} 已完成`}
-              </div>
-              {/* 行2：下次回段/场 */}
-              <div style={{ fontSize:11, color:'var(--muted)', whiteSpace:'nowrap' }}>
-                {nextOp
-                  ? (() => {
-                      const isToday = nextOp.shift_date === today;
-                      const prefix = isToday ? '今日' : '下次';
-                      if (nextOp.plan_type === '中旬会') {
-                        return <span style={{color:'var(--gold)',fontWeight:600}}>{prefix}中旬会（全员回段）{isToday ? '' : dateShort(nextOp.shift_date)}</span>;
-                      }
-                      return <span>{prefix}{nextOp.location||'回段/场'} <span style={{color:'var(--gold)',fontWeight:600}}>{isToday ? '今天' : dateShort(nextOp.shift_date)}</span></span>;
-                    })()
-                  : <span>本月无待完成实操</span>
-                }
-              </div>
-            </div>
-          );
-        })()}
+        <button onClick={()=>nav('profile')} style={{
+          display:'flex', alignItems:'center', gap:4,
+          background:'var(--card-deep)', border:'1px solid var(--border)', borderRadius:10,
+          padding:'6px 12px', cursor:'pointer', fontFamily:'var(--font)',
+          fontSize:11.5, fontWeight:600, color:'var(--text)', whiteSpace:'nowrap',
+          WebkitTapHighlightColor:'transparent',
+        }}>
+          个人中心 <span style={{ fontSize:12, color:'var(--muted)' }}>›</span>
+        </button>
       </div>
 
-      {/* ══ 板块一：任务中心 ══ */}
-      <SectionCard style={{ marginTop:14 }}>
-        <SecHeader title="任务中心" />
-        <div style={{ display:'flex' }}>
+      {/* ══ 模块卡区（无外框，直接排列）══ */}
+      <div style={{ padding:'14px 12px 0', display:'flex', flexDirection:'column', gap:12 }}>
 
-          {/* 左：班组任务 */}
-          <div style={{ flex:1, padding:'12px 14px', display:'flex', flexDirection:'column', gap:8 }}>
-            <div style={{display:'flex',alignItems:'baseline',gap:5,flexWrap:'wrap'}}>
-              <div style={{ fontSize:12, fontWeight:700, color:'var(--text)' }}>班组任务</div>
-              <div style={{ fontSize:11, color:'var(--muted)' }}>{getShiftDeadline()}</div>
-            </div>
-            <div style={{
-              flex:1, background:'var(--card-deep)', border:'1px solid var(--border)',
-              borderRadius:8, padding:'9px 10px', fontSize:11, color:'var(--text)', lineHeight:1.6, minHeight:48
-            }}>
-              {pinnedInfo
-                ? (() => {
-                    const cnt = pinnedInfo.count || 3;
-                    const pts = Math.round(100 / cnt);
-                    const bigCat = (c) => {
-                      if (c === '故障处置' || c === '应急处置') return '应急';
-                      if (c === '安全事件') return '安全事件';
-                      return '隐患排查';
-                    };
-                    if (pinnedInfo.mode === 'random' || pinnedInfo.mode === 'emergency') {
-                      // 题池随机：有勾选题池（ids有内容）→ 按大类汇总题池组成
-                      const poolQs = pinnedInfo.questions || [];
-                      if (pinnedInfo.mode === 'random' && poolQs.length > 0) {
-                        const catOrder = ['应急','安全事件','隐患排查'];
-                        const catMap = {};
-                        poolQs.forEach(q => { const c=bigCat(q.category||''); catMap[c]=(catMap[c]||0)+1; });
-                        const breakdown = catOrder.filter(k=>catMap[k]).map(k=>`${catMap[k]}题${k}`).join('，');
-                        return (
-                          <div style={{display:'flex',flexDirection:'column',gap:4}}>
-                            <div style={{color:'var(--green)',fontWeight:700,fontSize:11}}>📌 今日指定题目</div>
-                            <div style={{color:'var(--text)',fontSize:11,lineHeight:1.7}}>{breakdown}，随机抽{cnt}题</div>
-                            <div style={{color:'var(--muted)',fontSize:11}}>每题{pts}分</div>
-                          </div>
-                        );
-                      }
-                      // 题库随机 / 应急随机
-                      let bankLabel;
-                      if (pinnedInfo.mode === 'emergency') bankLabel = '应急故障处置';
-                      else if (pinnedInfo.bank_names?.length > 0) bankLabel = pinnedInfo.bank_names.join(' + ');
-                      else bankLabel = pinnedInfo.bank_name || '指定题库';
-                      return (
-                        <div style={{display:'flex',flexDirection:'column',gap:4}}>
-                          <div style={{color:'var(--green)',fontWeight:700,fontSize:11}}>📌 今日指定题目</div>
-                          <div style={{color:'var(--text)',fontSize:11,lineHeight:1.7}}>{bankLabel}，随机{cnt}题</div>
-                          <div style={{color:'var(--muted)',fontSize:11}}>每题{pts}分</div>
-                        </div>
-                      );
-                    }
-                    const manualCnt = pinnedInfo.questions?.length || cnt;
-                    const manualPts = Math.round(100 / manualCnt);
-                    return (
-                      <div style={{display:'flex',flexDirection:'column',gap:5}}>
-                        <div style={{color:'var(--green)',fontWeight:700,fontSize:11}}>📌 今日指定题目 · {manualCnt}题 · 每题{manualPts}分</div>
-                        {(pinnedInfo.questions||[]).map((q,i)=>(
-                          <div key={q.id||i} style={{display:'flex',gap:5,alignItems:'flex-start'}}>
-                            <span style={{color:'var(--gold)',fontWeight:700,flexShrink:0,fontSize:11,lineHeight:1.65}}>{i+1}.</span>
-                            <span style={{color:'var(--text)',fontSize:11,lineHeight:1.65}}>{q.text}</span>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })()
-                : activeBank ? activeBank.name : '加载中…'}
-            </div>
-            {makeupGrant&&!makeupPrompted&&(()=>{ setTimeout(()=>setMakeupPrompted(true),0); return null; })()}
-            {makeupGrant&&makeupPrompted&&<AppModal
-              icon="⏰"
-              title="补答提醒"
-              body={`管理员已授权补答\n请在 ${makeupGrant.expiresAt?.slice(0,16)} 前完成本套班答题`}
-              buttons={[
-                {label:'稍后再答',onClick:()=>setMakeupPrompted(false)},
-                {label:'立即补答',primary:true,onClick:()=>{ setMakeupPrompted(false); nav('quiz'); }}
-              ]}
-            />}
-            {remediationGrant&&!remediationPrompted&&(()=>{ setTimeout(()=>setRemediationPrompted(true),0); return null; })()}
-            {remediationGrant&&remediationPrompted&&<AppModal
-              icon="⚠️"
-              title="复查通知"
-              body={`班组长已授权本次复查\n请在 ${remediationGrant.expiresAt?.slice(0,16)} 前完成\n本次复查结果将记录在案`}
-              buttons={[
-                {label:'稍后再答',onClick:()=>setRemediationPrompted(false)},
-                {label:'开始复查',primary:true,onClick:()=>{ setRemediationPrompted(false); nav('quiz'); }}
-              ]}
-            />}
-            {isInterrupted
-              ? <button disabled style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid var(--p-red-60-a25)', cursor:'not-allowed', background:'var(--p-red-60-a06)', color:'var(--p-red-60-a55)', fontSize:11, fontWeight:700, fontFamily:'var(--font)', letterSpacing:'0.3px' }}>答题已中断，请联系管理员重置</button>
-              : remRecord?.result === 'pending' && remediationGrant
-              ? <button onClick={() => nav('quiz')} style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', cursor:'pointer', background:'linear-gradient(135deg,var(--p-purple-58),var(--p-purple-65))', color:'var(--p-white-100)', fontSize:12, fontWeight:800, fontFamily:'var(--font)', letterSpacing:'1px' }}>⚠️ 开始复查（限时）</button>
-              : remRecord?.result === 'pending' && !remediationGrant
-              ? <button disabled style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid var(--p-red-60-a30)', cursor:'not-allowed', background:'var(--p-red-60-a06)', color:'var(--p-red-60-a70)', fontSize:11, fontWeight:700, fontFamily:'var(--font)', letterSpacing:'0.3px' }}>答题不合格（{remRecord.original_score}分），等待班组长授权复查</button>
-              : remRecord?.result === 'fail'
-              ? <button disabled style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid var(--p-red-60-a30)', cursor:'not-allowed', background:'var(--p-red-60-a06)', color:'var(--p-red-60-a70)', fontSize:11, fontWeight:700, fontFamily:'var(--font)', letterSpacing:'0.3px' }}>复查不合格（{Math.round(remRecord.remediation_score)}分）</button>
-              : remRecord?.result === 'pass'
-              ? <button disabled style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid var(--p-green-45-a40)', background:'var(--p-green-45-a08)', color:'var(--green)', fontSize:11, fontWeight:700, fontFamily:'var(--font)' }}>复查合格 {Math.round(remRecord.remediation_score)}分</button>
-              : taskDone
-              ? <button className="btn-done" style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid var(--p-green-45-a40)', background:'var(--p-green-45-a08)', color:'var(--green)', fontSize:11, fontWeight:700, fontFamily:'var(--font)' }}>✓ 今日已完成</button>
-              : makeupGrant
-              ? <button onClick={() => nav('quiz')} style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', cursor:'pointer', background:'linear-gradient(135deg,var(--p-amber-36),var(--p-amber-53))', color:'var(--text)', fontSize:12, fontWeight:800, fontFamily:'var(--font)', letterSpacing:'1px' }}>⏰ 补答（限时）</button>
-              : pinnedInfo
-              ? <button onClick={() => nav('quiz')} style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', cursor:'pointer', background:'linear-gradient(135deg,var(--cta-gold-1),var(--cta-gold-2))', color:'var(--ink-on-gold)', fontSize:12, fontWeight:800, fontFamily:'var(--font)', letterSpacing:'1px' }}>开始抽问</button>
-              : <button disabled style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid var(--border)', cursor:'not-allowed', background:'var(--card-deep)', color:'var(--muted)', fontSize:11, fontWeight:700, fontFamily:'var(--font)', letterSpacing:'0.5px', opacity:0.6 }}>管理员尚未发布本套班抽问</button>
-            }
-          </div>
+          {/* 第一排：日常答题 | 月度任务 */}
+          <div style={{ display:'flex', gap:12, alignItems:'stretch' }}>
 
-          <HalfDivider />
+            {/* 左卡：日常答题 */}
+            <SquareModuleCard
+              theme="quiz"
+              main={
+                isExempt ? '班组长免答'
+                : remRecord?.result === 'pending' ? '待复查'
+                : remRecord?.result === 'fail' ? '复查不合格'
+                : remRecord?.result === 'pass' ? `复查合格 ${Math.round(remRecord.remediation_score)}分`
+                : isInterrupted ? '答题已中断'
+                : taskDone ? `本轮班答题总分：${todayScore}`
+                : '未完成本轮班答题'
+              }
+              sub={
+                isExempt ? '今日无需答题'
+                : pinnedInfo
+                  ? `${pinnedInfo.count || 3}题 · 每题${Math.round(100/(pinnedInfo.count||3))}分`
+                  : '管理员尚未发布抽问'
+              }
+              badge={taskDone ? null : (pinnedInfo ? '待答' : null)}
+              warn={isInterrupted || remRecord?.result === 'fail'}
+              disabled={!pinnedInfo && !taskDone && !remRecord}
+              onClick={pinnedInfo || taskDone || remRecord ? ()=>nav('quiz') : undefined}
+            />
 
-          {/* 右：月度任务 */}
-          {(() => {
-            const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
-            const itemDone = (itemName) => (workshopStatus || []).some(s =>
-              s.relevant &&
-              (s.completed_items || []).includes(itemName) &&
-              (s.plan_type === '中旬会' ? s.checked_in : s.instructor_confirmed)
-            );
-            const myRelevant = (workshopStatus || []).filter(s => s.relevant && s.plan_type !== '轮空');
-            const upcoming = myRelevant.filter(s => s.shift_date >= today && !(s.plan_type === '中旬会' ? s.checked_in : s.instructor_confirmed));
-            const next = upcoming[0] || null;
-            const allItemsDone = yearPlanItems && yearPlanItems.length > 0 && yearPlanItems.every(it => itemDone(it.item));
-            return (
-              <div style={{ flex:1, padding:'12px 14px', display:'flex', flexDirection:'column', gap:8 }}>
-                <div style={{display:'flex',alignItems:'baseline',gap:5,flexWrap:'wrap'}}>
-                  <div style={{ fontSize:12, fontWeight:700, color:'var(--text)' }}>月度任务</div>
-                  <div style={{ fontSize:11, color:'var(--muted)' }}>{getMonthRange()}</div>
-                </div>
-                <div style={{
-                  flex:1, background:'var(--card-deep)', border:'1px solid var(--border)',
-                  borderRadius:8, padding:'9px 10px', fontSize:11, lineHeight:1.9, minHeight:48,
-                  display:'flex', flexDirection:'column', gap:3
-                }}>
-                  {yearPlanItems === null ? (
-                    <span style={{color:'var(--muted)'}}>加载中…</span>
-                  ) : yearPlanItems.length === 0 ? (
-                    <span style={{color:'var(--muted)'}}>本月暂无培训项点</span>
-                  ) : yearPlanItems.map((it,i) => {
-                    const done = itemDone(it.item);
-                    return (
-                      <div key={i} style={{display:'flex',alignItems:'center',gap:4}}>
-                        <span style={{fontSize:11,flexShrink:0}}>{done?'✅':'❌'}</span>
-                        <span style={{color: done?'var(--p-green-73)':'var(--muted)',fontSize:11,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{it.item}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-                {allItemsDone ? (
-                  <button disabled style={{ width:'100%', padding:'9px', borderRadius:8, border:'1px solid var(--p-green-45-a40)', background:'var(--p-green-45-a08)', color:'var(--green)', fontSize:11, fontWeight:700, fontFamily:'var(--font)' }}>☑ 本月已全部完成</button>
-                ) : (
-                  <button onClick={()=>nav('workshop')} style={{ width:'100%', padding:'9px', borderRadius:8, border:'none', cursor:'pointer', background:'linear-gradient(135deg,var(--p-amber-24),var(--p-amber-53))', color:'var(--text)', fontSize:11, fontWeight:700, fontFamily:'var(--font)' }}>
-                    进入日程，进行签到 →
-                  </button>
-                )}
-              </div>
-            );
-          })()}
-
-        </div>
-      </SectionCard>
-
-      {/* ══ 板块二：个人中心 ══ */}
-      <SectionCard>
-        <SecHeader title="个人中心" />
-        <div style={{ display:'flex' }}>
-
-          {/* 左：积分详情 */}
-          <div style={{ flex:1, padding:'14px 14px 14px' }}>
-            <div style={{ fontSize:36, fontWeight:900, color:'var(--gold)', lineHeight:1, letterSpacing:-1 }}>
-              {myPoints}<span style={{ fontSize:11, color:'var(--muted)', marginLeft:2, fontWeight:400 }}>分</span>
-            </div>
-            <div style={{ fontSize:11, color:'var(--muted)', marginTop:3, marginBottom:12 }}>本期累计积分</div>
-            <div style={{ borderTop:'1px solid var(--border)', paddingTop:10, display:'flex', flexDirection:'column', gap:7 }}>
-              {[
-                ['抽问得分', quizPts, 'var(--gold)'],
-                ['巩固附加分', `+${bonusPts}`, 'var(--green)'],
-                ['平均分', myAvg, 'var(--text)'],
-              ].map(([label, val, color]) => (
-                <div key={label} style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <span style={{ fontSize:11, color:'var(--muted)' }}>{label}</span>
-                  <span style={{ fontSize:12, fontWeight:700, color }}>{val}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <HalfDivider />
-
-          {/* 右：功能入口 */}
-          <div style={{ flex:1, padding:'14px 14px', display:'flex', flexDirection:'column', gap:7 }}>
-            {[
-              { label:'答题历史', val: null,     action: () => nav('history'), dev: false },
-              { label:'我的分析', val: null,     action: () => nav('profile'), dev: false  },
-              { label:'练习强化', val: null,     action: () => nav('practice'), dev: false },
-            ].map(({ label, val, action, dev }) => (
-              <div key={label} onClick={action} style={{
-                flex:1, display:'flex', alignItems:'center', justifyContent:'space-between',
-                padding:'0 11px', background:'var(--card-deep)', borderRadius:9,
-                border:'1px solid transparent', cursor: dev ? 'default' : 'pointer',
-                opacity: dev ? 0.6 : 1, transition:'border-color .2s', minHeight:40,
-              }}
-                onMouseEnter={e => { if (!dev) e.currentTarget.style.borderColor='var(--p-blue-60-a40)' }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor='transparent' }}
-              >
-                <span style={{ fontSize:12, color:'var(--text)' }}>{label}</span>
-                {dev
-                  ? <span style={{ fontSize:11, color:'var(--muted)' }}>待开发</span>
-                  : val !== null
-                    ? <span style={{ fontSize:12, fontWeight:700, color:'var(--gold)' }}>{val}</span>
-                    : <span style={{ fontSize:11, color:'var(--muted)' }}>›</span>
+            {/* 右卡：月度任务 */}
+            {(() => {
+              const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+              const itemDone = (itemName) => (workshopStatus || []).some(s =>
+                s.relevant &&
+                (s.completed_items || []).includes(itemName) &&
+                (s.plan_type === '中旬会' ? s.checked_in : s.instructor_confirmed)
+              );
+              const myRelevant = (workshopStatus || []).filter(s => s.relevant && s.plan_type !== '轮空');
+              // 下次待完成的实操（回段/场/中旬会）
+              const upcoming = myRelevant
+                .filter(s => s.shift_date >= today && !(s.plan_type === '中旬会' ? s.checked_in : s.instructor_confirmed))
+                .sort((a,b) => a.shift_date < b.shift_date ? -1 : 1);
+              const nextOp = upcoming[0] || null;
+              const allItemsDone = yearPlanItems && yearPlanItems.length > 0 && yearPlanItems.every(it => itemDone(it.item));
+              const dShort = d => { const x=new Date(d+'T00:00:00'); return `${x.getMonth()+1}月${x.getDate()}日`; };
+              // 方案A：主文字 = 下次培训；副文字 = 本月项点进度
+              let mainText;
+              if (nextOp) {
+                const isToday = nextOp.shift_date === today;
+                if (nextOp.plan_type === '中旬会') {
+                  mainText = `${isToday ? '今日' : '下次'}中旬会回段${isToday ? '' : ' ' + dShort(nextOp.shift_date)}`;
+                } else {
+                  mainText = `${isToday ? '今日' : '下次'} ${isToday ? '' : dShort(nextOp.shift_date) + ' '}${nextOp.location || '回段'}培训`;
                 }
-              </div>
-            ))}
+              } else if (yearPlanItems === null) {
+                mainText = '加载中…';
+              } else if (allItemsDone) {
+                mainText = '本月培训已全部完成';
+              } else if (myRelevant.length > 0) {
+                mainText = '暂无待办实操';
+              } else {
+                mainText = '本月暂无培训安排';
+              }
+              return (
+                <SquareModuleCard
+                  theme="workshop"
+                  main={mainText}
+                  sub={
+                    yearPlanItems && yearPlanItems.length > 0
+                      ? `本月 ${yearPlanItems.filter(it=>itemDone(it.item)).length}/${yearPlanItems.length} 项已完成`
+                      : '本月暂无培训项点'
+                  }
+                  badge={allItemsDone ? null : '待完成'}
+                  onClick={()=>nav('workshop')}
+                />
+              );
+            })()}
           </div>
 
-        </div>
-      </SectionCard>
+          {/* 第二排：休假统筹 | 留言墙 */}
+          <div style={{ display:'flex', gap:12, alignItems:'stretch' }}>
+            <div style={{ flex:1, minWidth:0, display:'flex' }}>
+              <SquareModuleCard
+                theme="leave"
+                main={`${leaveSummary.total_left}天`}
+                mainLabel="总额"
+                sub={leaveSummary.breakdown}
+                badge={leaveSummary.month_reported ? null : '本月未报'}
+                warn={!leaveSummary.month_reported}
+                onClick={()=>nav('leave')}
+              />
+            </div>
+            <div style={{ flex:1, minWidth:0, display:'flex' }}>
+              <SquareModuleCard
+                theme="wall"
+                customBody={<WallCardBody refreshKey={wallRefresh} />}
+                onClick={()=>nav('wall')}
+              />
+            </div>
+          </div>
 
-      {/* ══ 板块三：积分榜 ══ */}
+      </div>
+
+      {/* ══ 班表 · 休假（两周）══ */}
+      <ShiftCalendar />
+
+      {/* 补答/复查弹窗（保留原逻辑） */}
+      <div style={{ display:'none' }}>
+        {makeupGrant&&!makeupPrompted&&(()=>{ setTimeout(()=>setMakeupPrompted(true),0); return null; })()}
+        {remediationGrant&&!remediationPrompted&&(()=>{ setTimeout(()=>setRemediationPrompted(true),0); return null; })()}
+      </div>
+      {makeupGrant&&makeupPrompted&&<AppModal
+        icon="⏰"
+        title="补答提醒"
+        body={`管理员已授权补答\n请在 ${makeupGrant.expiresAt?.slice(0,16)} 前完成本套班答题`}
+        buttons={[
+          {label:'稍后再答',onClick:()=>setMakeupPrompted(false)},
+          {label:'立即补答',primary:true,onClick:()=>{ setMakeupPrompted(false); nav('quiz'); }}
+        ]}
+      />}
+      {remediationGrant&&remediationPrompted&&<AppModal
+        icon="⚠️"
+        title="复查通知"
+        body={`班组长已授权本次复查\n请在 ${remediationGrant.expiresAt?.slice(0,16)} 前完成\n本次复查结果将记录在案`}
+        buttons={[
+          {label:'稍后再答',onClick:()=>setRemediationPrompted(false)},
+          {label:'开始复查',primary:true,onClick:()=>{ setRemediationPrompted(false); nav('quiz'); }}
+        ]}
+      />}
+
+      {/* ══ 板块三：积分榜（SHOW_LEADERBOARD=false 时隐藏，代码保留）══ */}
+      {SHOW_LEADERBOARD && (<>
       {lbModal && (
         <div onClick={()=>{setLbModal(null);setLbDetail(null);}} style={{position:'fixed',inset:0,background:'var(--p-black-00-a70)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
           <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'var(--input-bg)',border:'1px solid var(--p-blue-60-a30)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'75vh',overflowY:'auto'}}>
@@ -1703,6 +1656,8 @@ function HomeScreen({ user, nav }) {
           </div>
         </div>
       </SectionCard>
+
+      </>)}
 
       <div style={{ textAlign:'center' }}>
         <button onClick={() => nav('admin')} style={{ background:'none', border:'none', color:'var(--muted)', fontSize:11, cursor:'pointer', textDecoration:'underline', fontFamily:'var(--font)' }}>管理员后台</button>
@@ -2679,8 +2634,19 @@ export default function App() {
         {screen==="banks"&&<BanksPreviewScreen onBack={()=>nav("home")}/>}
         {screen==="leaderboard"&&<LeaderboardScreen user={user} onBack={()=>nav("home")}/>}
         {screen==="profile"&&<ProfileScreen user={user} onBack={()=>nav("home")}/>}
-        {screen==="admin"&&<AdminScreen onBack={()=>nav(user?"home":"login")}/>}
-        {screen==="workshop"&&<WorkshopScreen user={user} onBack={()=>nav("home")}/>}
+        {screen==="admin"&&(
+          <Suspense fallback={<LazyLoading/>}>
+            <AdminScreen onBack={()=>nav(user?"home":"login")}/>
+          </Suspense>
+        )}
+        {screen==="workshop"&&(
+          <Suspense fallback={<LazyLoading/>}>
+            <WorkshopScreen user={user} onBack={()=>nav("home")}/>
+          </Suspense>
+        )}
+        {screen==="leave"&&<LeaveScreen user={user} onBack={()=>nav("home")} onApply={()=>nav("apply")}/>}
+        {screen==="wall"&&<WallScreen user={user} onBack={()=>nav("home")}/>}
+        {screen==="apply"&&<LeaveApplyScreen user={user} onBack={()=>nav("leave")} onDone={()=>nav("leave")}/>}
       </div>
     </>
   );

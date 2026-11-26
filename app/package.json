@@ -1,12 +1,13 @@
 {
-  "name": "crew-quiz-v3",
+  "name": "crew-system",
   "version": "3.0.0",
-  "description": "武汉地铁5号线乘务工班组 业务考核答题系统 v3",
+  "description": "武汉地铁5号线乘务四组日常管理系统",
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
     "start": "node server/index.js",
-    "setup": "npm install && npm run build"
+    "setup": "npm install && npm run build",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "better-sqlite3": "^9.4.3",

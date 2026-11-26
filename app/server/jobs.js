@@ -135,10 +135,16 @@ setInterval(() => {
 }, 10 * 60 * 1000);
 setInterval(() => {
   const now = new Date();
-  const cst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
-  const hh = String(cst.getHours()).padStart(2, '0');
-  const mm = String(cst.getMinutes()).padStart(2, '0');
-  const hhmm = `${hh}:${mm}`;
+  // ⚠️ 不能用 new Date(now.toLocaleString(...)) —— 字符串会被按容器本地时区(UTC)再解析一次，
+  //    结果差 8 小时，导致 12:30/16:30 的推送在 20:30/00:30 才触发（2026-11-25 修复）
+  const cst = (() => {
+    const p = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(now);
+    const g = (t) => (p.find(x => x.type === t) || {}).value || '00';
+    return { hh: g('hour'), mm: g('minute') };
+  })();
+  const hhmm = `${cst.hh}:${cst.mm}`;
   const todayStr = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
   if ((hhmm === '12:30' || hhmm === '16:30') && lastEvalPushDate[hhmm] !== todayStr) {
     lastEvalPushDate[hhmm] = todayStr;
