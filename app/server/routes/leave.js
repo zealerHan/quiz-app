@@ -388,6 +388,10 @@ router.delete('/api/leave/rights/:id', adminAuth, (req, res) => {
 });
 
 // ── 全员额度表（班组长用，须管理员密码）────────────────────────
+//
+// 序号说明（老韩 2026-11-27）：序号是班组固定行号 1、2、3、4……，
+// 跟人走、不跟排序走。所以先把全部人员按固定顺序编好号再返回，
+// 前端不管怎么排序，序号都不变。
 router.get('/api/leave/all', adminAuth, (req, res) => {
   const year = Number(req.query.year) || YEAR;
   const rows = db.prepare('SELECT staff_id FROM leave_quota WHERE year=?').all(year);
@@ -398,13 +402,17 @@ router.get('/api/leave/all', adminAuth, (req, res) => {
     return {
       staff_id: r.staff_id,
       name: s ? (s.real_name || s.name) : r.staff_id,
-      // 班组序号（roster_seq，1~41 长期固定，不随排序变化）
+      // 班组序号（staff.roster_seq 优先，缺失时下面按固定顺序补）
       seq: s?.roster_seq != null ? Number(s.roster_seq) : null,
       is_cp: s?.is_cp ? 1 : 0,
       ...q,
       annual_left: q.annual_total - q.annual_used,
     };
-  }).filter(Boolean).sort((a, b) => b.annual_left - a.annual_left);
+  }).filter(Boolean);
+
+  // 固定顺序：先按 roster_seq，缺的直接排到最后；返回时一律按序号升序
+  // （前端要按假期剩余排序自己排，但 seq 字段不变）
+  out.sort((a, b) => (a.seq ?? 999) - (b.seq ?? 999));
   res.json({ year, rows: out });
 });
 

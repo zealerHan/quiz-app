@@ -263,6 +263,7 @@ export default function LeaveOverview({ hdrs }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState(null);
+  const [sortBy, setSortBy] = useState("seq");   // seq=按序号固定 / left=按剩余
 
   useEffect(() => {
     if (!open) return;
@@ -286,13 +287,18 @@ export default function LeaveOverview({ hdrs }) {
   }, { total: 0, used: 0 });
   const regLeft = regTotal.total - regTotal.used;
 
-  // 排序：按【合计剩余】降序（不能按年休排）
-  const sortedReg = [...regRows].sort((a, b) => {
-    const ta = totalOf(a), tb = totalOf(b);
-    return (tb.total - tb.used) - (ta.total - ta.used);
-  });
+  // 排序：默认【按序号固定 1、2、3、4……】。
+  // 老韩 2026-11-27：「序号按我说的来。1，2，3，4这样固定。
+  // 不因为假期多少跟随变化」——所以默认不按假期数排，
+  // 序号和行的位置都跟着人固定。
+  const sortedReg = sortBy === "seq"
+    ? [...regRows].sort((a, b) => (a.seq ?? 999) - (b.seq ?? 999))
+    : [...regRows].sort((a, b) => {
+        const ta = totalOf(a), tb = totalOf(b);
+        return (tb.total - tb.used) - (ta.total - ta.used);
+      });
   // 车峰按序号固定
-  const sortedCp = [...cpRows].sort((a, b) => (a.seq ?? 99) - (b.seq ?? 99));
+  const sortedCp = [...cpRows].sort((a, b) => (a.seq ?? 999) - (b.seq ?? 999));
 
   return (
     <div style={{
@@ -355,7 +361,19 @@ export default function LeaveOverview({ hdrs }) {
                 </div>
               </div>
 
-              {/* ── 在编人员（按合计剩余排序）── */}
+              {/* ── 排序切换（默认按序号固定）── */}
+              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                {[["seq", "按序号"], ["left", "按剩余多少"]].map(([k, label]) => (
+                  <button key={k} onClick={() => setSortBy(k)} style={{
+                    flex: 1, padding: "4px 0", borderRadius: 6, fontSize: 10.5, cursor: "pointer",
+                    background: sortBy === k ? "rgba(91,155,250,0.14)" : "transparent",
+                    border: `1px solid ${sortBy === k ? "rgba(91,155,250,0.45)" : "var(--border)"}`,
+                    color: sortBy === k ? "var(--blue)" : "var(--muted)",
+                  }}>{label}</button>
+                ))}
+              </div>
+
+              {/* ── 在编人员 ── */}
               {sortedReg.map((r) => (
                 <PersonRow key={r.staff_id} r={r} onOpen={() => setDetail(r)} />
               ))}
