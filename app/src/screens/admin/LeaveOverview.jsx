@@ -263,7 +263,7 @@ export default function LeaveOverview({ hdrs }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState(null);
-  const [sortBy, setSortBy] = useState("seq");   // seq=按序号固定 / left=按剩余
+  const [sortBy, setSortBy] = useState("left");  // left=剩余从多到少 / used=已休从少到多
 
   useEffect(() => {
     if (!open) return;
@@ -287,15 +287,18 @@ export default function LeaveOverview({ hdrs }) {
   }, { total: 0, used: 0 });
   const regLeft = regTotal.total - regTotal.used;
 
-  // 排序：默认【按序号固定 1、2、3、4……】。
-  // 老韩 2026-11-27：「序号按我说的来。1，2，3，4这样固定。
-  // 不因为假期多少跟随变化」——所以默认不按假期数排，
-  // 序号和行的位置都跟着人固定。
-  const sortedReg = sortBy === "seq"
-    ? [...regRows].sort((a, b) => (a.seq ?? 999) - (b.seq ?? 999))
-    : [...regRows].sort((a, b) => {
+  // 排序两种（老韩 2026-11-27）：都按四项合计口径
+  //   left = 剩余从多到少（最想休的人在最上，方便安排）
+  //   used = 已休从少到多（休得最少的人在前，一眼看出谁没休）
+  // 序号不受排序影响，永远是班组固定号。
+  const sortedReg = sortBy === "left"
+    ? [...regRows].sort((a, b) => {
         const ta = totalOf(a), tb = totalOf(b);
         return (tb.total - tb.used) - (ta.total - ta.used);
+      })
+    : [...regRows].sort((a, b) => {
+        const ta = totalOf(a), tb = totalOf(b);
+        return ta.used - tb.used;
       });
   // 车峰按序号固定
   const sortedCp = [...cpRows].sort((a, b) => (a.seq ?? 999) - (b.seq ?? 999));
@@ -363,7 +366,7 @@ export default function LeaveOverview({ hdrs }) {
 
               {/* ── 排序切换（默认按序号固定）── */}
               <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                {[["seq", "按序号"], ["left", "按剩余多少"]].map(([k, label]) => (
+                {[["left", "剩余从多到少"], ["used", "已休从少到多"]].map(([k, label]) => (
                   <button key={k} onClick={() => setSortBy(k)} style={{
                     flex: 1, padding: "4px 0", borderRadius: 6, fontSize: 10.5, cursor: "pointer",
                     background: sortBy === k ? "rgba(91,155,250,0.14)" : "transparent",
