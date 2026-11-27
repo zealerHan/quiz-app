@@ -50,8 +50,16 @@ PEAK=$(echo "$RESP" | sed -n 's/.*"peak":\([0-9]*\).*/\1/p')
 CNT=$(echo "$RESP" | sed -n 's/.*"people_count":\([0-9]*\).*/\1/p')
 log "已发预览到办事情群：下周休假 ${CNT} 人，峰值 ${PEAK} 人顶班"
 
-# ── 3. 再给三个人各发一条提醒（Bark），让他们去确认 ──
+# ── 3. 给老韩发一条提醒（Bark），让他去确认 ──
 # 老韩手机静音，普通推送不响；这里只发普通级 —— 不是告警，不用 critical。
-if [ -x /Users/hanying/.hermes/scripts/bark.sh ]; then
-  :
+#
+# 2026-11-27 修：原来这里判的是 /Users/hanying/...（Mac 路径），
+# 飞牛上不存在，分支体还是个空 `:`，所以从来发过通知。
+BARK=/home/HanYing/.hermes/scripts/bark.sh
+if [ -x "$BARK" ]; then
+  "$BARK" "休假申报已截止" "下周休假 ${CNT} 人，峰值 ${PEAK} 人顶班。预览已发到办事群，请确认发大群。" \
+    timeSensitive "乘务系统" 2>/dev/null \
+    || log "Bark 提醒失败（不影响预览已发出）"
+else
+  log "找不到 bark.sh（$BARK），跳过提醒"
 fi

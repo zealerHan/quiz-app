@@ -67,6 +67,44 @@ if [ -x "$DIR/backup-db.sh" ]; then
   bash "$DIR/backup-db.sh" >/dev/null 2>&1 && info "备份完成" || warn "备份失败（不阻断部署，但要查）"
 fi
 
+# ── 2.5 前端产物自检（踩过的坑，2026-11-27 加）──
+#
+# 坑 A：docker compose build 不构建前端。Dockerfile 是 COPY app/ ./，
+#       前端 dist/ 必须是 Mac 上 npm run build 过、且已提交进 git 的。
+#       改了 .jsx 没本地 build → 线上还是旧包，而 build 显示成功。
+#
+# 坑 B：dist/assets 属主是 root 时，vite 构建会静默失败
+#       （显示 ✓ built 但宿主机文件没变）。
+#
+# 所以这里两道检查：属主不对就修；产物比源码旧就报错。
+
+info "检查前端产物…"
+
+# B. 属主检查
+DIST_OWNER=$(stat -c '%U:%G' "$DIR/app/dist" 2>/dev/null || echo "?")
+if [ "$DIST_OWNER" != "HanYing:Users" ]; then
+  warn "dist 属主是 $DIST_OWNER（应为 HanYing:Users），vite 构建可能静默失败"
+  chown -R HanYing:Users "$DIR/app/dist" 2>/dev/null && info "已修正属主" \
+    || warn "修正失败，需要 sudo（下次构建可能不生效）"
+fi
+
+# A. 产物新鲜度：dist/assets 里最新的 js 必须比 src 里最新的 jsx/js 新
+NEWEST_SRC=$(find "$DIR/app/src" -name '*.jsx' -o -name '*.js' 2>/dev/null | xargs stat -c '%Y' 2>/dev/null | sort -rn | head -1)
+NEWEST_DIST=$(find "$DIR/app/dist/assets" -name '*.js' 2>/dev/null | xargs stat -c '%Y' 2>/dev/null | sort -rn | head -1)
+
+if [ -n "$NEWEST_SRC" ] && [ -n "$NEWEST_DIST" ]; then
+  if [ "$NEWEST_SRC" -gt "$NEWEST_DIST" ]; then
+    warn "源码比前端产物新（src ${NEWEST_SRC} > dist ${NEWEST_DIST}）"
+    warn "说明改了 .jsx 但没在 Mac 上 npm run build，线上会是旧包"
+    read -p "仍要继续？(y/N) " ans
+    [ "$ans" = "y" ] || die "已取消——请先在 Mac 上 npm run build 并提交 dist"
+  else
+    info "前端产物比源码新，正常"
+  fi
+else
+  warn "取不到时间戳，跳过新鲜度检查"
+fi
+
 # ── 3. 重建镜像 ──
 info "重建镜像（约 1-3 分钟）…"
 docker compose build peixun 2>&1 | tail -3 || die "构建失败"
