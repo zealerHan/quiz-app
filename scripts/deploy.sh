@@ -51,11 +51,28 @@ git reset --hard origin/main --quiet || die "reset 失败"
 NEW=$(git rev-parse --short HEAD)
 
 if [ "$OLD" = "$NEW" ]; then
-  info "代码无变化（$NEW），跳过重建"
+  # ⚠ 代码没变 ≠ 容器已是这个代码（2026-11-27 踩过）
+  #
+  # 场景：上次部署被前面的自检拦下（或 SSH 断了），git 已经 reset 到新提交，
+  #       但容器没重建。再跑 deploy.sh 时 OLD==NEW，直接"跳过重建"退出，
+  #       于是 git 和容器长期分叉，而且每次都说"已退出"看不出问题。
+  #
+  # 判据：容器创建时间 早于 HEAD 提交时间 → 说明容器里跑的是旧代码 → 强制重建。
+  HEAD_TS=$(git log -1 --format=%ct 2>/dev/null || echo 0)
+  CMD_TS=$(docker inspect peixun --format '{{.Created}}' 2>/dev/null | xargs -I{} date -d {} +%s 2>/dev/null || echo 0)
   CMD_SHOW=$(docker inspect peixun --format '{{.Created}}' 2>/dev/null | cut -c1-19)
-  warn "当前容器创建于 $CMD_SHOW"
-  read -p "仍然重建镜像？(y/N) " ans
-  [ "$ans" = "y" ] || { info "已退出"; exit 0; }
+
+  if [ "${CMD_TS:-0}" -gt 0 ] && [ "${HEAD_TS:-0}" -gt 0 ] && [ "$CMD_TS" -lt "$HEAD_TS" ]; then
+    warn "代码无变化（$NEW），但容器比这个提交旧 —— git 和容器已分叉"
+    warn "  容器创建: $CMD_SHOW"
+    warn "  最后提交: $(git log -1 --format='%ci' 2>/dev/null | cut -c1-19)"
+    warn "上次部署可能被中断，容器里跑的是旧代码。这次强制重建。"
+    # 不询问，直接继续往下走重建
+  else
+    info "代码无变化（$NEW），容器已是最新（创建于 $CMD_SHOW）"
+    read -p "仍然重建镜像？(y/N) " ans
+    [ "$ans" = "y" ] || { info "已退出"; exit 0; }
+  fi
 else
   info "代码更新 $OLD → $NEW"
   git log --oneline "$OLD..$NEW" 2>/dev/null | head -5 | sed 's/^/    /'
