@@ -12,7 +12,9 @@ import { MembersTab, TrainingGroupsSection } from "./admin/MembersParts.jsx";
 import { LeaveTab, DevicesTab, LogsTab } from "./admin/SimpleTabParts.jsx";
 import LeaveOverview from "./admin/LeaveOverview.jsx";
 // 概览区弹窗（2026-11-27 Stage 3 从本文件抽出）
-import { MemberEvalModal } from "./admin/OverviewModals.jsx";
+import {
+  MemberEvalModal, ResetAnswerModal, MakeupGrantModal, RemediationGrantModal,
+} from "./admin/OverviewModals.jsx";
 
 // 供下拉选择框使用的分组 select
 function AdminScreen({ onBack }) {
@@ -311,60 +313,33 @@ function AdminScreen({ onBack }) {
           </div>
 
           {/* ── 重置答题机会弹窗 ── */}
-          {resetModal&&<AppModal
-            icon={resetModal.isAnswering?'⚠️':'🔄'}
-            title={resetModal.isAnswering?`正在答题：${resetModal.name}`:`重置：${resetModal.name}`}
-            body={resetModal.isAnswering
-              ? `⚠ 该人员正在答题（最后操作 ${resetModal.last_active_at?.slice(11,16)||''}），重置会清空其本轮所有答题记录。\n确认要中断并重置吗？`
-              : `确认重置本套班答题记录？\n重置后该人员可在本套班内重新答题。`}
-            buttons={[
-              {label:'取消',onClick:()=>setResetModal(null)},
-              {label:resetModal.isAnswering?'仍然重置':'确认重置',danger:true,onClick:async()=>{
-                const r=await apiJson(`/api/admin/sessions/reset-cycle/${resetModal.staff_id}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);
-                setResetModal(null);
-                if(r?.ok){
-                  apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});
-                  const ep=lbMode==='alltime'?'/api/admin/leaderboard/alltime':'/api/admin/leaderboard/cycle';
-                  apiJson(ep,{headers:hdrs()}).then(d=>setLbSessions(d.rows||d||[])).catch(()=>{});
-                } else alert('重置失败');
-              }}
-            ]}
-          />}
+          {/* ── 重置答题弹窗（已抽到 admin/OverviewModals.jsx）── */}
+          <ResetAnswerModal
+            modal={resetModal}
+            hdrs={hdrs}
+            onClose={()=>setResetModal(null)}
+            onDone={()=>{
+              apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});
+              const ep=lbMode==='alltime'?'/api/admin/leaderboard/alltime':'/api/admin/leaderboard/cycle';
+              apiJson(ep,{headers:hdrs()}).then(d=>setLbSessions(d.rows||d||[])).catch(()=>{});
+            }}
+          />
 
           {/* ── 补答授权弹窗 ── */}
-          {makeupModal&&<AppModal
-            icon="⏰"
-            title={`补答授权：${makeupModal.name}`}
-            body={`授权后该人员可在 30 分钟内完成本套班补答。\n逾期未答将不再计入本轮成绩。`}
-            buttons={[
-              {label:'取消',onClick:()=>setMakeupModal(null)},
-              {label:'授权补答',primary:true,onClick:async()=>{
-                const r=await apiJson('/api/admin/makeup/grant',{method:'POST',headers:hdrs(),body:JSON.stringify({staffId:makeupModal.staff_id})}).catch(()=>null);
-                setMakeupModal(null);
-                if(r?.ok){ alert(`已授权 ${makeupModal.name} 补答，有效至 ${r.expiresAt.slice(0,16)}`); }
-                else alert('授权失败，请重试');
-              }}
-            ]}
-          />}
+          {/* ── 补答授权弹窗（已抽到 admin/OverviewModals.jsx）── */}
+          <MakeupGrantModal modal={makeupModal} hdrs={hdrs} onClose={()=>setMakeupModal(null)}/>
 
           {/* ── 授权复查弹窗 ── */}
-          {remediationModal&&<AppModal
-            icon="⚠️"
-            title={`授权复查：${remediationModal.name}`}
-            body={`本轮得分：${remediationModal.score??'—'}分（不合格）\n\n授权后该人员可在 12 小时内完成本套班复查。\n复查结果将记入复查台账，作为考核依据。`}
-            buttons={[
-              {label:'取消',onClick:()=>setRemediationModal(null)},
-              {label:'确认授权复查',danger:true,onClick:async()=>{
-                const r=await apiJson('/api/admin/remediation/grant',{method:'POST',headers:hdrs(),body:JSON.stringify({staffId:remediationModal.staff_id})}).catch(()=>null);
-                setRemediationModal(null);
-                if(r?.ok){
-                  alert(`已授权 ${remediationModal.name} 复查，有效至 ${r.expiresAt.slice(0,16)}`);
-                  apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});
-                  apiJson('/api/admin/remediation/records',{headers:hdrs()}).then(setRemRecords).catch(()=>{});
-                } else alert('授权失败，请重试');
-              }}
-            ]}
-          />}
+          {/* ── 授权复查弹窗（已抽到 admin/OverviewModals.jsx）── */}
+          <RemediationGrantModal
+            modal={remediationModal}
+            hdrs={hdrs}
+            onClose={()=>setRemediationModal(null)}
+            onDone={()=>{
+              apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});
+              apiJson('/api/admin/remediation/records',{headers:hdrs()}).then(setRemRecords).catch(()=>{});
+            }}
+          />
 
           {/* ── 复查台账 ── */}
           {(()=>{

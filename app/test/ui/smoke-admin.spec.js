@@ -184,6 +184,39 @@ test.describe("管理后台 — 关键数据能显示", () => {
     expect(found, "人员列表应该显示真实姓名").toBe(true);
   });
 
+  // 回归保护：ResetAnswerModal / MakeupGrantModal / RemediationGrantModal
+  // 2026-11-27 从 AdminScreen.jsx 抽到 admin/OverviewModals.jsx（Stage 3）。
+  //
+  // 三个弹窗都从「本套班完成情况」的人员卡片分流进入，判据是卡片上的次要标签：
+  //   已完成「xx分 ›」    → ResetAnswerModal（重置：姓名）
+  //   逾期「逾期 ›」      → MakeupGrantModal（补答授权：姓名）
+  //   需复查「xx分 需复查 ›」→ RemediationGrantModal（授权复查：姓名）
+  //
+  // 本用例点已完成的人，断言弹出「重置：xxx」——证明抽出的组件真能渲染。
+  // 逾期/需复查两种状态不一定每天都有（今天可能没人逾期），
+  // 所以有就测、没有就 skip，不硬造数据。
+  test("概览：点已完成人员弹出重置弹窗", async ({ page }) => {
+    const errors = collectErrors(page);
+    await adminLogin(page);
+    await page.waitForTimeout(3500);
+
+    const body = page.locator("body");
+
+    // 人员卡片长这样：<div onClick>...<div>姓名</div><div>68.3分 ›</div></div>
+    const cards = page.locator("div").filter({ hasText: /^\s*.+\s*\d+(\.\d+)?分\s*›\s*$/ });
+    const cnt = await cards.count();
+    if (cnt === 0) {
+      test.skip(true, "本套班没有已完成人员卡片");
+      return;
+    }
+    await cards.first().click({ force: true });
+
+    await page.waitForTimeout(1200);
+    const after = await body.innerText();
+    const hasResetModal = /重置[：:]/.test(after) && after.includes("本套班答题记录");
+    expect(hasResetModal, "点已完成人员应弹出重置答题弹窗").toBe(true);
+    expect(errors, "重置弹窗不该有 JS 报错").toEqual([]);
+  });
   // 回归保护：MemberEvalModal 2026-11-27 从 AdminScreen.jsx 抽到
   // admin/OverviewModals.jsx（Stage 3 重构）。抽完必须还能正常弹出、显示真实数据。
   //
