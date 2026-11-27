@@ -96,6 +96,23 @@ test.describe("管理后台冒烟 — 9 个 tab 都能打开", () => {
     expect(errors, "休假 tab 不该有 JS 报错").toEqual([]);
   });
 
+  // 这条是回归保护：全组休假总览曾经因为代码没进 git 而丢失过一次
+  // （2026-11-27 老韩发现）。加断言防止再丢。
+  test("休假 tab 有全组休假总览", async ({ page }) => {
+    const errors = collectErrors(page);
+    await openTab(page, "休假");
+    const body = page.locator("body");
+    await expect(body).toContainText("全组休假总览");
+    // 展开后应该有年份切换和合计
+    await body.getByText("全组休假总览").first().click();
+    await page.waitForTimeout(2500);
+    await expect(body).toContainText("2026 年");
+    await expect(body).toContainText("总天数");
+    await expect(body).toContainText("已休");
+    await expect(body).toContainText("剩余");
+    expect(errors, "总览不该有 JS 报错").toEqual([]);
+  });
+
   test("题库 tab", async ({ page }) => {
     const errors = collectErrors(page);
     await openTab(page, "题库");

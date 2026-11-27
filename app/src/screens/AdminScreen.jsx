@@ -10,6 +10,7 @@ import { BANK_TYPES, BANK_TYPE_MAP, groupBanksByType } from "./admin/bankConstan
 // 人员 tab 子组件（2026-11-27 从本文件抽出）
 import { MembersTab, TrainingGroupsSection } from "./admin/MembersParts.jsx";
 import { LeaveTab, DevicesTab, LogsTab } from "./admin/SimpleTabParts.jsx";
+import LeaveOverview from "./admin/LeaveOverview.jsx";
 
 // 供下拉选择框使用的分组 select
 function AdminScreen({ onBack }) {
@@ -1034,7 +1035,9 @@ function AdminScreen({ onBack }) {
             </div>
           </div>
         )}
-        {tab==='leave'&&<LeaveTab
+        {tab==='leave'&&<>
+          <LeaveOverview hdrs={hdrs} members={members}/>
+          <LeaveTab
           weekBatch={weekBatch} weekLoading={weekLoading}
           weekAnchor={weekAnchor} setWeekAnchor={setWeekAnchor}
           leavePending={leavePending} leavePendLoading={leavePendLoading}
@@ -1043,7 +1046,7 @@ function AdminScreen({ onBack }) {
           rejectReason={rejectReason} setRejectReason={setRejectReason}
           reviewLeave={reviewLeave} loadWeekBatch={loadWeekBatch} hdrs={hdrs}
           copyBatchText={copyBatchText} markReported={markReported}
-        />}
+          /></>}
 
 
         {tab==='banks'&&<>
