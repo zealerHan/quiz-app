@@ -288,10 +288,12 @@ function StaffDetailModal({ person, year, hdrs, onClose, onChanged }) {
                     onChange={(e) => setForm({ ...form, [key]: e.target.value })}
                     style={inputStyle}
                   >
-                    {(data?.leave_options || ["年休", "婚假", "陪产假", "育儿假"]).map((o) => {
-                      const v = typeof o === "string" ? o : (o.name || o.leave_type || o);
-                      return <option key={v} value={v}>{v}</option>;
-                    })}
+                    {/* 补录要能选全部假别：不能用后端返回的 leave_options
+                        （那个是按这个人已有记录动态生成的，曹枝满只有年休
+                          就会只列出年休+病假/事假/丧假，选不到婚假/陪产假/育儿假） */}
+                    {["年休", "婚假", "陪产假", "育儿假", "病假", "事假", "丧假"].map((v) => (
+                      <option key={v} value={v}>{v}</option>
+                    ))}
                   </select>
                 ) : (
                   <input
