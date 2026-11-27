@@ -455,11 +455,7 @@ function StaffDetailModal({ person, year, hdrs, onClose, onChanged }) {
             </div>
           </div>
         ) : (
-          <button onClick={() => setAdding(true)} style={{
-            width: "100%", marginTop: 10, padding: "8px 0", borderRadius: 9, fontSize: 12,
-            cursor: "pointer", background: "transparent",
-            border: "1px dashed var(--border)", color: "var(--muted)",
-          }}>＋ 补录一条</button>
+          {/* 老韩 2026-11-27：顶部右上角已有「＋补录」，底部这个重复了，去掉 */}
         )}
       </div>
     </div>

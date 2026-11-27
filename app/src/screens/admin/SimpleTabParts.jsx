@@ -13,7 +13,7 @@
 //   批准/驳回后要刷新列表，刷新逻辑仍在 AdminScreen 里，
 //   组件只负责「点了按钮调用一下」。
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { apiJson } from "../../shared.jsx";
 
 /** 休假审批：周报批清单 + 待批列表 + 驳回弹窗 */
@@ -197,6 +197,17 @@ export function LeaveTab({
             </>
           )}
         </div>
+
+        {/* ══ 顶班对接（老韩 2026-11-25）══
+            按条标记「这个人这周的顶班我跟车场组对好了」，
+            并推送整周逐日顶班需求到四组办事情群。
+            三人各自对接的人不会重复要、也不会漏。 */}
+        <ReliefBlock hdrs={hdrs} weekStart={weekBatch?.week_start} />
+
+        {/* ══ 申报截止通知（老韩 2026-11-25）══
+            周三 16:50 cron 自动发预览到办事群，
+            三人任一确认后点「确认发到大群」发到乘务四组大群。 */}
+        <WindowClosedBlock hdrs={hdrs} weekStart={weekBatch?.week_start} />
 
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
           <span style={{fontSize:12.5,fontWeight:700,color:'var(--text)'}}>休假审批</span>
@@ -390,5 +401,157 @@ export function LogsTab({ logs, setLogs, hdrs }) {
           </div>
         ))}
       </div>
+  );
+}
+
+
+// ══════════════════════════════════════════════════════════════
+// 顶班对接（老韩 2026-11-25 18:46 上线，2026-11-27 重建）
+//
+// 解决的问题：三个管理员分头跟车场组要顶班，信息不对称会漏人。
+//   周一 艾凌风审了谢安达 → 要 1 个顶班
+//   周二 韩颖审了韩思成   → 又单独要，不知道艾凌风要过
+//   12-03 两人重叠 → 实际需要 2 个，可能只安排了 1 个
+//
+// 做法：每条记录一个「已与车场组对接」按钮，点一下
+//   ① 标记 relief_done_by / relief_done_at
+//   ② 推送整周逐日顶班需求 + 已对接/待对接清单到四组办事情群
+//   ③ 谁点的由登录密码自动识别，前端不传身份参数
+// ══════════════════════════════════════════════════════════════
+export function ReliefBlock({ hdrs, weekStart }) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = () => {
+    if (!weekStart) return;
+    apiJson(`/api/leave/week-relief?week=${weekStart}`, { headers: hdrs() })
+      .then(setData).catch(() => setData(null));
+  };
+  useEffect(() => { load(); }, [weekStart]);
+
+  const mark = async (rec) => {
+    setBusy(true);
+    try {
+      await apiJson(`/api/leave/${rec.id}/relief-done`, {
+        method: 'POST', headers: hdrs(),
+        body: JSON.stringify({ note: '' }),
+      });
+      load();
+    } catch (e) { alert(String(e.message || e)); }
+    finally { setBusy(false); }
+  };
+
+  if (!data || !data.records?.length) return null;
+
+  const SHIFT_COLOR = { '早班': '#e4bd48', '白班': '#6ba5fb', '夜班': '#a992f7', '休息': '#5cc27c' };
+
+  return (
+    <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:11,padding:'11px 13px',marginBottom:12}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:9}}>
+        <span style={{fontSize:12.5,fontWeight:700,color:'var(--text)'}}>顶班对接</span>
+        <span style={{fontSize:10.5,color:'var(--muted)'}}>
+          {data.week_start} ~ {data.week_end} · 峰值 <b style={{color:data.peak>=2?'#e8723c':'var(--text)'}}>{data.peak}</b> 人
+          {data.todo?.length > 0 && <span style={{color:'#e8a726',marginLeft:6}}>· 待对接 {data.todo.length}</span>}
+        </span>
+        <button onClick={load} style={{marginLeft:'auto',fontSize:11,padding:'3px 9px',borderRadius:6,
+          background:'transparent',border:'1px solid var(--border)',color:'var(--text)',cursor:'pointer'}}>刷新</button>
+      </div>
+
+      {/* 逐日顶班需求（带班次） */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4,marginBottom:10}}>
+        {data.per_day.map(d => (
+          <div key={d.date} style={{textAlign:'center'}}>
+            <div style={{fontSize:9,color:'var(--muted)',marginBottom:2}}>{d.label}</div>
+            <div style={{
+              height:24,borderRadius:5,display:'flex',alignItems:'center',justifyContent:'center',
+              fontSize:11,fontWeight:800,
+              background: d.is_rest ? 'var(--card-deep)' : d.count>=2 ? 'rgba(232,114,60,0.22)' : d.count===0 ? 'var(--card-deep)' : 'rgba(91,155,250,0.18)',
+              border: `1px solid ${d.is_rest ? 'var(--border)' : d.count>=2 ? 'rgba(232,114,60,0.6)' : d.count===0 ? 'var(--border)' : 'rgba(91,155,250,0.45)'}`,
+              color: d.is_rest ? 'var(--muted)' : d.count>=2 ? '#e8723c' : d.count===0 ? 'var(--muted)' : '#7ec8f0',
+            }}>{d.is_rest ? '—' : d.count}</div>
+            <div style={{fontSize:8.5,marginTop:2,color: SHIFT_COLOR[d.shift] || 'var(--muted)'}}>
+              {d.date.slice(8)}{d.shift ? ' ' + d.shift.replace('班','') : ''}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 逐条记录 + 对接按钮 */}
+      {data.records.map(r => {
+        const done = !!r.relief_done_by;
+        return (
+          <div key={r.id} style={{display:'flex',alignItems:'center',gap:7,padding:'6px 0',
+            borderTop:'1px solid var(--border)',fontSize:11.5,flexWrap:'wrap'}}>
+            <span style={{fontWeight:700,color:'var(--text)',minWidth:48}}>{r.real_name}</span>
+            <span style={{fontSize:10,padding:'1px 6px',borderRadius:4,
+              background:'rgba(91,155,250,0.14)',border:'1px solid rgba(91,155,250,0.35)',color:'#7ec8f0'}}>
+              {r.leave_type}
+            </span>
+            <span style={{color:'var(--muted)',fontSize:10.5}}>{r.start} ~ {r.end}</span>
+            <span style={{marginLeft:'auto'}}>
+              {done ? (
+                <span style={{fontSize:10.5,color:'#5cc27c'}}>✓ {r.relief_done_by} {r.relief_done_at?.slice(11,16)}</span>
+              ) : (
+                <button disabled={busy} onClick={() => mark(r)} style={{
+                  padding:'4px 10px',borderRadius:6,fontSize:10.5,cursor:'pointer',fontWeight:700,
+                  background:'rgba(92,194,124,0.16)',border:'1px solid rgba(92,194,124,0.5)',color:'#5cc27c'}}>
+                  ✓ 已与车场组对接
+                </button>
+              )}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// 申报截止通知（老韩 2026-11-25 19:38 上线，2026-11-27 重建）
+//
+// 三段式：
+//   周三 16:50  cron 自动 → 预览发到「四组办事情群」（cron 脚本负责）
+//   三人任一确认 → 点「确认发到大群」
+//   → 发到「乘务四组大群」（全体组员）
+// ══════════════════════════════════════════════════════════════
+export function WindowClosedBlock({ hdrs, weekStart }) {
+  const [busy, setBusy] = useState(false);
+  const [last, setLast] = useState('');
+
+  const send = async (mode) => {
+    const label = mode === 'preview' ? '预览（发到办事群）' : '正式（发到乘务四组大群）';
+    if (!window.confirm(`确认发送「${label}」？`)) return;
+    setBusy(true);
+    try {
+      const r = await apiJson('/api/leave/window-closed', {
+        method: 'POST', headers: hdrs(),
+        body: JSON.stringify({ mode }),
+      });
+      setLast(`${new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})} 已发送（${label}）`);
+      if (r?.error) alert(r.error);
+    } catch (e) { alert(String(e.message || e)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:11,padding:'11px 13px',marginBottom:12}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+        <span style={{fontSize:12.5,fontWeight:700,color:'var(--text)'}}>申报截止通知</span>
+        <span style={{fontSize:10.5,color:'var(--muted)'}}>周三 16:50 自动发预览到办事群</span>
+      </div>
+      <div style={{display:'flex',gap:7}}>
+        <button disabled={busy} onClick={() => send('preview')} style={{
+          flex:1,padding:'8px 0',borderRadius:8,fontSize:12,cursor:'pointer',
+          background:'transparent',border:'1px solid var(--border)',color:'var(--text)'}}>
+          发预览到办事群
+        </button>
+        <button disabled={busy} onClick={() => send('send')} style={{
+          flex:1,padding:'8px 0',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',
+          background:'rgba(91,155,250,0.18)',border:'1px solid rgba(91,155,250,0.5)',color:'#7ec8f0'}}>
+          ✓ 确认发到大群
+        </button>
+      </div>
+      {last && <div style={{fontSize:10.5,color:'#5cc27c',marginTop:7,textAlign:'center'}}>{last}</div>}
+    </div>
   );
 }
