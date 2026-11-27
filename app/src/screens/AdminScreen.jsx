@@ -13,7 +13,7 @@ import { LeaveTab, DevicesTab, LogsTab } from "./admin/SimpleTabParts.jsx";
 import LeaveOverview from "./admin/LeaveOverview.jsx";
 // 概览区弹窗（2026-11-27 Stage 3 从本文件抽出）
 import {
-  MemberEvalModal, ResetAnswerModal, MakeupGrantModal, RemediationGrantModal,
+  MemberEvalModal, ResetAnswerModal, MakeupGrantModal, RemediationGrantModal, PlanDetailModal,
 } from "./admin/OverviewModals.jsx";
 
 // 供下拉选择框使用的分组 select
@@ -602,37 +602,8 @@ function AdminScreen({ onBack }) {
           {/* ── 成员培训评价详情弹窗（已抽到 admin/OverviewModals.jsx）── */}
           <MemberEvalModal modal={memberEvalModal} onClose={()=>setMemberEvalModal(null)}/>
 
-          {/* ── 本月项点详情弹窗 ── */}
-          {planDetailModal&&(
-            <div onClick={()=>setPlanDetailModal(null)} style={{position:'fixed',inset:0,background:'var(--p-black-00-a70)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-              <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'var(--input-bg)',border:'1px solid var(--p-blue-60-a30)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'70vh',overflowY:'auto'}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-                  <div>
-                    <div style={{fontWeight:700,fontSize:15,color:'var(--text)'}}>{(()=>{const[,m,d]=planDetailModal.shift_date.split('-');return`${parseInt(m)}月${parseInt(d)}日`;})()}</div>
-                    <div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{planDetailModal.group_name} · {planDetailModal.plan_type==='培训'?'实操培训':planDetailModal.plan_type}</div>
-                  </div>
-                  <button onClick={()=>setPlanDetailModal(null)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:22,cursor:'pointer',lineHeight:1}}>×</button>
-                </div>
-                <div style={{display:'flex',flexDirection:'column',gap:6}}>
-                  {planDetailModal.members.length===0
-                    ? <div style={{color:'var(--muted)',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无成员数据</div>
-                    : planDetailModal.members.map((m,i)=>(
-                      <div key={i} style={{padding:'8px 12px',background:m.evaluated?'var(--p-green-45-a06)':'var(--p-red-60-a05)',border:`1px solid ${m.evaluated?'var(--p-green-45-a18)':'var(--p-red-60-a12)'}`,borderRadius:8}}>
-                        <div style={{display:'flex',alignItems:'center',gap:10}}>
-                          <div style={{width:8,height:8,borderRadius:'50%',background:m.evaluated?'var(--green)':'var(--red)',flexShrink:0}}/>
-                          <div style={{flex:1,fontSize:13,color:'var(--text)',fontWeight:600}}>{m.name}</div>
-                          <div style={{fontSize:11,color:m.evaluated?'var(--green)':'var(--red)'}}>{m.evaluated?'已评价':'未评价'}</div>
-                        </div>
-                        {m.evaluated&&m.comment&&(
-                          <div style={{marginTop:5,marginLeft:18,fontSize:11,color:'var(--muted)',lineHeight:1.5,borderLeft:'2px solid var(--p-green-45-a30)',paddingLeft:8}}>{m.comment}</div>
-                        )}
-                      </div>
-                    ))
-                  }
-                </div>
-              </div>
-            </div>
-          )}
+          {/* ── 本月项点详情弹窗（已抽到 admin/OverviewModals.jsx）── */}
+          <PlanDetailModal modal={planDetailModal} onClose={()=>setPlanDetailModal(null)}/>
 
           {/* ── 班组各类题均分 ── */}
           <div className="card">
