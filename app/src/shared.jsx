@@ -2,7 +2,7 @@
 // 功能开关（老韩 2026-11-23 定）
 // 积分榜：目前没有配套奖惩机制，积分只是空谈 → 主页与管理后台都隐藏。
 // 功能代码全部保留，改回 true 即恢复显示。
-export const SHOW_LEADERBOARD = true;
+export const SHOW_LEADERBOARD = false;
 
 export const api = (path, opts={}) => fetch(path, { ...opts, headers:{"Content-Type":"application/json", ...opts.headers} });
 export const apiJson = async (path, opts={}) => { const r = await api(path, opts); return r.json(); };
