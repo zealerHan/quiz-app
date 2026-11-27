@@ -169,6 +169,25 @@ export function LeaveTab({
                     标记已报
                   </button>
                 )}
+                {/* 休假记录导出 Excel（老韩 2026-11-25：管理页要能下载导出） */}
+                <button onClick={async () => {
+                    try {
+                      const base = (typeof window !== 'undefined' && window.__API_BASE__) || '';
+                      const res = await fetch(`${base}/api/leave/export?year=${weekBatch.week_start.slice(0,4)}`, { headers: hdrs() });
+                      if (!res.ok) throw new Error('导出失败 ' + res.status);
+                      const blob = await res.blob();
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `乘务四组休假记录_${weekBatch.week_start.slice(0,4)}.xlsx`;
+                      document.body.appendChild(a); a.click();
+                      document.body.removeChild(a); URL.revokeObjectURL(url);
+                    } catch (e) { alert(String(e.message || e)); }
+                  }}
+                  style={{flex:1,padding:'8px 0',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',
+                    background:'rgba(232,167,38,0.16)',border:'1px solid rgba(232,167,38,0.5)',color:'#e8a726'}}>
+                  ⬇ 导出Excel
+                </button>
               </div>
               {weekBatch.reported_at && (
                 <div style={{fontSize:10.5,color:'#5cc27c',marginTop:8,textAlign:'center'}}>
