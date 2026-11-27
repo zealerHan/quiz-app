@@ -13,6 +13,7 @@
 //   批准/驳回后要刷新列表，刷新逻辑仍在 AdminScreen 里，
 //   组件只负责「点了按钮调用一下」。
 
+import { useState } from "react";
 import { apiJson } from "../../shared.jsx";
 
 /** 休假审批：周报批清单 + 待批列表 + 驳回弹窗 */
@@ -23,6 +24,12 @@ export function LeaveTab({
   reviewLeave, loadWeekBatch, hdrs,
   copyBatchText, markReported,
 }) {
+  // 周报批两种格式（老韩 2026-11-25 10:00 定的）：
+  //   report     = 发车场组的汇总清单（带每日人数）
+  //   attendance = 报给考勤员的逐条格式（一人一行，含班次连写、共N天实际M天）
+  // 两个都要有独立的复制按钮和预览区。
+  const [bdMode, setBdMode] = useState('report');       // report | attendance
+  const [copiedWhich, setCopiedWhich] = useState('');   // 复制反馈
   return (
       <div style={{padding:'0 2px'}}>
         {/* ══ 周报批清单 ══ */}
@@ -103,13 +110,58 @@ export function LeaveTab({
                 </div>
               )}
 
+              {/* 格式切换：发车场组 / 报考勤员（老韩 2026-11-25） */}
+              <div style={{display:'flex',gap:6,marginBottom:8}}>
+                {[['report','发车场组'],['attendance','报考勤员']].map(([k,label])=>(
+                  <button key={k} onClick={()=>setBdMode(k)}
+                    style={{flex:1,padding:'6px 0',borderRadius:7,fontSize:11.5,cursor:'pointer',
+                      fontWeight: bdMode===k ? 700 : 400,
+                      background: bdMode===k ? 'rgba(91,155,250,0.18)' : 'transparent',
+                      border:`1px solid ${bdMode===k?'rgba(91,155,250,0.55)':'var(--border)'}`,
+                      color: bdMode===k ? '#7ec8f0' : 'var(--muted)'}}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* 预览区 */}
+              <div style={{marginBottom:9}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:5}}>
+                  <span style={{fontSize:10.5,color:'var(--muted)'}}>
+                    {bdMode==='report' ? '发给车场组班组长' : '报给考勤员（一人一行）'}
+                  </span>
+                  <button onClick={()=>{
+                      const t = bdMode==='report' ? weekBatch.text : weekBatch.attendance_text;
+                      navigator.clipboard.writeText(t||'').then(()=>{
+                        setCopiedWhich(bdMode);
+                        setTimeout(()=>setCopiedWhich(''), 1800);
+                      });
+                    }}
+                    style={{marginLeft:'auto',padding:'3px 10px',borderRadius:6,fontSize:10.5,cursor:'pointer',
+                      background:'rgba(91,155,250,0.16)',border:'1px solid rgba(91,155,250,0.45)',color:'#7ec8f0'}}>
+                    {copiedWhich===bdMode ? '✓ 已复制' : '复制'}
+                  </button>
+                </div>
+                <pre style={{
+                  margin:0,padding:'9px 10px',borderRadius:8,fontSize:10.5,lineHeight:1.75,
+                  background:'var(--card-deep)',border:'1px solid var(--border)',
+                  color:'var(--text)',whiteSpace:'pre-wrap',wordBreak:'break-all',
+                  maxHeight:200,overflowY:'auto',fontFamily:'inherit',
+                }}>
+                  {bdMode==='report'
+                    ? (weekBatch.text || '（空）')
+                    : (weekBatch.attendance_text || '（空）')}
+                </pre>
+                {bdMode==='attendance' && (
+                  <div style={{fontSize:9.5,color:'var(--muted)',marginTop:4,lineHeight:1.6}}>
+                    共 {weekBatch.attendance_lines?.length || 0} 行
+                    {weekBatch.attendance_lines?.some(l=>l.includes('年12月')) ? '（含跨月拆段）' : ''}
+                  </div>
+                )}
+              </div>
+
               {/* 操作 */}
               <div style={{display:'flex',gap:7}}>
-                <button onClick={copyBatchText}
-                  style={{flex:1,padding:'8px 0',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',
-                    background:'rgba(91,155,250,0.18)',border:'1px solid rgba(91,155,250,0.5)',color:'#7ec8f0'}}>
-                  复制清单
-                </button>
                 {!weekBatch.reported_at && (
                   <button onClick={markReported}
                     style={{flex:1,padding:'8px 0',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',
