@@ -88,21 +88,33 @@ if [ "$DIST_OWNER" != "HanYing:Users" ]; then
     || warn "修正失败，需要 sudo（下次构建可能不生效）"
 fi
 
-# A. 产物新鲜度：dist/assets 里最新的 js 必须比 src 里最新的 jsx/js 新
-NEWEST_SRC=$(find "$DIR/app/src" -name '*.jsx' -o -name '*.js' 2>/dev/null | xargs stat -c '%Y' 2>/dev/null | sort -rn | head -1)
+# A. 产物新鲜度：判定「最后一次源码提交」和「dist 产物」谁更新
+#
+# ⚠ 不能用文件 mtime 比 —— git checkout / reset --hard 会刷新所有文件的 mtime，
+#   哪怕内容一个字没变，也会造成「源码比产物新」的假报警（2026-11-27 实测踩到）。
+# 正确做法：比 git 里最后一次动 src/ 的提交时间 与 dist 产物的 mtime。
+LAST_SRC_COMMIT=$(git log -1 --format=%ct -- app/src 2>/dev/null || echo 0)
 NEWEST_DIST=$(find "$DIR/app/dist/assets" -name '*.js' 2>/dev/null | xargs stat -c '%Y' 2>/dev/null | sort -rn | head -1)
 
-if [ -n "$NEWEST_SRC" ] && [ -n "$NEWEST_DIST" ]; then
-  if [ "$NEWEST_SRC" -gt "$NEWEST_DIST" ]; then
-    warn "源码比前端产物新（src ${NEWEST_SRC} > dist ${NEWEST_DIST}）"
-    warn "说明改了 .jsx 但没在 Mac 上 npm run build，线上会是旧包"
+# 还有未提交的 src 改动也要算进来（工作区改了但没 commit）
+UNCOMMITTED_SRC=$(git status --porcelain -- app/src 2>/dev/null | head -1)
+
+if [ "${LAST_SRC_COMMIT:-0}" -gt 0 ] && [ -n "${NEWEST_DIST:-}" ]; then
+  if [ -n "$UNCOMMITTED_SRC" ]; then
+    warn "app/src 有未提交的改动，前端产物可能不对应"
+    warn "改了 .jsx 请在 Mac 上 npm run build 并提交 dist"
+    read -p "仍要继续？(y/N) " ans
+    [ "$ans" = "y" ] || die "已取消——请先在 Mac 上 build 并提交"
+  elif [ "$LAST_SRC_COMMIT" -gt "$NEWEST_DIST" ]; then
+    warn "src 最后一次提交比前端产物新（commit $LAST_SRC_COMMIT > dist $NEWEST_DIST）"
+    warn "说明改了 .jsx 但没重新 build，线上会是旧包"
     read -p "仍要继续？(y/N) " ans
     [ "$ans" = "y" ] || die "已取消——请先在 Mac 上 npm run build 并提交 dist"
   else
-    info "前端产物比源码新，正常"
+    info "前端产物不旧于源码提交，正常"
   fi
 else
-  warn "取不到时间戳，跳过新鲜度检查"
+  warn "取不到 git 提交时间或产物时间，跳过新鲜度检查"
 fi
 
 # ── 3. 重建镜像 ──
