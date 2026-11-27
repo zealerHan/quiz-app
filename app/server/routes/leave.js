@@ -394,10 +394,13 @@ router.get('/api/leave/all', adminAuth, (req, res) => {
   const out = rows.map(r => {
     const q = buildQuota(r.staff_id, year);
     if (!q) return null;
-    const s = db.prepare('SELECT real_name, name FROM staff WHERE id=?').get(r.staff_id);
+    const s = db.prepare('SELECT real_name, name, roster_seq, is_cp FROM staff WHERE id=?').get(r.staff_id);
     return {
       staff_id: r.staff_id,
       name: s ? (s.real_name || s.name) : r.staff_id,
+      // 班组序号（roster_seq，1~41 长期固定，不随排序变化）
+      seq: s?.roster_seq != null ? Number(s.roster_seq) : null,
+      is_cp: s?.is_cp ? 1 : 0,
       ...q,
       annual_left: q.annual_total - q.annual_used,
     };
