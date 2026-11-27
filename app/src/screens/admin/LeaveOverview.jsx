@@ -14,17 +14,19 @@
 //   11-26 17:10  「加一个切换年份的按钮」「总人数还是这 41」
 //                「总览列表名字前面加个序号」
 //   11-27        「措辞只用「车峰」，不要用「编外」」
+//   11-27 二次   「年休假和育儿假等其他假期综合算在一起」→ 要分假别看
+//                「每个人的条目底部应该有假期的明细」
+//                「非编人员不用那么详细，用灰色小字体显示」
 //
-// ══ 口径 ══
-//   在编  = staff 里 is_cp=0 的人（当前 30 人）
-//   车峰  = is_cp=1（当前 11 人），不计入在编合计，列在下方做差异标注
+// ══ 口径（关键）══
+//   个人条目显示【年休】单假别：休 X / 年休额度，因为年休是主诉求
+//   条目底部明细：年休 / 婚假 / 陪产假 / 育儿假 各自 used/total
+//   顶部汇总四项都列：年休、婚假、陪产假、育儿假，加一行四项合计
+//   在编  = is_cp=0（当前 30 人）  → 详细显示
+//   车峰  = is_cp=1（当前 11 人）  → 灰色小字，一行一个，不展开明细
 //   已休  = status IN ('verified','locked','reported','released')
-//   超支  = 额度>0 且 已休>额度 → 显示 `8/5（超3）`
-//   额度0 = 显示「已休N 已用完」，不标异常（这是主动置0的正常状态）
-//
-// ══ 接口 ══
-//   GET /api/leave/all?year=       每人额度/已休/剩余 + 分假别 detail + seq + is_cp
-//   GET /api/leave/staff/:id?year= 单人完整记录（点某人弹窗）
+//   超支  = 额度>0 且 已休>额度 → `5.5/5（超0.5）`
+//   额度0 = `已休N 已用完`，不标异常
 
 import { useState, useEffect } from "react";
 import { apiJson } from "../../shared.jsx";
@@ -35,7 +37,7 @@ const fmt = (n) => {
   return Number.isInteger(v) ? String(v) : v.toFixed(1);
 };
 
-// 进度条配色（老韩原话：蓝色=休得少、橙色=休过半、红色=已用完/超出）
+// 进度条配色：蓝=休得少 / 橙=休过半 / 红=用完或超出
 const barColor = (used, total) => {
   if (total <= 0) return "#e8723c";
   const ratio = used / total;
@@ -49,6 +51,14 @@ const STATUS_LABEL = {
   released: "已销假", submitted: "待审", cancel_pending: "撤销待批",
   rejected: "已驳回", cancelled: "已撤销", draft: "草稿",
 };
+
+// 四个假别的字段映射（detail 里的 key 是中文名）
+const TYPES = [
+  { key: "annual",    name: "年休",   totalKey: "annual_total",    usedKey: "annual_used" },
+  { key: "marriage",  name: "婚假",   totalKey: "marriage_total",  usedKey: "marriage_used" },
+  { key: "paternity", name: "陪产假", totalKey: "paternity_total", usedKey: "paternity_used" },
+  { key: "parental",  name: "育儿假", totalKey: "parental_total",  usedKey: "parental_used" },
+];
 
 /** 单人明细弹窗 */
 function StaffDetailModal({ staffRow, year, hdrs, onClose }) {
@@ -103,7 +113,6 @@ function StaffDetailModal({ staffRow, year, hdrs, onClose }) {
           <div className="spinner" style={{ margin: "0 auto" }} />
         </div>}
 
-        {/* 各假别额度 */}
         {!loading && lines.length > 0 && (
           <div style={{
             background: "var(--p-navy-16-a60)", border: "1px solid var(--border)",
@@ -163,36 +172,77 @@ function StaffDetailModal({ staffRow, year, hdrs, onClose }) {
   );
 }
 
-/** 一行：序号 姓名 [车峰] —— 进度条 —— 已休/额度 */
+/** 在编人员一行：序号 姓名 —— 年休进度条 —— 底部四假别明细 */
 function PersonRow({ r, onOpen }) {
-  const over = r.annual_total > 0 && r.annual_used > r.annual_total;
-  const usedUp = r.annual_total === 0 && r.annual_used > 0;
-  const pct = r.annual_total > 0
-    ? Math.min(100, (r.annual_used / r.annual_total) * 100)
-    : 100;
-  const color = barColor(r.annual_used, r.annual_total);
+  const total = r.annual_total || 0;
+  const used = r.annual_used || 0;
+  const over = total > 0 && used > total;
+  const usedUp = total === 0 && used > 0;
+  const pct = total > 0 ? Math.min(100, (used / total) * 100) : 100;
+  const color = barColor(used, total);
+
+  // 底部明细：只列有额度或已休的假别
+  const details = TYPES
+    .map((t) => ({
+      name: t.name,
+      total: r[t.totalKey] || 0,
+      used: r[t.usedKey] || 0,
+    }))
+    .filter((d) => d.total > 0 || d.used > 0);
 
   return (
-    <div onClick={onOpen} style={{ padding: "8px 2px", borderBottom: "1px solid var(--p-navy-22-a30)", cursor: "pointer" }}>
+    <div onClick={onOpen} style={{ padding: "9px 2px", borderBottom: "1px solid var(--p-navy-22-a30)", cursor: "pointer" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
         <span style={{ fontSize: 10.5, color: "var(--muted)", minWidth: 16 }}>{r.seq ?? ""}</span>
         <span style={{ fontSize: 12.5, color: "var(--text)", fontWeight: 600 }}>{r.name}</span>
-        {r.is_cp ? (
-          <span style={{
-            fontSize: 9.5, padding: "0 4px", borderRadius: 3,
-            background: "rgba(232,167,38,0.14)", border: "1px solid rgba(232,167,38,0.4)", color: "#e8a726",
-          }}>车峰</span>
-        ) : null}
         <span style={{ marginLeft: "auto", fontSize: 11.5, color }}>
           {usedUp
-            ? `已休${fmt(r.annual_used)} 已用完`
-            : `休 ${fmt(r.annual_used)} / ${fmt(r.annual_total)}${over ? `（超${fmt(r.annual_used - r.annual_total)}）` : ""}`
+            ? `年休 已休${fmt(used)} 已用完`
+            : `年休 ${fmt(used)} / ${fmt(total)}${over ? `（超${fmt(used - total)}）` : ""}`
           }
         </span>
       </div>
-      <div style={{ height: 4, background: "var(--p-navy-22-a60)", borderRadius: 2, overflow: "hidden" }}>
+
+      {/* 年休进度条 */}
+      <div style={{ height: 4, background: "var(--p-navy-22-a60)", borderRadius: 2, overflow: "hidden", marginBottom: 5 }}>
         <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 2 }} />
       </div>
+
+      {/* 底部假别明细 */}
+      {details.length > 0 && (
+        <div style={{ fontSize: 10, color: "var(--muted)", lineHeight: 1.7, paddingLeft: 22 }}>
+          {details.map((d, i) => {
+            const dn = d.total > 0 && d.used > d.total;
+            return (
+              <span key={d.name} style={{ color: dn ? "#e8723c" : "var(--muted)" }}>
+                {i > 0 && <span style={{ margin: "0 6px", opacity: 0.4 }}>·</span>}
+                {d.name} {d.total === 0 ? "已用完" : `${fmt(d.used)}/${fmt(d.total)}`}
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 车峰一行：灰色小字，不展开明细 */
+function CpRow({ r }) {
+  const total = r.annual_total || 0;
+  const used = r.annual_used || 0;
+  const over = total > 0 && used > total;
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 6,
+      padding: "3px 2px", fontSize: 10.5, color: "var(--muted)", lineHeight: 1.6,
+    }}>
+      <span style={{ minWidth: 16, opacity: 0.7 }}>{r.seq ?? ""}</span>
+      <span>{r.name}</span>
+      <span style={{ marginLeft: "auto", color: over ? "#e8723c" : "var(--muted)" }}>
+        {total === 0 && used > 0 ? `已休${fmt(used)}` : `${fmt(used)}/${fmt(total)}`}
+        {over ? `（超${fmt(used - total)}）` : ""}
+      </span>
     </div>
   );
 }
@@ -204,12 +254,12 @@ function PersonRow({ r, onOpen }) {
  *   hdrs   () => 管理员请求头
  */
 export default function LeaveOverview({ hdrs }) {
-  const [open, setOpen] = useState(false);          // 默认折叠（老韩：平时不看，以审批为主）
+  const [open, setOpen] = useState(false);
   const [year, setYear] = useState(2026);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState(null);
-  const [sortBy, setSortBy] = useState("left");     // left=剩余从多到少 / used=已休从多到少
+  const [sortBy, setSortBy] = useState("left");
 
   useEffect(() => {
     if (!open) return;
@@ -226,32 +276,36 @@ export default function LeaveOverview({ hdrs }) {
   const regRows = allRows.filter((r) => !r.is_cp);
   const cpRows = allRows.filter((r) => r.is_cp);
 
-  const sum = (arr, k) => arr.reduce((a, r) => a + (r[k] || 0), 0);
-  const stat = {
-    reg: { n: regRows.length, total: sum(regRows, "annual_total"), used: sum(regRows, "annual_used"), left: sum(regRows, "annual_left") },
-    cp: { n: cpRows.length, total: sum(cpRows, "annual_total"), used: sum(cpRows, "annual_used"), left: sum(cpRows, "annual_left") },
-  };
+  // 分假别汇总（顶部四项都列）
+  const typeSum = TYPES.map((t) => {
+    const total = regRows.reduce((a, r) => a + (r[t.totalKey] || 0), 0);
+    const used = regRows.reduce((a, r) => a + (r[t.usedKey] || 0), 0);
+    return { name: t.name, total, used, left: total - used };
+  });
+  const allSum = typeSum.reduce(
+    (a, t) => ({ total: a.total + t.total, used: a.used + t.used, left: a.left + t.left }),
+    { total: 0, used: 0, left: 0 }
+  );
 
   const sortFn = sortBy === "left"
-    ? (a, b) => b.annual_left - a.annual_left
-    : (a, b) => b.annual_used - a.annual_used;
+    ? (a, b) => (b.annual_left || 0) - (a.annual_left || 0)
+    : (a, b) => (b.annual_used || 0) - (a.annual_used || 0);
 
   const sortedReg = [...regRows].sort(sortFn);
-  const sortedCp = [...cpRows].sort(sortFn);
+  const sortedCp = [...cpRows].sort((a, b) => (a.seq ?? 99) - (b.seq ?? 99));
 
   return (
     <div style={{
       background: "var(--card)", border: "1px solid var(--border)",
       borderRadius: 11, marginBottom: 12, overflow: "hidden",
     }}>
-      {/* ── 标题行（可点，默认折叠）── */}
       <div onClick={() => setOpen(!open)} style={{
         display: "flex", alignItems: "center", gap: 8, padding: "11px 13px", cursor: "pointer",
       }}>
         <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text)" }}>全组休假总览</span>
         {!open && data && (
           <span style={{ fontSize: 10.5, color: "var(--muted)" }}>
-            在编 {stat.reg.n} 人 · 已休 {fmt(stat.reg.used)} / {fmt(stat.reg.total)} 天
+            在编 {regRows.length} 人 · 剩余 {fmt(allSum.left)} / {fmt(allSum.total)} 天
           </span>
         )}
         <span style={{
@@ -262,7 +316,6 @@ export default function LeaveOverview({ hdrs }) {
 
       {open && (
         <div style={{ padding: "0 13px 13px" }}>
-          {/* ── 年份切换 ── */}
           <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
             {[2026, 2027].map((y) => (
               <button key={y} onClick={() => setYear(y)} style={{
@@ -281,30 +334,46 @@ export default function LeaveOverview({ hdrs }) {
 
           {!loading && data && (
             <>
-              {/* ── 汇总（只算在编）── */}
+              {/* ── 分假别汇总 ── */}
               <div style={{
                 background: "var(--p-navy-16-a60)", border: "1px solid var(--border)",
                 borderRadius: 9, padding: "9px 11px", marginBottom: 10,
               }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, marginBottom: 6 }}>
-                  <span style={{ color: "var(--muted)" }}>在编 {stat.reg.n} 人合计</span>
-                  {stat.cp.n > 0 && <span style={{ color: "var(--muted)", fontSize: 10.5 }}>车峰 {stat.cp.n} 人不计</span>}
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, marginBottom: 7 }}>
+                  <span style={{ color: "var(--muted)" }}>在编 {regRows.length} 人 · 分假别</span>
+                  {cpRows.length > 0 && <span style={{ color: "var(--muted)", fontSize: 10.5 }}>车峰 {cpRows.length} 人不计</span>}
                 </div>
-                <div style={{ display: "flex", gap: 10 }}>
-                  {[["全年额度", stat.reg.total, "var(--text)"],
-                    ["已休", stat.reg.used, "var(--text)"],
-                    ["剩余", stat.reg.left, stat.reg.left < 0 ? "#e8723c" : "var(--blue)"]].map(([k, v, c]) => (
-                    <div key={k} style={{ flex: 1, textAlign: "center" }}>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: c }}>{fmt(v)}</div>
-                      <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>{k}</div>
-                    </div>
-                  ))}
+                {typeSum.filter((t) => t.total > 0 || t.used > 0).map((t) => (
+                  <div key={t.name} style={{
+                    display: "flex", justifyContent: "space-between",
+                    fontSize: 11.5, padding: "2.5px 0",
+                  }}>
+                    <span style={{ color: "var(--muted)" }}>{t.name}</span>
+                    <span style={{ color: t.left < 0 ? "#e8723c" : "var(--text)" }}>
+                      剩 <b>{fmt(t.left)}</b>
+                      <span style={{ color: "var(--muted)", fontSize: 10.5, marginLeft: 6 }}>
+                        （{fmt(t.used)}/{fmt(t.total)}）
+                      </span>
+                    </span>
+                  </div>
+                ))}
+                <div style={{
+                  display: "flex", justifyContent: "space-between", fontSize: 11.5,
+                  marginTop: 6, paddingTop: 6, borderTop: "1px solid var(--border)",
+                }}>
+                  <span style={{ color: "var(--text)", fontWeight: 600 }}>四项合计</span>
+                  <span style={{ color: allSum.left < 0 ? "#e8723c" : "var(--blue)", fontWeight: 700 }}>
+                    剩 {fmt(allSum.left)}
+                    <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 10.5, marginLeft: 6 }}>
+                      （{fmt(allSum.used)}/{fmt(allSum.total)}）
+                    </span>
+                  </span>
                 </div>
               </div>
 
-              {/* ── 排序切换 ── */}
+              {/* ── 排序 ── */}
               <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                {[["left", "剩余从多到少"], ["used", "已休从多到少"]].map(([k, label]) => (
+                {[["left", "年休剩余从多到少"], ["used", "年休已休从多到少"]].map(([k, label]) => (
                   <button key={k} onClick={() => setSortBy(k)} style={{
                     flex: 1, padding: "4px 0", borderRadius: 6, fontSize: 10.5, cursor: "pointer",
                     background: sortBy === k ? "rgba(91,155,250,0.14)" : "transparent",
@@ -314,26 +383,22 @@ export default function LeaveOverview({ hdrs }) {
                 ))}
               </div>
 
-              {/* ── 在编人员 ── */}
+              {/* ── 在编人员（详细）── */}
               {sortedReg.map((r) => (
                 <PersonRow key={r.staff_id} r={r} onOpen={() => setDetail(r)} />
               ))}
 
-              {/* ── 车峰差异标注（不计入上方合计）── */}
+              {/* ── 车峰（灰色小字，不展开）── */}
               {sortedCp.length > 0 && (
-                <>
+                <div style={{ marginTop: 10 }}>
                   <div style={{
-                    marginTop: 12, padding: "7px 10px", borderRadius: 8,
-                    background: "rgba(232,167,38,0.08)", border: "1px solid rgba(232,167,38,0.28)",
-                    fontSize: 10.5, color: "#e8a726", lineHeight: 1.6,
+                    fontSize: 10, color: "var(--muted)", opacity: 0.8,
+                    padding: "6px 0 3px", borderTop: "1px dashed var(--border)", marginBottom: 2,
                   }}>
-                    以下 {stat.cp.n} 人为车峰（临时调整跑车方式，保留组籍）<br />
-                    不计入上方在编合计，仅作差异标注
+                    以下 {sortedCp.length} 人为车峰（临时调整跑车方式，保留组籍），不计入上方合计
                   </div>
-                  {sortedCp.map((r) => (
-                    <PersonRow key={r.staff_id} r={r} onOpen={() => setDetail(r)} />
-                  ))}
-                </>
+                  {sortedCp.map((r) => <CpRow key={r.staff_id} r={r} />)}
+                </div>
               )}
             </>
           )}
