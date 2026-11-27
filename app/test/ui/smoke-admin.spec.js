@@ -192,9 +192,15 @@ test.describe("管理后台 — 关键数据能显示", () => {
   //   逾期「逾期 ›」      → MakeupGrantModal（补答授权：姓名）
   //   需复查「xx分 需复查 ›」→ RemediationGrantModal（授权复查：姓名）
   //
-  // 本用例点已完成的人，断言弹出「重置：xxx」——证明抽出的组件真能渲染。
-  // 逾期/需复查两种状态不一定每天都有（今天可能没人逾期），
-  // 所以有就测、没有就 skip，不硬造数据。
+  // ⚠ 定位踩过的坑：
+  //   人员卡片的 DOM 是
+  //     <div onClick style="cursor:pointer">      ← 可点的就是这层
+  //       <div>盛成</div>
+  //       <div>68.3分 ›</div>                     ← children=0 的叶子
+  //     </div>
+  //   姓名和分数是两个兄弟 div，textContent 拼起来没有空格，innerText 中间是换行。
+  //   所以正则 `^\s*.+\s*\d+分\s*›\s*$` 匹配不上（. 不跨行）。
+  //   可靠判据是：cursor:pointer 且直接子节点里含「数字分 ›」的 div。
   test("概览：点已完成人员弹出重置弹窗", async ({ page }) => {
     const errors = collectErrors(page);
     await adminLogin(page);
@@ -202,14 +208,23 @@ test.describe("管理后台 — 关键数据能显示", () => {
 
     const body = page.locator("body");
 
-    // 人员卡片长这样：<div onClick>...<div>姓名</div><div>68.3分 ›</div></div>
-    const cards = page.locator("div").filter({ hasText: /^\s*.+\s*\d+(\.\d+)?分\s*›\s*$/ });
-    const cnt = await cards.count();
-    if (cnt === 0) {
-      test.skip(true, "本套班没有已完成人员卡片");
+    // 用 evaluate 直接挑出可点击的人员卡片，返回它在 DOM 里的索引
+    const cardHandle = await page.evaluateHandle(() => {
+      const all = Array.from(document.querySelectorAll("div"));
+      return all.find((e) => {
+        if (getComputedStyle(e).cursor !== "pointer") return false;
+        if (e.children.length !== 2) return false;
+        const t = (e.textContent || "").trim();
+        return /\d+(\.\d+)?分 ›$/.test(t);
+      }) || null;
+    });
+
+    const exists = await cardHandle.evaluate((e) => !!e);
+    if (!exists) {
+      test.skip(true, "本套班没有「xx分 ›」形式的已完成人员卡片");
       return;
     }
-    await cards.first().click({ force: true });
+    await cardHandle.asElement().click();
 
     await page.waitForTimeout(1200);
     const after = await body.innerText();
