@@ -151,11 +151,58 @@ for i in $(seq 1 40); do
   sleep 2
 done
 
+# ── 6. 代码一致性校验（最后一道闸，2026-11-27 加）──
+#
+# ⚠ 为什么必须有这一步：
+#   「exit 0」和「事情办成了」是两件事。
+#   今天出现过 deploy.sh 连续三次输出「部署完成」，但容器里跑的还是 18:00 的旧代码，
+#   因为中间一次部署被自检拦下、git 已更新而容器没重建，后续每次都说「代码无变化」退出。
+#   所有输出都正常，只有比对文件哈希才能发现不对。
+#
+# 判据：git 里 HEAD 版本的源码，必须和容器内 /app 下同一文件逐字节一致。
+info "校验容器内代码与 git 一致…"
+
+MISMATCH=""
+CHECKED=0
+MISSING=0
+for f in $(git ls-files app/server app/src 2>/dev/null); do
+  HOST_F="$DIR/$f"
+  # 容器内路径：仓库里是 app/server/x.js，容器 WORKDIR 是 /app，所以是 /app/server/x.js
+  CONT_F="/$f"
+  [ -f "$HOST_F" ] || continue
+  H=$(md5sum "$HOST_F" 2>/dev/null | cut -d' ' -f1)
+  C=$(docker exec peixun md5sum "$CONT_F" 2>/dev/null | cut -d' ' -f1)
+  CHECKED=$((CHECKED+1))
+  # ⚠ 容器里读不到这个文件，本身就是不一致（不能因为 C 为空就跳过）
+  if [ -z "$C" ]; then
+    MISSING=$((MISSING+1))
+    MISMATCH="$MISMATCH\n    $f  （容器内不存在 $CONT_F）"
+  elif [ "$H" != "$C" ]; then
+    MISMATCH="$MISMATCH\n    $f  （内容不同）"
+  fi
+done
+
+if [ -n "$MISMATCH" ]; then
+  echo ""
+  echo "${RED}❌ 部署未真正生效 —— 以下文件容器内与 git 不一致：${RST}"
+  echo -e "$MISMATCH"
+  echo ""
+  echo "  这通常意味着：上次部署被中断、镜像没重建、或 dist 权限问题导致构建静默失败。"
+  echo "  手动排查："
+  echo "    docker exec peixun md5sum <文件>"
+  echo "    md5sum $DIR/app/<文件>"
+  echo "    docker compose build peixun && docker compose up -d --force-recreate peixun"
+  exit 1
+fi
+
+info "代码一致（校验了 $CHECKED 个文件）"
+
 echo ""
 echo "════════ 部署完成 ════════"
 echo "  提交:    $NEW"
 echo "  容器:    $(docker ps --filter name=peixun --format '{{.Status}}')"
 echo "  公网:    $(curl -s -o /dev/null -w '%{http_code}' https://peixun.zealerhan.cn/ 2>/dev/null || echo '?')"
+echo "  代码:    $CHECKED 个文件与 git 一致 ✓"
 echo ""
 echo "  前端产物:"
 docker exec peixun ls /app/dist/assets/ 2>/dev/null | sed 's/^/    /'
