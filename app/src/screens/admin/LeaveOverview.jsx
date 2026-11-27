@@ -71,6 +71,10 @@ function StaffDetailModal({ person, year, hdrs, onClose, onChanged }) {
   const [form, setForm] = useState({ leave_type: "年休", start_date: "", end_date: "", days: "1", note: "" });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  // 编辑一条记录（假别/起止/天数/备注）—— 老韩 11-26 17:47「加个补的按钮可以编辑」
+  const [editFor, setEditFor] = useState(null);
+  const [editForm, setEditForm] = useState(null);
+  const [conflict, setConflict] = useState(null);   // 409 冲突时存下来，供「强制保存」
 
   const load = () => {
     setLoading(true);
@@ -120,6 +124,46 @@ function StaffDetailModal({ person, year, hdrs, onClose, onChanged }) {
     finally { setBusy(false); }
   };
 
+  // 保存编辑（PATCH /api/leave/:id）
+  const saveEdit = async (force = false) => {
+    if (!editForm) return;
+    if (!editForm.start_date) { setErr("请填开始日期"); return; }
+    if (!(Number(editForm.days) > 0)) { setErr("天数必须大于 0"); return; }
+    setBusy(true); setErr("");
+    try {
+      await apiJson(`/api/leave/${editFor}`, {
+        method: "PATCH",
+        headers: { ...hdrs(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leave_type: editForm.leave_type,
+          start_date: editForm.start_date,
+          end_date: editForm.end_date || editForm.start_date,
+          days: Number(editForm.days),
+          force,
+        }),
+      });
+      setEditFor(null); setEditForm(null); setConflict(null);
+      load(); onChanged?.();
+    } catch (e) {
+      // 409 = 时间冲突，后端会带上冲突详情，让用户决定是否强制保存
+      const msg = String(e.message || e);
+      const m = msg.match(/\{.*\}/s);
+      if (m) { try { setConflict(JSON.parse(m[0])); } catch { setConflict({ error: msg }); } }
+      setErr(msg);
+    } finally { setBusy(false); }
+  };
+
+  // 删除一条记录（DELETE /api/leave/:id）
+  const delRecord = async (r) => {
+    if (!window.confirm(`确定删除这条记录？\n\n${r.leave_type}  ${r.start_date}~${r.end_date}  ${fmt(r.days)}天\n\n删除后不可恢复。`)) return;
+    setBusy(true); setErr("");
+    try {
+      await apiJson(`/api/leave/${r.id}`, { method: "DELETE", headers: hdrs() });
+      load(); onChanged?.();
+    } catch (e) { setErr(String(e.message || e)); }
+    finally { setBusy(false); }
+  };
+
   const inputStyle = {
     width: "100%", background: "var(--p-navy-16-a60)", border: "1px solid var(--border)",
     borderRadius: 7, padding: "7px 9px", color: "var(--text)", fontSize: 12,
@@ -151,6 +195,11 @@ function StaffDetailModal({ person, year, hdrs, onClose, onChanged }) {
               {year} 年 · {records.length} 条记录
             </div>
           </div>
+          <button onClick={() => setAdding(true)} style={{
+            background: "rgba(91,155,250,0.14)", border: "1px solid rgba(91,155,250,0.45)",
+            color: "var(--blue)", borderRadius: 6, padding: "4px 9px", cursor: "pointer",
+            fontSize: 11.5, marginRight: 6,
+          }}>＋补录</button>
           <button onClick={onClose} style={{
             background: "none", border: "1px solid var(--border)", color: "var(--muted)",
             borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12,
@@ -251,11 +300,98 @@ function StaffDetailModal({ person, year, hdrs, onClose, onChanged }) {
                   </div>
                 </div>
               ) : (
-                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 3 }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginTop: 3 }}>
                   <button onClick={() => { setNoteFor(r.id); setNoteText(r.relief_note || ""); }} style={{
                     background: "none", border: "none", cursor: "pointer",
                     fontSize: 10.5, color: "var(--blue)", padding: "2px 0",
                   }}>{r.relief_note ? "改备注" : "＋备注"}</button>
+                  <button onClick={() => {
+                    setEditFor(r.id);
+                    setEditForm({
+                      leave_type: r.leave_type,
+                      start_date: r.start_date,
+                      end_date: r.end_date === r.start_date ? "" : r.end_date,
+                      days: String(r.days),
+                    });
+                    setConflict(null); setErr("");
+                  }} style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    fontSize: 10.5, color: "#7ec8f0", padding: "2px 0",
+                  }}>编辑</button>
+                  <button onClick={() => delRecord(r)} style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    fontSize: 10.5, color: "#e8723c", padding: "2px 0",
+                  }}>删除</button>
+                </div>
+              )}
+
+              {/* ── 编辑这条记录 ── */}
+              {editFor === r.id && editForm && (
+                <div style={{
+                  marginTop: 7, padding: "9px 10px", borderRadius: 8,
+                  background: "rgba(91,155,250,0.06)", border: "1px solid rgba(91,155,250,0.35)",
+                }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)", marginBottom: 7 }}>
+                    编辑这条记录
+                  </div>
+                  <div style={{ marginBottom: 6 }}>
+                    <div style={{ fontSize: 9.5, color: "var(--muted)", marginBottom: 2 }}>假别</div>
+                    <select value={editForm.leave_type}
+                      onChange={(e) => setEditForm({ ...editForm, leave_type: e.target.value })}
+                      style={inputStyle}>
+                      {["年休", "婚假", "陪产假", "育儿假", "病假", "事假", "丧假"].map((v) => (
+                        <option key={v} value={v}>{v}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 9.5, color: "var(--muted)", marginBottom: 2 }}>开始日期</div>
+                      <input type="date" value={editForm.start_date}
+                        onChange={(e) => setEditForm({ ...editForm, start_date: e.target.value })}
+                        style={inputStyle} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 9.5, color: "var(--muted)", marginBottom: 2 }}>结束（空=同开始）</div>
+                      <input type="date" value={editForm.end_date}
+                        onChange={(e) => setEditForm({ ...editForm, end_date: e.target.value })}
+                        style={inputStyle} />
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 6 }}>
+                    <div style={{ fontSize: 9.5, color: "var(--muted)", marginBottom: 2 }}>扣假天数</div>
+                    <input type="number" step="0.5" value={editForm.days}
+                      onChange={(e) => setEditForm({ ...editForm, days: e.target.value })}
+                      style={inputStyle} />
+                  </div>
+
+                  {/* 409 冲突提示 + 强制保存 */}
+                  {conflict && (
+                    <div style={{
+                      padding: "7px 9px", borderRadius: 6, marginBottom: 7,
+                      background: "rgba(232,114,60,0.1)", border: "1px solid rgba(232,114,60,0.4)",
+                      fontSize: 10.5, color: "#e8723c", lineHeight: 1.6,
+                    }}>
+                      时间冲突：{conflict.leave_type} {conflict.start}~{conflict.end}（{conflict.days}天）<br />
+                      <button onClick={() => saveEdit(true)} disabled={busy} style={{
+                        marginTop: 5, padding: "4px 10px", borderRadius: 5, fontSize: 10.5,
+                        cursor: "pointer", background: "rgba(232,114,60,0.2)",
+                        border: "1px solid rgba(232,114,60,0.5)", color: "#e8723c",
+                      }}>强制保存</button>
+                    </div>
+                  )}
+
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button disabled={busy} onClick={() => { setEditFor(null); setEditForm(null); setConflict(null); }} style={{
+                      flex: 1, padding: "6px 0", borderRadius: 6, fontSize: 11.5, cursor: "pointer",
+                      background: "transparent", border: "1px solid var(--border)", color: "var(--muted)",
+                    }}>取消</button>
+                    <button disabled={busy} onClick={() => saveEdit(false)} style={{
+                      flex: 1, padding: "6px 0", borderRadius: 6, fontSize: 11.5, cursor: "pointer",
+                      background: "rgba(91,155,250,0.2)", border: "1px solid rgba(91,155,250,0.55)",
+                      color: "var(--blue)",
+                    }}>{busy ? "保存中" : "保存修改"}</button>
+                  </div>
                 </div>
               )}
             </div>
