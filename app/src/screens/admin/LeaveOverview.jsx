@@ -183,6 +183,7 @@ function StaffDetailModal({ staffRow, year, hdrs, onClose }) {
 
 /**
  * 在编人员一行
+ * 序号放最前，固定小方块，跟人走不跟排序走
  * 大字 = 四项合计；底部小字 = 各假别明细
  */
 function PersonRow({ r, onOpen }) {
@@ -193,41 +194,53 @@ function PersonRow({ r, onOpen }) {
   const pct = total > 0 ? Math.min(100, (used / total) * 100) : 100;
   const color = barColor(used, total);
 
-  // 各假别明细（只列有额度或已休的）
   const details = TYPES
     .map((t) => ({ name: t.name, total: r[t.totalKey] || 0, used: r[t.usedKey] || 0 }))
     .filter((d) => d.total > 0 || d.used > 0);
 
   return (
-    <div onClick={onOpen} style={{ padding: "9px 2px", borderBottom: "1px solid var(--p-navy-22-a30)", cursor: "pointer" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
-        <span style={{ fontSize: 10.5, color: "var(--muted)", minWidth: 16 }}>{r.seq ?? ""}</span>
-        <span style={{ fontSize: 12.5, color: "var(--text)", fontWeight: 600 }}>{r.name}</span>
-        <span style={{ marginLeft: "auto", fontSize: 11.5, color: left < 0 ? "#e8723c" : "var(--text)" }}>
-          {used} / {total}
-          <span style={{ color, fontWeight: 700, marginLeft: 6 }}>
-            {over ? `超${fmt(-left)}` : usedUp ? "已用完" : `剩 ${fmt(left)}`}
+    <div onClick={onOpen} style={{
+      display: "flex", gap: 8, alignItems: "flex-start",
+      padding: "9px 2px", borderBottom: "1px solid var(--p-navy-22-a30)", cursor: "pointer",
+    }}>
+      {/* 序号：固定小方块，最左 */}
+      <div style={{
+        minWidth: 22, height: 22, borderRadius: 5,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        background: "var(--p-navy-22-a60)", border: "1px solid var(--border)",
+        fontSize: 10.5, color: "var(--muted)", fontWeight: 600,
+        flexShrink: 0, marginTop: 1,
+      }}>{r.seq ?? "-"}</div>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+          <span style={{ fontSize: 12.5, color: "var(--text)", fontWeight: 600 }}>{r.name}</span>
+          <span style={{ marginLeft: "auto", fontSize: 11.5, color: left < 0 ? "#e8723c" : "var(--text)" }}>
+            {fmt(used)} / {fmt(total)}
+            <span style={{ color, fontWeight: 700, marginLeft: 6 }}>
+              {over ? `超${fmt(-left)}` : usedUp ? "已用完" : `剩 ${fmt(left)}`}
+            </span>
           </span>
-        </span>
-      </div>
-
-      <div style={{ height: 4, background: "var(--p-navy-22-a60)", borderRadius: 2, overflow: "hidden", marginBottom: 5 }}>
-        <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 2 }} />
-      </div>
-
-      {details.length > 0 && (
-        <div style={{ fontSize: 10, color: "var(--muted)", lineHeight: 1.7, paddingLeft: 22 }}>
-          {details.map((d, i) => {
-            const dn = d.total > 0 && d.used > d.total;
-            return (
-              <span key={d.name} style={{ color: dn ? "#e8723c" : "var(--muted)" }}>
-                {i > 0 && <span style={{ margin: "0 6px", opacity: 0.4 }}>·</span>}
-                {d.name} {d.total === 0 ? "已用完" : `${fmt(d.used)}/${fmt(d.total)}`}
-              </span>
-            );
-          })}
         </div>
-      )}
+
+        <div style={{ height: 4, background: "var(--p-navy-22-a60)", borderRadius: 2, overflow: "hidden", marginBottom: 5 }}>
+          <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 2 }} />
+        </div>
+
+        {details.length > 0 && (
+          <div style={{ fontSize: 10, color: "var(--muted)", lineHeight: 1.7 }}>
+            {details.map((d, i) => {
+              const dn = d.total > 0 && d.used > d.total;
+              return (
+                <span key={d.name} style={{ color: dn ? "#e8723c" : "var(--muted)" }}>
+                  {i > 0 && <span style={{ margin: "0 6px", opacity: 0.4 }}>·</span>}
+                  {d.name} {d.total === 0 ? "已用完" : `${fmt(d.used)}/${fmt(d.total)}`}
+                </span>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -239,10 +252,15 @@ function CpRow({ r }) {
 
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 6,
-      padding: "3px 2px", fontSize: 10.5, color: "var(--muted)", lineHeight: 1.6,
+      display: "flex", alignItems: "center", gap: 8,
+      padding: "4px 2px", fontSize: 10.5, color: "var(--muted)", lineHeight: 1.6,
     }}>
-      <span style={{ minWidth: 16, opacity: 0.7 }}>{r.seq ?? ""}</span>
+      <span style={{
+        minWidth: 22, height: 18, borderRadius: 4,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        background: "var(--p-navy-22-a60)", border: "1px solid var(--border)",
+        fontSize: 10, opacity: 0.75, flexShrink: 0,
+      }}>{r.seq ?? "-"}</span>
       <span>{r.name}</span>
       <span style={{ marginLeft: "auto", color: left < 0 ? "#e8723c" : "var(--muted)" }}>
         {fmt(used)}/{fmt(total)}{left < 0 ? `（超${fmt(-left)}）` : ""}
