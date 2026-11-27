@@ -2,35 +2,29 @@
 //
 // 全组休假总览
 //
-// 这块界面 2026-11-26 做过（老韩截图可证），但代码没进 git，
-// 2026-11-27 规范化部署时被覆盖丢失。现按聊天记录里的原始需求重建。
+// ══════════════════════════════════════════════════════════════════
+// 这块界面 2026-11-26 做过，但代码没进 git，11-27 规范化部署时被覆盖丢失。
+// 本文件严格照《leave-overview-SPEC.md》复原，那份文档是从
+// 11-26~11-27 聊天记录原文 + server/routes/leave.js 注释里逐条抠出来的。
 //
-// ══ 老韩的需求演进（逐条对应，别漏）══
-//   11-26 15:53  「可视化全组休假预览，一个数据是班组 30 个在编序号的
-//                 人休假天数总额，一个是每个人休假情况」
-//   11-26 16:05  「总览做一个默认折叠吧，平时一般也不看，处理审批为主」
-//   11-26 16:42  「休超了也正常显示。确实是有一些特殊情况和特例，我需要数据真实记录」
-//   11-26 17:10  「加一个切换年份的按钮」「总人数还是这 41」
-//                「总览列表名字前面加个序号」
-//   11-27        「措辞只用「车峰」，不要用「编外」」
-//   11-27 二次   「年休假和育儿假等其他假期综合算在一起」→ 要分假别看
-//                「每个人的条目底部应该有假期的明细」
-//                「非编人员不用那么详细，用灰色小字体显示」
-//   11-27 三次   「总览顶部不需要这么详细的分类再汇总，只需要：假期总额、已休、剩余」
-//                「下面的个人类目可以详细一点。打个比方：现在的显示艾凌风在已休完里，
-//                  但是他还有育儿假。和直觉不符。列表也是按每个人的假期总额来」
-//                「同时正休一下顶头的序号，1，2，3，4 固定不动」
+// 接口：GET /api/leave/overview?year=2026   ← 必须用这个
+//   不是 /api/leave/all。overview 的剩余是「各假别正剩余相加」
+//   （leave.js 2308-2311 行注释：超支不连累其他假别），all 是错的口径。
 //
-// ══ 口径（关键）══
-//   顶部：只三列 —— 假期总额 / 已休 / 剩余（四项合计，不分类）
-//   个人行：大字 = 四项合计；底部小字 = 各假别明细
-//   排序：按【四项总额剩余】降序 —— 不能按年休排，
-//         否则年休用完但还有育儿假的人会被挤进"已休完"区，与直觉不符
-//   序号：roster_seq（1~41 班组固定序号，不跟排序走）
-//   在编 = is_cp=0（30 人）详细显示
-//   车峰 = is_cp=1（11 人）灰色小字单行，不展开
-//   已休 = status IN ('verified','locked','reported','released')
-//   超支 = `5.5/5（超0.5）`   额度0 = `已休N 已用完`，不标异常
+// 老韩原话对照：
+//   11-26 15:53  可视化全组休假预览，在编30人总额 + 每个人休假情况
+//   11-26 16:05  默认折叠，平时不看，处理审批为主
+//   11-26 16:22  车峰加到总览下方做差异标注
+//   11-26 16:42  休超了也正常显示，需要数据真实记录
+//   11-26 17:10  加切换年份按钮 / 总人数还是41 / 名字前面加序号
+//   11-26 17:29  就车峰就行不用编外 / 序号顶头不动
+//   11-26 17:34  序号我要的是 1,2,3,4 一直固定   ← 行号，不是身份编号
+//   11-27 09:26  顶部只要 假期总额/已休/剩余；个人类目详细一点；
+//                艾凌风还有育儿假不能算已休完；列表按每个人假期总额来
+//   11-27 09:37  序号 1,2,3,4 固定，不因假期多少变化
+//   11-26 17:47  点某人弹窗显示休假记录，时间线倒序，无记录的显示
+//                「无相关记录」+ 补录按钮，休超的加备注按钮
+// ══════════════════════════════════════════════════════════════════
 
 import { useState, useEffect } from "react";
 import { apiJson } from "../../shared.jsx";
@@ -41,184 +35,339 @@ const fmt = (n) => {
   return Number.isInteger(v) ? String(v) : v.toFixed(1);
 };
 
-// 进度条配色：蓝=剩得多 / 橙=剩不到一半 / 红=用完或超出
+// 进度条配色：蓝=休得少 / 橙=休过半 / 红=用完或超出
 const barColor = (used, total) => {
   if (total <= 0) return "#e8723c";
-  const ratio = used / total;
-  if (ratio >= 1) return "#e8723c";
-  if (ratio > 0.5) return "#e8a726";
+  const r = used / total;
+  if (r >= 1) return "#e8723c";
+  if (r > 0.5) return "#e8a726";
   return "#6ba5fb";
 };
 
 const STATUS_LABEL = {
-  verified: "已核实", locked: "已锁定", reported: "已报车场组",
-  released: "已销假", submitted: "待审", cancel_pending: "撤销待批",
+  verified: "已核对", locked: "已锁定", reported: "已报车场组",
+  released: "已销假", submitted: "待审批", cancel_pending: "撤销待批",
   rejected: "已驳回", cancelled: "已撤销", draft: "草稿",
 };
 
-const TYPES = [
-  { key: "annual",    name: "年休",   totalKey: "annual_total",    usedKey: "annual_used" },
-  { key: "marriage",  name: "婚假",   totalKey: "marriage_total",  usedKey: "marriage_used" },
-  { key: "paternity", name: "陪产假", totalKey: "paternity_total", usedKey: "paternity_used" },
-  { key: "parental",  name: "育儿假", totalKey: "parental_total",  usedKey: "parental_used" },
-];
+const SOURCE_LABEL = { workshop: "车间表", supplement: "补录", app: "本人申报", edge_test: "测试" };
 
-/** 四项合计 */
-const totalOf = (r) => TYPES.reduce(
-  (a, t) => ({ total: a.total + (r[t.totalKey] || 0), used: a.used + (r[t.usedKey] || 0) }),
-  { total: 0, used: 0 }
-);
+/** 单假别显示文字（超支带括号、额度0显示已用完，全按 SPEC 口径） */
+function typeText(t) {
+  if (t.total === 0 && t.used > 0) return `已休${fmt(t.used)} 已用完`;
+  if (t.total > 0 && t.used > t.total) return `${fmt(t.used)}/${fmt(t.total)}（超${fmt(t.used - t.total)}）`;
+  return `${fmt(t.used)}/${fmt(t.total)}`;
+}
 
-/** 单人明细弹窗 */
-function StaffDetailModal({ staffRow, year, hdrs, onClose }) {
+// ══════════════════════════════════════════════════════════════════
+// 单人弹窗：各假别额度 + 休假记录时间线 + 备注/补录
+// ══════════════════════════════════════════════════════════════════
+function StaffDetailModal({ person, year, hdrs, onClose, onChanged }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [noteFor, setNoteFor] = useState(null);   // 正在编辑备注的记录 id
+  const [noteText, setNoteText] = useState("");
+  const [adding, setAdding] = useState(false);    // 补录表单
+  const [form, setForm] = useState({ leave_type: "年休", start_date: "", end_date: "", days: "1", note: "" });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
 
-  useEffect(() => {
-    let alive = true;
-    apiJson(`/api/leave/staff/${staffRow.staff_id}?year=${year}`, { headers: hdrs() })
-      .then((d) => { if (alive) setData(d); })
-      .catch(() => { if (alive) setData({ records: [], lines: [] }); })
-      .finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
-  }, [staffRow.staff_id, year]);
+  const load = () => {
+    setLoading(true);
+    apiJson(`/api/leave/staff/${person.staff_id}?year=${year}`, { headers: hdrs() })
+      .then(setData)
+      .catch(() => setData({ records: [], lines: [] }))
+      .finally(() => setLoading(false));
+  };
+  useEffect(load, [person.staff_id, year]);
 
   const records = data?.records || [];
   const lines = data?.lines || [];
 
+  const saveNote = async (recId) => {
+    setBusy(true); setErr("");
+    try {
+      await apiJson(`/api/leave/${recId}/note`, {
+        method: "PATCH",
+        headers: { ...hdrs(), "Content-Type": "application/json" },
+        body: JSON.stringify({ note: noteText }),
+      });
+      setNoteFor(null); setNoteText(""); load(); onChanged?.();
+    } catch (e) { setErr(String(e.message || e)); }
+    finally { setBusy(false); }
+  };
+
+  const submitAdd = async () => {
+    if (!form.start_date) { setErr("请填开始日期"); return; }
+    setBusy(true); setErr("");
+    try {
+      await apiJson("/api/leave/supplement", {
+        method: "POST",
+        headers: { ...hdrs(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          staff_id: person.staff_id,
+          leave_type: form.leave_type,
+          start_date: form.start_date,
+          end_date: form.end_date || form.start_date,
+          days: Number(form.days),
+          note: form.note,
+        }),
+      });
+      setAdding(false);
+      setForm({ leave_type: "年休", start_date: "", end_date: "", days: "1", note: "" });
+      load(); onChanged?.();
+    } catch (e) { setErr(String(e.message || e)); }
+    finally { setBusy(false); }
+  };
+
+  const inputStyle = {
+    width: "100%", background: "var(--p-navy-16-a60)", border: "1px solid var(--border)",
+    borderRadius: 7, padding: "7px 9px", color: "var(--text)", fontSize: 12,
+    outline: "none", boxSizing: "border-box",
+  };
+
   return (
     <div onClick={onClose} style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)",
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.68)",
       display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 100,
     }}>
       <div onClick={(e) => e.stopPropagation()} style={{
-        width: "100%", maxWidth: 440, background: "var(--card)",
+        width: "100%", maxWidth: 460, background: "var(--card)",
         border: "1px solid var(--border)", borderRadius: "16px 16px 0 0",
-        padding: "16px 16px 28px", maxHeight: "80vh", overflowY: "auto",
+        padding: "15px 15px 26px", maxHeight: "84vh", overflowY: "auto",
       }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-          <div>
+        {/* 头部 */}
+        <div style={{ display: "flex", alignItems: "flex-start", marginBottom: 11 }}>
+          <div style={{ flex: 1 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>
-              {staffRow.name}
-              {data?.is_cp ? (
-                <span style={{
-                  marginLeft: 6, fontSize: 9.5, padding: "1px 5px", borderRadius: 3,
-                  background: "rgba(232,167,38,0.14)", border: "1px solid rgba(232,167,38,0.4)",
-                  color: "#e8a726", fontWeight: 400,
-                }}>车峰</span>
-              ) : null}
+              {person.name}
+              {person.is_cp ? <span style={{
+                marginLeft: 6, fontSize: 9.5, padding: "1px 5px", borderRadius: 3,
+                background: "rgba(232,167,38,0.14)", border: "1px solid rgba(232,167,38,0.4)",
+                color: "#e8a726", fontWeight: 400,
+              }}>车峰</span> : null}
             </div>
-            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-              {staffRow.seq != null ? `序号 ${staffRow.seq} · ` : ""}Y{staffRow.staff_id} · {year} 年
+            <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 3 }}>
+              {year} 年 · {records.length} 条记录
             </div>
           </div>
           <button onClick={onClose} style={{
             background: "none", border: "1px solid var(--border)", color: "var(--muted)",
             borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12,
-          }}>关闭</button>
+          }}>✕</button>
         </div>
 
-        {loading && <div style={{ textAlign: "center", padding: "24px 0" }}>
+        {loading && <div style={{ textAlign: "center", padding: "22px 0" }}>
           <div className="spinner" style={{ margin: "0 auto" }} />
         </div>}
 
+        {/* 各假别额度 */}
         {!loading && lines.length > 0 && (
           <div style={{
-            background: "var(--p-navy-16-a60)", border: "1px solid var(--border)",
-            borderRadius: 9, padding: "9px 11px", marginBottom: 12,
+            display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12,
           }}>
             {lines.map((l) => {
               const over = l.total > 0 && l.used > l.total;
               return (
-                <div key={l.name} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0" }}>
-                  <span style={{ color: "var(--muted)" }}>{l.name}</span>
-                  <span style={{ color: over ? "#e8723c" : "var(--text)" }}>
-                    {l.total === 0 && l.used > 0
-                      ? `已休${fmt(l.used)} 已用完`
-                      : `${fmt(l.used)}/${fmt(l.total)}${over ? `（超${fmt(l.used - l.total)}）` : ""}`}
-                  </span>
-                </div>
+                <span key={l.name} style={{
+                  fontSize: 11, padding: "3px 9px", borderRadius: 6,
+                  background: "var(--p-navy-16-a60)",
+                  border: `1px solid ${over ? "rgba(232,114,60,0.5)" : "var(--border)"}`,
+                  color: over ? "#e8723c" : "var(--text)",
+                }}>{l.name} {typeText(l)}</span>
               );
             })}
           </div>
         )}
 
+        {/* 无记录 */}
         {!loading && records.length === 0 && (
-          <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13, padding: "28px 0" }}>
+          <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 12.5, padding: "22px 0 18px" }}>
             无相关记录
           </div>
         )}
 
-        {!loading && records.map((r) => (
-          <div key={r.id} style={{
-            background: "var(--p-navy-16-a60)", border: "1px solid var(--border)",
-            borderRadius: 10, padding: "10px 12px", marginBottom: 8,
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-              <span style={{
-                fontSize: 10.5, padding: "1px 7px", borderRadius: 5,
-                background: "rgba(91,155,250,0.16)", border: "1px solid rgba(91,155,250,0.4)",
-                color: "#7ec8f0",
-              }}>{r.leave_type}</span>
-              {r.status && r.status !== "verified" && (
-                <span style={{ fontSize: 10, color: "var(--muted)" }}>{STATUS_LABEL[r.status] || r.status}</span>
+        {/* 记录时间线（后端已按 start_date 倒序） */}
+        {!loading && records.map((r) => {
+          const voided = r.status === "cancelled" || r.status === "rejected";
+          const dateStr = r.start_date === r.end_date ? r.start_date : `${r.start_date} ~ ${r.end_date}`;
+          return (
+            <div key={r.id} style={{
+              background: "var(--p-navy-16-a60)", border: "1px solid var(--border)",
+              borderRadius: 10, padding: "9px 11px", marginBottom: 7,
+              opacity: voided ? 0.5 : 1,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                <span style={{
+                  fontSize: 10, padding: "1px 6px", borderRadius: 4,
+                  background: "rgba(91,155,250,0.16)", border: "1px solid rgba(91,155,250,0.4)",
+                  color: "#7ec8f0",
+                }}>{r.leave_type}</span>
+                <span style={{ fontSize: 10, color: "var(--muted)" }}>
+                  {STATUS_LABEL[r.status] || r.status}
+                </span>
+                {r.source && (
+                  <span style={{
+                    fontSize: 9.5, padding: "0 4px", borderRadius: 3,
+                    background: r.source === "supplement" ? "rgba(232,167,38,0.14)" : "transparent",
+                    border: `1px solid ${r.source === "supplement" ? "rgba(232,167,38,0.4)" : "var(--border)"}`,
+                    color: r.source === "supplement" ? "#e8a726" : "var(--muted)",
+                  }}>{SOURCE_LABEL[r.source] || r.source}</span>
+                )}
+                <span style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--muted)" }}>{dateStr}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", minWidth: 34, textAlign: "right" }}>
+                  {fmt(r.days)}天
+                </span>
+              </div>
+
+              {/* 备注 */}
+              {r.relief_note && noteFor !== r.id && (
+                <div style={{
+                  fontSize: 10.5, color: "var(--muted)", lineHeight: 1.6, marginTop: 4,
+                  paddingLeft: 8, borderLeft: "2px solid var(--border)",
+                }}>{r.relief_note}</div>
               )}
-              <span style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--muted)" }}>
-                {r.start_date === r.end_date ? r.start_date : `${r.start_date} ~ ${r.end_date}`}
-              </span>
+
+              {/* 备注编辑 */}
+              {noteFor === r.id ? (
+                <div style={{ marginTop: 6 }}>
+                  <textarea
+                    value={noteText}
+                    onChange={(e) => setNoteText(e.target.value)}
+                    rows={2}
+                    placeholder="写备注（车间表漏记 / 休超说明 等）"
+                    style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }}
+                  />
+                  <div style={{ display: "flex", gap: 6, marginTop: 5 }}>
+                    <button disabled={busy} onClick={() => { setNoteFor(null); setNoteText(""); }} style={{
+                      flex: 1, padding: "5px 0", borderRadius: 6, fontSize: 11.5, cursor: "pointer",
+                      background: "transparent", border: "1px solid var(--border)", color: "var(--muted)",
+                    }}>取消</button>
+                    <button disabled={busy} onClick={() => saveNote(r.id)} style={{
+                      flex: 1, padding: "5px 0", borderRadius: 6, fontSize: 11.5, cursor: "pointer",
+                      background: "rgba(91,155,250,0.2)", border: "1px solid rgba(91,155,250,0.55)",
+                      color: "var(--blue)",
+                    }}>{busy ? "保存中" : "保存"}</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 3 }}>
+                  <button onClick={() => { setNoteFor(r.id); setNoteText(r.relief_note || ""); }} style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    fontSize: 10.5, color: "var(--blue)", padding: "2px 0",
+                  }}>{r.relief_note ? "改备注" : "＋备注"}</button>
+                </div>
+              )}
             </div>
-            <div style={{ fontSize: 12.5, color: "var(--text)" }}>
-              扣 <b>{fmt(r.days)}</b> 天
-              {r.created_by && <span style={{ marginLeft: 8, fontSize: 10.5, color: "var(--muted)" }}>{r.created_by}</span>}
+          );
+        })}
+
+        {err && <div style={{ fontSize: 11, color: "#e8723c", marginTop: 6 }}>{err}</div>}
+
+        {/* 补录表单 */}
+        {adding ? (
+          <div style={{
+            marginTop: 10, padding: "11px", borderRadius: 10,
+            background: "var(--p-navy-16-a60)", border: "1px solid var(--border)",
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", marginBottom: 8 }}>
+              补录一条休假记录
             </div>
-            {r.relief_note && (
-              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4, lineHeight: 1.6 }}>备注：{r.relief_note}</div>
-            )}
+            {[
+              ["假别", "leave_type", "select"],
+              ["开始日期", "start_date", "date"],
+              ["结束日期（留空=同开始）", "end_date", "date"],
+              ["扣假天数", "days", "number"],
+              ["备注", "note", "text"],
+            ].map(([label, key, type]) => (
+              <div key={key} style={{ marginBottom: 7 }}>
+                <div style={{ fontSize: 10, color: "var(--muted)", marginBottom: 3 }}>{label}</div>
+                {type === "select" ? (
+                  <select
+                    value={form[key]}
+                    onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                    style={inputStyle}
+                  >
+                    {(data?.leave_options || ["年休", "婚假", "陪产假", "育儿假"]).map((o) => {
+                      const v = typeof o === "string" ? o : (o.name || o.leave_type || o);
+                      return <option key={v} value={v}>{v}</option>;
+                    })}
+                  </select>
+                ) : (
+                  <input
+                    type={type}
+                    step={type === "number" ? "0.5" : undefined}
+                    value={form[key]}
+                    onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                    style={inputStyle}
+                  />
+                )}
+              </div>
+            ))}
+            <div style={{ display: "flex", gap: 6, marginTop: 9 }}>
+              <button disabled={busy} onClick={() => setAdding(false)} style={{
+                flex: 1, padding: "7px 0", borderRadius: 7, fontSize: 12, cursor: "pointer",
+                background: "transparent", border: "1px solid var(--border)", color: "var(--muted)",
+              }}>取消</button>
+              <button disabled={busy} onClick={submitAdd} style={{
+                flex: 1, padding: "7px 0", borderRadius: 7, fontSize: 12, cursor: "pointer",
+                background: "rgba(91,155,250,0.2)", border: "1px solid rgba(91,155,250,0.55)",
+                color: "var(--blue)",
+              }}>{busy ? "提交中" : "确认补录"}</button>
+            </div>
           </div>
-        ))}
+        ) : (
+          <button onClick={() => setAdding(true)} style={{
+            width: "100%", marginTop: 10, padding: "8px 0", borderRadius: 9, fontSize: 12,
+            cursor: "pointer", background: "transparent",
+            border: "1px dashed var(--border)", color: "var(--muted)",
+          }}>＋ 补录一条</button>
+        )}
       </div>
     </div>
   );
 }
 
-/**
- * 在编人员一行
- * 序号放最前，固定小方块，跟人走不跟排序走
- * 大字 = 四项合计；底部小字 = 各假别明细
- */
-function PersonRow({ r, idx, onOpen }) {
-  const { total, used } = totalOf(r);
-  const left = total - used;
-  const over = used > total;
-  const usedUp = total > 0 && left === 0;
-  const pct = total > 0 ? Math.min(100, (used / total) * 100) : 100;
-  const color = barColor(used, total);
-
-  const details = TYPES
-    .map((t) => ({ name: t.name, total: r[t.totalKey] || 0, used: r[t.usedKey] || 0 }))
-    .filter((d) => d.total > 0 || d.used > 0);
+// ══════════════════════════════════════════════════════════════════
+// 在编人员一行：序号(行号) 姓名 角色 合计 进度条 假别明细
+// ══════════════════════════════════════════════════════════════════
+function PersonRow({ p, idx, onOpen }) {
+  const pct = p.total > 0 ? Math.min(100, (p.used / p.total) * 100) : 100;
+  const color = barColor(p.used, p.total);
+  const over = p.used > p.total;
+  const usedUp = p.total > 0 && p.left === 0;
 
   return (
     <div onClick={onOpen} style={{
       display: "flex", gap: 8, alignItems: "flex-start",
       padding: "9px 2px", borderBottom: "1px solid var(--p-navy-22-a30)", cursor: "pointer",
     }}>
-      {/* 序号：固定小方块，最左 */}
+      {/* 序号 = 行号，第一行永远 1 */}
       <div style={{
-        minWidth: 22, height: 22, borderRadius: 5,
+        minWidth: 22, height: 22, borderRadius: 5, flexShrink: 0, marginTop: 1,
         display: "flex", alignItems: "center", justifyContent: "center",
         background: "var(--p-navy-22-a60)", border: "1px solid var(--border)",
         fontSize: 10.5, color: "var(--muted)", fontWeight: 600,
-        flexShrink: 0, marginTop: 1,
       }}>{idx + 1}</div>
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
-          <span style={{ fontSize: 12.5, color: "var(--text)", fontWeight: 600 }}>{r.name}</span>
-          <span style={{ marginLeft: "auto", fontSize: 11.5, color: left < 0 ? "#e8723c" : "var(--text)" }}>
-            {fmt(used)} / {fmt(total)}
+        <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 5, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12.5, color: "var(--text)", fontWeight: 600 }}>{p.name}</span>
+          {p.is_leader && <span style={{
+            fontSize: 9, padding: "0 4px", borderRadius: 3,
+            background: "rgba(169,146,247,0.16)", border: "1px solid rgba(169,146,247,0.4)",
+            color: "#a992f7",
+          }}>组长</span>}
+          {p.is_instructor && <span style={{
+            fontSize: 9, padding: "0 4px", borderRadius: 3,
+            background: "rgba(92,194,124,0.14)", border: "1px solid rgba(92,194,124,0.4)",
+            color: "#5cc27c",
+          }}>教员</span>}
+          {p.pending > 0 && <span style={{ fontSize: 9.5, color: "#e8a726" }}>待批{fmt(p.pending)}天</span>}
+          <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--text)", whiteSpace: "nowrap" }}>
+            {fmt(p.used)} / {fmt(p.total)}
             <span style={{ color, fontWeight: 700, marginLeft: 6 }}>
-              {over ? `超${fmt(-left)}` : usedUp ? "已用完" : `剩 ${fmt(left)}`}
+              {over ? `超${fmt(p.used - p.total)}` : usedUp ? "已用完" : `剩 ${fmt(p.left)}`}
             </span>
           </span>
         </div>
@@ -227,17 +376,14 @@ function PersonRow({ r, idx, onOpen }) {
           <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 2 }} />
         </div>
 
-        {details.length > 0 && (
+        {p.by_type?.length > 0 && (
           <div style={{ fontSize: 10, color: "var(--muted)", lineHeight: 1.7 }}>
-            {details.map((d, i) => {
-              const dn = d.total > 0 && d.used > d.total;
-              return (
-                <span key={d.name} style={{ color: dn ? "#e8723c" : "var(--muted)" }}>
-                  {i > 0 && <span style={{ margin: "0 6px", opacity: 0.4 }}>·</span>}
-                  {d.name} {d.total === 0 ? "已用完" : `${fmt(d.used)}/${fmt(d.total)}`}
-                </span>
-              );
-            })}
+            {p.by_type.map((t, i) => (
+              <span key={t.name} style={{ color: t.over ? "#e8723c" : "var(--muted)" }}>
+                {i > 0 && <span style={{ margin: "0 6px", opacity: 0.4 }}>·</span>}
+                {t.name} {typeText(t)}
+              </span>
+            ))}
           </div>
         )}
       </div>
@@ -245,94 +391,73 @@ function PersonRow({ r, idx, onOpen }) {
   );
 }
 
-/** 车峰一行：灰色小字，不展开明细 */
-function CpRow({ r, idx }) {
-  const { total, used } = totalOf(r);
-  const left = total - used;
-
+/** 车峰一行：灰色小字单行，不展开明细 */
+function CpRow({ p, idx }) {
+  const over = p.used > p.total;
+  const usedUp = p.total > 0 && p.left === 0;
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 8,
+      display: "flex", alignItems: "center", gap: 7,
       padding: "4px 2px", fontSize: 10.5, color: "var(--muted)", lineHeight: 1.6,
     }}>
-      <span style={{
-        minWidth: 22, height: 18, borderRadius: 4,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        background: "var(--p-navy-22-a60)", border: "1px solid var(--border)",
-        fontSize: 10, opacity: 0.75, flexShrink: 0,
-      }}>{idx + 1}</span>
-      <span>{r.name}</span>
-      <span style={{ marginLeft: "auto", color: left < 0 ? "#e8723c" : "var(--muted)" }}>
-        {fmt(used)}/{fmt(total)}{left < 0 ? `（超${fmt(-left)}）` : ""}
+      <span style={{ minWidth: 16, opacity: 0.65 }}>{idx + 1}</span>
+      <span>{p.name}</span>
+      <span style={{ marginLeft: "auto", color: over ? "#e8723c" : "var(--muted)" }}>
+        {p.total === 0 && p.used > 0
+          ? `已休${fmt(p.used)}`
+          : `${fmt(p.used)}/${fmt(p.total)}`}
+        {over ? `（超${fmt(p.used - p.total)}）` : usedUp ? " 已用完" : ""}
       </span>
     </div>
   );
 }
 
-/**
- * 全组休假总览（默认折叠）
- *
- * props:
- *   hdrs   () => 管理员请求头
- */
+// ══════════════════════════════════════════════════════════════════
+// 主组件
+// ══════════════════════════════════════════════════════════════════
 export default function LeaveOverview({ hdrs }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(false);       // 11-26 16:05 默认折叠
   const [year, setYear] = useState(2026);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState(null);
   const [sortBy, setSortBy] = useState("left");  // left=剩余从多到少 / used=已休从少到多
 
-  useEffect(() => {
-    if (!open) return;
-    let alive = true;
+  const load = () => {
     setLoading(true);
-    apiJson(`/api/leave/all?year=${year}`, { headers: hdrs() })
-      .then((d) => { if (alive) setData(d); })
-      .catch(() => { if (alive) setData({ rows: [] }); })
-      .finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
-  }, [open, year]);
+    apiJson(`/api/leave/overview?year=${year}`, { headers: hdrs() })
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  };
 
-  const allRows = data?.rows || [];
-  const regRows = allRows.filter((r) => !r.is_cp);
-  const cpRows = allRows.filter((r) => r.is_cp);
+  useEffect(() => { if (open) load(); }, [open, year]);
 
-  // 顶部三列：只算在编（车峰不计）
-  const regTotal = regRows.reduce((a, r) => {
-    const t = totalOf(r);
-    return { total: a.total + t.total, used: a.used + t.used };
-  }, { total: 0, used: 0 });
-  const regLeft = regTotal.total - regTotal.used;
+  const people = data?.people || [];
+  const cpPeople = data?.cp_people || [];
+  const sum = data?.summary || { total: 0, used: 0, left: 0 };
 
-  // 排序两种（老韩 2026-11-27）：都按四项合计口径
-  //   left = 剩余从多到少（最想休的人在最上，方便安排）
-  //   used = 已休从少到多（休得最少的人在前，一眼看出谁没休）
-  // 序号不受排序影响，永远是班组固定号。
-  const sortedReg = sortBy === "left"
-    ? [...regRows].sort((a, b) => {
-        const ta = totalOf(a), tb = totalOf(b);
-        return (tb.total - tb.used) - (ta.total - ta.used);
-      })
-    : [...regRows].sort((a, b) => {
-        const ta = totalOf(a), tb = totalOf(b);
-        return ta.used - tb.used;
-      });
-  // 车峰按序号固定
-  const sortedCp = [...cpRows].sort((a, b) => (a.seq ?? 999) - (b.seq ?? 999));
+  // 排序（11-27：剩余从多到少 / 已休从少到多）
+  const sorted = sortBy === "left"
+    ? [...people].sort((a, b) => b.left - a.left)
+    : [...people].sort((a, b) => a.used - b.used);
+  const sortedCp = [...cpPeople].sort((a, b) => (a.seq ?? 999) - (b.seq ?? 999));
+
+  const years = data?.available_years || [2026, 2027];
 
   return (
     <div style={{
       background: "var(--card)", border: "1px solid var(--border)",
       borderRadius: 11, marginBottom: 12, overflow: "hidden",
     }}>
+      {/* 标题栏 */}
       <div onClick={() => setOpen(!open)} style={{
         display: "flex", alignItems: "center", gap: 8, padding: "11px 13px", cursor: "pointer",
       }}>
         <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text)" }}>全组休假总览</span>
         {!open && data && (
           <span style={{ fontSize: 10.5, color: "var(--muted)" }}>
-            全组 {allRows.length} 人 · 剩 {fmt(regLeft)} / {fmt(regTotal.total)} 天
+            {data.headcount}人 · 剩 {fmt(sum.left)} / {fmt(sum.total)}天
           </span>
         )}
         <span style={{
@@ -343,8 +468,9 @@ export default function LeaveOverview({ hdrs }) {
 
       {open && (
         <div style={{ padding: "0 13px 13px" }}>
+          {/* 年份切换 */}
           <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-            {[2026, 2027].map((y) => (
+            {years.map((y) => (
               <button key={y} onClick={() => setYear(y)} style={{
                 flex: 1, padding: "6px 0", borderRadius: 8, fontSize: 12, cursor: "pointer",
                 fontWeight: year === y ? 700 : 400,
@@ -361,34 +487,38 @@ export default function LeaveOverview({ hdrs }) {
 
           {!loading && data && (
             <>
-              {/* ── 顶部三列：假期总额 / 已休 / 剩余 ── */}
+              {/* 顶部汇总 —— 只三列 */}
               <div style={{
                 background: "var(--p-navy-16-a60)", border: "1px solid var(--border)",
                 borderRadius: 9, padding: "10px 11px", marginBottom: 10,
               }}>
                 <div style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  fontSize: 10.5, color: "var(--muted)", marginBottom: 7,
+                  display: "flex", justifyContent: "space-between",
+                  fontSize: 10.5, color: "var(--muted)", marginBottom: 8,
                 }}>
-                  <span>在编 {regRows.length} 人合计</span>
-                  <span style={{ opacity: 0.85 }}>
-                    全组 {allRows.length} 人
-                    {cpRows.length > 0 && `（在编 ${regRows.length} + 车峰 ${cpRows.length}）`}
-                  </span>
+                  <span>在编 {data.headcount} 人合计</span>
+                  <span>全组 {data.headcount + data.cp_excluded} 人（在编 {data.headcount} + 车峰 {data.cp_excluded}）</span>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  {[["假期总额", regTotal.total, "var(--text)"],
-                    ["已休", regTotal.used, "var(--text)"],
-                    ["剩余", regLeft, regLeft < 0 ? "#e8723c" : "var(--blue)"]].map(([k, v, c]) => (
+                  {[
+                    ["假期总额", sum.total, "var(--text)"],
+                    ["已休", sum.used, "var(--text)"],
+                    ["剩余", sum.left, sum.left < 0 ? "#e8723c" : "var(--blue)"],
+                  ].map(([k, v, c]) => (
                     <div key={k} style={{ flex: 1, textAlign: "center" }}>
                       <div style={{ fontSize: 17, fontWeight: 700, color: c }}>{fmt(v)}</div>
                       <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>{k}</div>
                     </div>
                   ))}
                 </div>
+                {sum.pending > 0 && (
+                  <div style={{ fontSize: 10, color: "#e8a726", textAlign: "center", marginTop: 6 }}>
+                    另有 {fmt(sum.pending)} 天待批
+                  </div>
+                )}
               </div>
 
-              {/* ── 排序切换（默认按序号固定）── */}
+              {/* 排序切换 */}
               <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
                 {[["left", "剩余从多到少"], ["used", "已休从少到多"]].map(([k, label]) => (
                   <button key={k} onClick={() => setSortBy(k)} style={{
@@ -400,21 +530,27 @@ export default function LeaveOverview({ hdrs }) {
                 ))}
               </div>
 
-              {/* ── 在编人员 ── */}
-              {sortedReg.map((r, idx) => (
-                <PersonRow key={r.staff_id} r={r} idx={idx} onOpen={() => setDetail(r)} />
+              {/* 在编人员 */}
+              {sorted.map((p, idx) => (
+                <PersonRow key={p.staff_id} p={p} idx={idx} onOpen={() => setDetail(p)} />
               ))}
 
-              {/* ── 车峰（灰色小字，不展开）── */}
+              {/* 车峰区 */}
               {sortedCp.length > 0 && (
                 <div style={{ marginTop: 10 }}>
                   <div style={{
-                    fontSize: 10, color: "var(--muted)", opacity: 0.8,
-                    padding: "6px 0 3px", borderTop: "1px dashed var(--border)", marginBottom: 2,
+                    fontSize: 10, color: "#e8a726", opacity: 0.9, lineHeight: 1.7,
+                    padding: "7px 0 4px", borderTop: "1px dashed var(--border)",
                   }}>
-                    以下 {sortedCp.length} 人为车峰（临时调整跑车方式，保留组籍），不计入上方合计
+                    以下 {sortedCp.length} 人为车峰（临时调整跑车方式，保留组籍）<br />
+                    不计入上方在编 {data.headcount} 人合计，仅作差异标注
                   </div>
-                  {sortedCp.map((r, idx) => <CpRow key={r.staff_id} r={r} idx={idx} />)}
+                  {sortedCp.map((p, idx) => (
+                    <div key={p.staff_id} onClick={() => setDetail({ ...p, is_cp: true })}
+                         style={{ cursor: "pointer" }}>
+                      <CpRow p={p} idx={idx} />
+                    </div>
+                  ))}
                 </div>
               )}
             </>
@@ -423,7 +559,13 @@ export default function LeaveOverview({ hdrs }) {
       )}
 
       {detail && (
-        <StaffDetailModal staffRow={detail} year={year} hdrs={hdrs} onClose={() => setDetail(null)} />
+        <StaffDetailModal
+          person={detail}
+          year={year}
+          hdrs={hdrs}
+          onClose={() => setDetail(null)}
+          onChanged={load}
+        />
       )}
     </div>
   );
