@@ -186,43 +186,52 @@ test.describe("管理后台 — 关键数据能显示", () => {
 
   // 回归保护：MemberEvalModal 2026-11-27 从 AdminScreen.jsx 抽到
   // admin/OverviewModals.jsx（Stage 3 重构）。抽完必须还能正常弹出、显示真实数据。
-  // 这条测的是「点了人名 → 弹窗真有内容」，不是「页面没报错」。
-  test("概览：点未完成人员能弹出培训详情", async ({ page }) => {
+  //
+  // ⚠ 踩过三个坑，都记下来免得再犯：
+  //   1. body.getByText(姓名).first() 点到积分榜/成员列表的同名元素，
+  //      弹出「重置答题」弹窗 → 假失败。
+  //   2. 「本月任务未完成人员」里的名字是 span，不可点击，点了没反应。
+  //   3. 「固定成员」区块不常出现——接口 /api/admin/month-member-completion
+  //      的 fixed 当前返回 0 个，整块用 fixedMembers.length>0 包着，压根不渲染。
+  //   能稳定触发弹窗的是「本月培训完成情况」里各小组的成员行（onClick=openMemberModal）。
+  test("概览：点本月培训成员能弹出详情", async ({ page }) => {
     const errors = collectErrors(page);
     await adminLogin(page);
-    await page.waitForTimeout(3500);
+    await page.waitForTimeout(4000);
 
     const body = page.locator("body");
     const text = await body.innerText();
 
-    // 找「本月任务未完成人员」区块里的人名按钮。没人未完成就跳过，不算失败。
-    const section = text.indexOf("本月任务未完成人员");
-    if (section < 0) {
-      test.skip(true, "概览没有『本月任务未完成人员』区块");
-      return;
-    }
+    expect(text, "概览应该有『本月培训完成情况』区块").toContain("本月培训完成情况");
 
-    // 点第一个带姓名的可点元素
-    const known = ["韩颖", "艾凌风", "胡鑫", "韩思成", "蔡一凡", "胡斌", "彭涵", "姚云"];
-    let clicked = false;
-    for (const name of known) {
-      const loc = body.getByText(name, { exact: true }).first();
-      if (await loc.count() > 0 && await loc.isVisible().catch(() => false)) {
-        await loc.click();
-        clicked = true;
-        break;
-      }
-    }
-    if (!clicked) {
-      test.skip(true, "概览未完成人员里没找到可点的姓名");
-      return;
-    }
+    // 在「本月培训完成情况」到「班组各类题均分」之间取片段（小组名单就在这里）
+    const start = text.indexOf("本月培训完成情况");
+    const end = text.indexOf("班组各类题均分");
+    const seg = text.slice(start, end > start ? end : start + 1500);
 
-    await page.waitForTimeout(1200);
-    // 抽出的弹窗必须真的渲染出「本月培训项点完成情况」或「本月暂无培训项点」
+    // 从成员列表里挑一个真实姓名
+    //
+    // ⚠ 踩过四个坑：
+    //   1. getByText(姓名).first() 点到积分榜同名元素 → 弹出「重置答题」
+    //   2. 「本月任务未完成人员」里是 span，不可点击
+    //   3. 「固定成员」整块不渲染（接口 fixed 返回 0 条）
+    //   4. 「第三小组·韩思成」里的韩思成是**组长名**，不是成员行，点了没反应
+    //      → 必须用真正的成员姓名，且定位到成员行 div（含 done/total 分数那个）
+    const realMembers = ["蔡一凡", "宋典伦", "吴卓群", "胡斌", "郭文亮", "彭涵", "陈实",
+                         "董治昆", "姚云", "李如政", "李凌嵩", "胡锦洲", "贺子涵"];
+    const nameInSeg = realMembers.find((n) => seg.includes(n));
+    expect(nameInSeg, "本月培训完成情况里应能看到真实成员姓名").toBeTruthy();
+
+    // 成员行形如「蔡一凡 11/23 3/3」，用 hasText 找同时含姓名和 n/n 的元素
+    const rows = page.locator("div").filter({ hasText: new RegExp(`${nameInSeg}.*\\d/\\d`) });
+    const cnt = await rows.count();
+    expect(cnt, `应能定位到成员行「${nameInSeg}」`).toBeGreaterThan(0);
+    await rows.nth(cnt - 1).click({ force: true });
+
+    await page.waitForTimeout(1500);
     const after = await body.innerText();
     const hasModal = after.includes("本月培训项点完成情况") || after.includes("本月暂无培训项点");
-    expect(hasModal, "点人名应弹出培训详情弹窗").toBe(true);
+    expect(hasModal, `点培训成员「${nameInSeg}」应弹出培训详情弹窗`).toBe(true);
     expect(errors, "弹窗不该有 JS 报错").toEqual([]);
   });
 });
