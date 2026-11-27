@@ -119,10 +119,12 @@ function autoCompleteAbandonedSessions() {
   }
 }
 
-// 每分钟检查一次时间，在 12:30 和 16:30 各推送培训进度；11:00 和 17:30 检查抽问设置；18:00 月末兜底检查
+// 每分钟检查一次时间，在 12:30 和 16:30 各推送培训进度；11:00 和 17:30 检查抽问设置；07:40 月末兜底检查
 let lastEvalPushDate = { '12:30': '', '16:30': '' };
 let lastNoQuizReminderDate = { '11:00': '', '17:30': '' };
-let lastMonthEndCheckDate = '';
+// 月末检查的去重日期存在数据库里，不用内存变量（2026-11-27 改）
+// 为什么：内存变量一重建容器就清空，18:00 前后重启会永久错过这次检查且不会补发。
+//        存库后，只要当天没发过，重启后还会补发。见 getMonthEndSentDate/setMonthEndSentDate
 // 每5分钟自动补完遗漏的 finish
 setInterval(() => { autoCompleteAbandonedSessions(); }, 5 * 60 * 1000);
 
@@ -154,16 +156,38 @@ setInterval(() => {
     lastNoQuizReminderDate[hhmm] = todayStr;
     checkAndRemindNoQuiz(hhmm).catch(() => {});
   }
-  if (hhmm === '18:00' && lastMonthEndCheckDate !== todayStr) {
-    lastMonthEndCheckDate = todayStr;
-    checkMonthEndIncomplete(todayStr).catch(() => {});
+  if (hhmm === '07:40' && getMonthEndSentDate() !== todayStr) {
+    // 只有真的推了才记日期（checkMonthEndIncomplete 返回 true 表示发了）
+    checkMonthEndIncomplete(todayStr).then(sent => {
+      if (sent) setMonthEndSentDate(todayStr);
+    }).catch(() => {});
   }
 }, 60 * 1000);
 
-// 月末兜底检查：若今天是本月最后一个早班，检查是否有人未完成培训
+// ── 月末检查去重（存库，容器重启不丢）──────────────────────────────────────
+function getMonthEndSentDate() {
+  try {
+    return getSetting('monthEndLastSent') || '';
+  } catch { return ''; }
+}
+function setMonthEndSentDate(dateStr) {
+  try {
+    const row = db.prepare('SELECT value FROM settings WHERE key=?').get('monthEndLastSent');
+    if (row) db.prepare('UPDATE settings SET value=? WHERE key=?').run(dateStr, 'monthEndLastSent');
+    else db.prepare('INSERT INTO settings (key, value) VALUES (?,?)').run('monthEndLastSent', dateStr);
+  } catch (e) { console.error('[jobs] 记录月末检查日期失败:', e.message); }
+}
+
+// 月末兜底提醒：若今天是本月最后一个早班，检查是否有人未完成培训
+//
+// 时间：07:40（老韩 2026-11-27 定）
+//   原来在 18:00，那天班上早结束了，发现了也没法补。
+//   改到早班早上 7:40，学员刚上班就能看到，当天还有补救空间。
+//
+// 返回：true = 已推送；false = 无需推送（全员完成 / 非最后早班 / 无培训项）
 async function checkMonthEndIncomplete(todayStr) {
   const todayShift = db.prepare('SELECT shift FROM shift_calendar WHERE date=?').get(todayStr)?.shift;
-  if (todayShift !== '早班') return;
+  if (todayShift !== '早班') return false;
 
   const [y, mo] = todayStr.split('-');
   const month = `${y}-${mo}`;
@@ -172,11 +196,11 @@ async function checkMonthEndIncomplete(todayStr) {
   const laterShift = db.prepare(
     "SELECT date FROM shift_calendar WHERE date > ? AND date LIKE ? AND shift='早班' LIMIT 1"
   ).get(todayStr, `${month}%`);
-  if (laterShift) return; // 不是最后一个早班，不检查
+  if (laterShift) return false; // 不是最后一个早班，不检查
 
   const yearPlanRow = db.prepare('SELECT sessions_json FROM training_year_plan WHERE year=? AND month=?').get(parseInt(y), parseInt(mo));
   const totalItems = JSON.parse(yearPlanRow?.sessions_json || '[]').length;
-  if (totalItems === 0) return;
+  if (totalItems === 0) return false;
 
   const plans = db.prepare(
     "SELECT id, shift_date, plan_type, completed_items FROM monthly_training_plans WHERE year_month=? AND plan_type NOT IN ('轮空') ORDER BY shift_date"
@@ -216,10 +240,17 @@ async function checkMonthEndIncomplete(todayStr) {
   const allRequired = [...new Map([...groupMembers, ...fixedMembers].map(m=>[String(m.staff_id), m])).values()];
 
   const incomplete = allRequired.filter(m => (personDone[String(m.staff_id)]?.size || 0) < totalItems);
-  if (incomplete.length === 0) return; // 全员完成，无需提醒（全员完成通知已由 checkAndNotifyMonthComplete 处理）
+  if (incomplete.length === 0) return false; // 全员完成，无需提醒（全员完成通知已由 checkAndNotifyMonthComplete 处理）
 
   const names = incomplete.map(m => m.name).join('、');
-  await sendGroupPush(`⚠️ ${parseInt(mo)}月培训月末提醒\n\n今天是本月最后一个早班，以下 ${incomplete.length} 人尚未完成本月培训确认：\n${names}\n\n请教员确认是否有遗漏，如需补培训请安排在下月完成。`);
+  // 发到四组办事处群（教员群），老韩 2026-11-27 指定
+  await sendGroupPush(
+    `⚠️ ${parseInt(mo)}月培训月末提醒\n\n` +
+    `今天是本月最后一个早班，以下 ${incomplete.length} 人尚未完成本月培训确认：\n${names}\n\n` +
+    `请教员确认是否有遗漏，如需补培训请安排在下月完成。`,
+    { channel: 'crewOps' }
+  );
+  return true;
 }
 
 function startJobs() {
