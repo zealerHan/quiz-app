@@ -210,7 +210,7 @@ function PersonRow({ r, onOpen }) {
         background: "var(--p-navy-22-a60)", border: "1px solid var(--border)",
         fontSize: 10.5, color: "var(--muted)", fontWeight: 600,
         flexShrink: 0, marginTop: 1,
-      }}>{r.seq ?? "-"}</div>
+      }}>{r.no ?? "-"}</div>
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
@@ -260,7 +260,7 @@ function CpRow({ r }) {
         display: "flex", alignItems: "center", justifyContent: "center",
         background: "var(--p-navy-22-a60)", border: "1px solid var(--border)",
         fontSize: 10, opacity: 0.75, flexShrink: 0,
-      }}>{r.seq ?? "-"}</span>
+      }}>{r.no ?? "-"}</span>
       <span>{r.name}</span>
       <span style={{ marginLeft: "auto", color: left < 0 ? "#e8723c" : "var(--muted)" }}>
         {fmt(used)}/{fmt(total)}{left < 0 ? `（超${fmt(-left)}）` : ""}
@@ -295,8 +295,16 @@ export default function LeaveOverview({ hdrs }) {
   }, [open, year]);
 
   const allRows = data?.rows || [];
-  const regRows = allRows.filter((r) => !r.is_cp);
-  const cpRows = allRows.filter((r) => r.is_cp);
+
+  // 序号：全组按固定顺序连续编号 1..N（老韩 2026-11-27：
+  // 「不管排序怎么变，前面的 1-42 固定不动，我需要看到人员数量」）
+  // 不能用车峰把人拆开后各自编号 —— 那样序号会跳号（漏 12、21、23…），
+  // 也数不出总共多少人。所以先按固定顺序编好号，再做在编/车峰分组。
+  const baseOrder = [...allRows].sort((a, b) => (a.seq ?? 999) - (b.seq ?? 999));
+  const numbered = baseOrder.map((r, i) => ({ ...r, no: i + 1 }));
+
+  const regRows = numbered.filter((r) => !r.is_cp);
+  const cpRows = numbered.filter((r) => r.is_cp);
 
   // 顶部三列：只算在编（车峰不计）
   const regTotal = regRows.reduce((a, r) => {
@@ -332,7 +340,7 @@ export default function LeaveOverview({ hdrs }) {
         <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text)" }}>全组休假总览</span>
         {!open && data && (
           <span style={{ fontSize: 10.5, color: "var(--muted)" }}>
-            在编 {regRows.length} 人 · 剩 {fmt(regLeft)} / {fmt(regTotal.total)} 天
+            全组 {numbered.length} 人 · 剩 {fmt(regLeft)} / {fmt(regTotal.total)} 天
           </span>
         )}
         <span style={{
@@ -366,9 +374,15 @@ export default function LeaveOverview({ hdrs }) {
                 background: "var(--p-navy-16-a60)", border: "1px solid var(--border)",
                 borderRadius: 9, padding: "10px 11px", marginBottom: 10,
               }}>
-                <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 7 }}>
-                  在编 {regRows.length} 人合计
-                  {cpRows.length > 0 && <span style={{ marginLeft: 6, opacity: 0.7 }}>（车峰 {cpRows.length} 人不计）</span>}
+                <div style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  fontSize: 10.5, color: "var(--muted)", marginBottom: 7,
+                }}>
+                  <span>在编 {regRows.length} 人合计</span>
+                  <span style={{ opacity: 0.85 }}>
+                    全组 {numbered.length} 人
+                    {cpRows.length > 0 && `（在编 ${regRows.length} + 车峰 ${cpRows.length}）`}
+                  </span>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   {[["假期总额", regTotal.total, "var(--text)"],
