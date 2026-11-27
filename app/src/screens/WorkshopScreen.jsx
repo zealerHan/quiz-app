@@ -258,16 +258,26 @@ function WorkshopScreen({ user, onBack }) {
       const x = padding;
       const y = canvas.height - boxH - padding;
       // 半透明背景（更透明）
-      ctx.fillStyle = 'var(--p-black-00-a32)';
+      ctx.fillStyle = 'rgba(0,0,0,0.32)';   // Canvas 不支持 CSS 变量，必须用标准颜色值
       ctx.beginPath();
-      ctx.roundRect(x - 2, y - 2, boxW + 4, boxH + 4, 6);
+      // roundRect 需 Chrome 99+，钉钉内置 webview 版本不可控，缺少时退化为直角矩形
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(x - 2, y - 2, boxW + 4, boxH + 4, 6);
+      } else {
+        ctx.rect(x - 2, y - 2, boxW + 4, boxH + 4);
+      }
       ctx.fill();
       // 白色文字
       lines.forEach((line, i) => {
-        ctx.fillStyle = 'var(--border)';
+        ctx.fillStyle = '#ffffff';             // 同上，原意白字
         ctx.fillText(line, x + padding, y + padding + (i + 1) * lineH);
       });
-      canvas.toBlob(blob => resolve(blob), 'image/jpeg', 0.88);
+      // toBlob 可能返回 null（内存不足等），此时回退原图，避免上传空文件
+      try {
+        canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.88);
+      } catch (e) {
+        resolve(file);
+      }
     };
     img.onerror = () => resolve(file);
     img.src = url;
