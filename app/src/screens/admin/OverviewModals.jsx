@@ -304,3 +304,105 @@ export function PlanDetailModal({ modal, onClose }) {
     </div>
   );
 }
+
+/**
+ * 管理员答题轨迹弹窗
+ *
+ * 两种模式：
+ *   mode='cycle'   只显示本套班的每次答题（可删单条成绩）
+ *   mode='alltime' 按套班折叠，展开看每次答题和逐题得分
+ *
+ * props:
+ *   modal          {staffId, staffName, mode, loading, sessions, cycles, expandedCycleId} | null
+ *   hdrs           () => headers
+ *   cycleId        当前套班 id（删除成绩时要带上）
+ *   onClose        () => void
+ *   onToggleCycle  (cycleId|null) => void   展开/收起某个套班
+ *   onDeleted      () => void               删除成功后刷新积分榜
+ *
+ * 这个组件比其它弹窗多两个依赖（cycleId、onToggleCycle），因为它有删除和折叠交互。
+ */
+export function AdminDrillModal({ modal, hdrs, cycleId, onClose, onToggleCycle, onDeleted }) {
+  if (!modal) return null;
+  const cyExpanded = (id) => modal.expandedCycleId === id;
+
+  return (
+    <div onClick={()=>onClose()} style={{position:'fixed',inset:0,background:'var(--p-black-00-a70)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+            <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'var(--input-bg)',border:'1px solid var(--p-blue-60-a30)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'75vh',overflowY:'auto'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
+                <div style={{display:'flex',gap:10,alignItems:'flex-start'}}>
+                  <div style={{width:44,height:44,borderRadius:'50%',background:'linear-gradient(135deg,var(--p-navy-25),var(--blue))',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'var(--text)',flexShrink:0}}>{modal.staffName?.[0]}</div>
+                  <div>
+                    <div style={{fontSize:15,fontWeight:700,color:'var(--text)'}}>{modal.staffName}</div>
+                    <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{modal.mode==='cycle'?'本轮答题记录':'本月套班汇总'}</div>
+                  </div>
+                </div>
+                <button onClick={()=>onClose()} style={{background:'none',border:'1px solid var(--border)',color:'var(--muted)',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontSize:12,flexShrink:0}}>关闭</button>
+              </div>
+              {modal.loading&&<div style={{textAlign:'center',padding:'20px 0'}}><div className="spinner" style={{margin:'0 auto'}}/></div>}
+              {/* cycle mode: show sessions */}
+              {!modal.loading&&modal.mode==='cycle'&&(<>
+                {modal.sessions?.length===0&&<div style={{color:'var(--muted)',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无答题记录</div>}
+                {modal.sessions?.map((s,si)=>(
+                  <div key={si} style={{marginBottom:12,background:'var(--p-navy-16-a60)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                      <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+                        <span style={{fontSize:11,color:'var(--muted)'}}>{s.created_at?.slice(5,10)}{s.created_at?.length>=16?` ${s.created_at.slice(11,16)}`:''}{s.cycle_label?` · ${s.cycle_label}`:''}</span>
+                        {s.tab_switch_count>0&&<span style={{fontSize:11,color:'var(--red)',background:'var(--p-red-60-a12)',border:'1px solid var(--p-red-60-a30)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
+                      </div>
+                      <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                        <span style={{fontSize:12,fontWeight:700,color:'var(--text)'}}>{Math.round(s.total_score)}分</span>
+                        <button onClick={async()=>{if(!window.confirm(`确认删除这条成绩？`))return;const r=await apiJson(`/api/admin/sessions/staff/${modal.staffId}?cycle_id=${overview.cycle?.id}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);if(r?.ok){apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});onClose();}}} style={{fontSize:11,padding:'2px 6px',borderRadius:4,border:'1px solid var(--p-red-60-a30)',background:'none',color:'var(--red)',cursor:'pointer'}}>删除</button>
+                      </div>
+                    </div>
+                    {s.answers?.map((a,ai)=>(
+                      <div key={ai} style={{padding:'6px 0',borderTop:'1px solid var(--p-navy-22-a50)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                        <span style={{fontSize:11,color:'var(--text)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
+                        <span style={{fontSize:12,fontWeight:700,flexShrink:0,color:a.score>=99?'var(--green)':a.score>=67?'var(--amber)':'var(--red)'}}>{Math.round(a.score/(s.answers.length||3))}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </>)}
+              {/* alltime mode: cycles list, click to expand questions */}
+              {!modal.loading&&modal.mode==='alltime'&&(<>
+                {modal.cycles?.length===0&&<div style={{color:'var(--muted)',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无记录</div>}
+                {modal.cycles?.map((cy,ci)=>{
+                  const cyExp=cyExpanded(cy.cycle_id);
+                  return(
+                    <div key={ci} style={{marginBottom:10,background:'var(--p-navy-16-a60)',border:'1px solid var(--border)',borderRadius:10,overflow:'hidden'}}>
+                      <div onClick={()=>onToggleCycle(cyExp?null:cy.cycle_id)} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',cursor:'pointer'}}>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:13,fontWeight:600,color:'var(--text)'}}>{cy.cycle_label||cy.cycle_id||'—'}</div>
+                          <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{cy.sessions_count}次答题</div>
+                        </div>
+                        <span style={{fontSize:13,fontWeight:700,color:'var(--gold)'}}>{cy.total_points}分</span>
+                        <span style={{fontSize:15,color:'var(--p-blue-68)',display:'inline-block',transform:cyExp?'rotate(180deg)':'none',transition:'transform 0.2s'}}>⌄</span>
+                      </div>
+                      {cyExp&&cy.sessions?.map((s,si)=>(
+                        <div key={si} style={{borderTop:'1px solid var(--p-navy-22-a40)',padding:'10px 14px',background:'var(--p-navy-09-a40)'}}>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                            <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+                              <span style={{fontSize:11,color:'var(--muted)'}}>{s.created_at?.slice(5,10)}{s.created_at?.length>=16?` ${s.created_at.slice(11,16)}`:''}</span>
+                              {s.tab_switch_count>0&&<span style={{fontSize:11,color:'var(--red)',background:'var(--p-red-60-a12)',border:'1px solid var(--p-red-60-a30)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
+                            </div>
+                            <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                              <span style={{fontSize:11,fontWeight:700,color:'var(--text)'}}>{Math.round(s.total_score)}分</span>
+                            </div>
+                          </div>
+                          {s.answers?.map((a,ai)=>(
+                            <div key={ai} style={{padding:'5px 0',borderTop:'1px solid var(--p-navy-22-a40)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                              <span style={{fontSize:11,color:'var(--muted)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
+                              <span style={{fontSize:11,fontWeight:700,flexShrink:0,color:a.score>=99?'var(--green)':a.score>=67?'var(--amber)':'var(--red)'}}>{Math.round(a.score/(s.answers.length||3))}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </>)}
+            </div>
+    </div>
+  );
+}

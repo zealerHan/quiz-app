@@ -14,6 +14,7 @@ import LeaveOverview from "./admin/LeaveOverview.jsx";
 // 概览区弹窗（2026-11-27 Stage 3 从本文件抽出）
 import {
   MemberEvalModal, ResetAnswerModal, MakeupGrantModal, RemediationGrantModal, PlanDetailModal,
+  AdminDrillModal,
 } from "./admin/OverviewModals.jsx";
 
 // 供下拉选择框使用的分组 select
@@ -611,86 +612,18 @@ function AdminScreen({ onBack }) {
             {overview.catAvg?.map((c,i)=><MiniBar key={i} label={c.category} value={c.avg}/>)}
           </div>
 
-          {/* ── 管理员详情 modal（底部弹出） ── */}
-          {adminDrillModal&&(
-            <div onClick={()=>setAdminDrillModal(null)} style={{position:'fixed',inset:0,background:'var(--p-black-00-a70)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-              <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'var(--input-bg)',border:'1px solid var(--p-blue-60-a30)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'75vh',overflowY:'auto'}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
-                  <div style={{display:'flex',gap:10,alignItems:'flex-start'}}>
-                    <div style={{width:44,height:44,borderRadius:'50%',background:'linear-gradient(135deg,var(--p-navy-25),var(--blue))',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'var(--text)',flexShrink:0}}>{adminDrillModal.staffName?.[0]}</div>
-                    <div>
-                      <div style={{fontSize:15,fontWeight:700,color:'var(--text)'}}>{adminDrillModal.staffName}</div>
-                      <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{adminDrillModal.mode==='cycle'?'本轮答题记录':'本月套班汇总'}</div>
-                    </div>
-                  </div>
-                  <button onClick={()=>setAdminDrillModal(null)} style={{background:'none',border:'1px solid var(--border)',color:'var(--muted)',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontSize:12,flexShrink:0}}>关闭</button>
-                </div>
-                {adminDrillModal.loading&&<div style={{textAlign:'center',padding:'20px 0'}}><div className="spinner" style={{margin:'0 auto'}}/></div>}
-                {/* cycle mode: show sessions */}
-                {!adminDrillModal.loading&&adminDrillModal.mode==='cycle'&&(<>
-                  {adminDrillModal.sessions?.length===0&&<div style={{color:'var(--muted)',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无答题记录</div>}
-                  {adminDrillModal.sessions?.map((s,si)=>(
-                    <div key={si} style={{marginBottom:12,background:'var(--p-navy-16-a60)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px'}}>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                        <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
-                          <span style={{fontSize:11,color:'var(--muted)'}}>{s.created_at?.slice(5,10)}{s.created_at?.length>=16?` ${s.created_at.slice(11,16)}`:''}{s.cycle_label?` · ${s.cycle_label}`:''}</span>
-                          {s.tab_switch_count>0&&<span style={{fontSize:11,color:'var(--red)',background:'var(--p-red-60-a12)',border:'1px solid var(--p-red-60-a30)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
-                        </div>
-                        <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                          <span style={{fontSize:12,fontWeight:700,color:'var(--text)'}}>{Math.round(s.total_score)}分</span>
-                          <button onClick={async()=>{if(!window.confirm(`确认删除这条成绩？`))return;const r=await apiJson(`/api/admin/sessions/staff/${adminDrillModal.staffId}?cycle_id=${overview.cycle?.id}`,{method:'DELETE',headers:hdrs()}).catch(()=>null);if(r?.ok){apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});setAdminDrillModal(null);}}} style={{fontSize:11,padding:'2px 6px',borderRadius:4,border:'1px solid var(--p-red-60-a30)',background:'none',color:'var(--red)',cursor:'pointer'}}>删除</button>
-                        </div>
-                      </div>
-                      {s.answers?.map((a,ai)=>(
-                        <div key={ai} style={{padding:'6px 0',borderTop:'1px solid var(--p-navy-22-a50)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
-                          <span style={{fontSize:11,color:'var(--text)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
-                          <span style={{fontSize:12,fontWeight:700,flexShrink:0,color:a.score>=99?'var(--green)':a.score>=67?'var(--amber)':'var(--red)'}}>{Math.round(a.score/(s.answers.length||3))}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                </>)}
-                {/* alltime mode: cycles list, click to expand questions */}
-                {!adminDrillModal.loading&&adminDrillModal.mode==='alltime'&&(<>
-                  {adminDrillModal.cycles?.length===0&&<div style={{color:'var(--muted)',fontSize:13,textAlign:'center',padding:'20px 0'}}>暂无记录</div>}
-                  {adminDrillModal.cycles?.map((cy,ci)=>{
-                    const cyExp=adminDrillModal.expandedCycleId===cy.cycle_id;
-                    return(
-                      <div key={ci} style={{marginBottom:10,background:'var(--p-navy-16-a60)',border:'1px solid var(--border)',borderRadius:10,overflow:'hidden'}}>
-                        <div onClick={()=>setAdminDrillModal(m=>({...m,expandedCycleId:cyExp?null:cy.cycle_id}))} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',cursor:'pointer'}}>
-                          <div style={{flex:1}}>
-                            <div style={{fontSize:13,fontWeight:600,color:'var(--text)'}}>{cy.cycle_label||cy.cycle_id||'—'}</div>
-                            <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{cy.sessions_count}次答题</div>
-                          </div>
-                          <span style={{fontSize:13,fontWeight:700,color:'var(--gold)'}}>{cy.total_points}分</span>
-                          <span style={{fontSize:15,color:'var(--p-blue-68)',display:'inline-block',transform:cyExp?'rotate(180deg)':'none',transition:'transform 0.2s'}}>⌄</span>
-                        </div>
-                        {cyExp&&cy.sessions?.map((s,si)=>(
-                          <div key={si} style={{borderTop:'1px solid var(--p-navy-22-a40)',padding:'10px 14px',background:'var(--p-navy-09-a40)'}}>
-                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                              <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
-                                <span style={{fontSize:11,color:'var(--muted)'}}>{s.created_at?.slice(5,10)}{s.created_at?.length>=16?` ${s.created_at.slice(11,16)}`:''}</span>
-                                {s.tab_switch_count>0&&<span style={{fontSize:11,color:'var(--red)',background:'var(--p-red-60-a12)',border:'1px solid var(--p-red-60-a30)',borderRadius:4,padding:'0 5px',fontWeight:700}}>切屏×{s.tab_switch_count}</span>}
-                              </div>
-                              <div style={{display:'flex',gap:6,alignItems:'center'}}>
-                                <span style={{fontSize:11,fontWeight:700,color:'var(--text)'}}>{Math.round(s.total_score)}分</span>
-                              </div>
-                            </div>
-                            {s.answers?.map((a,ai)=>(
-                              <div key={ai} style={{padding:'5px 0',borderTop:'1px solid var(--p-navy-22-a40)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
-                                <span style={{fontSize:11,color:'var(--muted)',flex:1,lineHeight:1.5}}>{a.question_text}</span>
-                                <span style={{fontSize:11,fontWeight:700,flexShrink:0,color:a.score>=99?'var(--green)':a.score>=67?'var(--amber)':'var(--red)'}}>{Math.round(a.score/(s.answers.length||3))}</span>
-                              </div>
-                            ))}
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })}
-                </>)}
-              </div>
-            </div>
-          )}
+          {/* ── 管理员答题轨迹弹窗（已抽到 admin/OverviewModals.jsx）── */}
+          <AdminDrillModal
+            modal={adminDrillModal}
+            hdrs={hdrs}
+            cycleId={overview.cycle?.id}
+            onClose={()=>setAdminDrillModal(null)}
+            onToggleCycle={(cid)=>setAdminDrillModal(m=>({...m,expandedCycleId:cid}))}
+            onDeleted={()=>{
+              apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});
+              setAdminDrillModal(null);
+            }}
+          />
 
           {/* ── 积分榜（双列）· SHOW_LEADERBOARD=false 时隐藏，代码保留 ── */}
           {SHOW_LEADERBOARD && (()=>{
