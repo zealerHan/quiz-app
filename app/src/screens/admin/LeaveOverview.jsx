@@ -186,7 +186,7 @@ function StaffDetailModal({ staffRow, year, hdrs, onClose }) {
  * 序号放最前，固定小方块，跟人走不跟排序走
  * 大字 = 四项合计；底部小字 = 各假别明细
  */
-function PersonRow({ r, onOpen }) {
+function PersonRow({ r, idx, onOpen }) {
   const { total, used } = totalOf(r);
   const left = total - used;
   const over = used > total;
@@ -210,7 +210,7 @@ function PersonRow({ r, onOpen }) {
         background: "var(--p-navy-22-a60)", border: "1px solid var(--border)",
         fontSize: 10.5, color: "var(--muted)", fontWeight: 600,
         flexShrink: 0, marginTop: 1,
-      }}>{r.no ?? "-"}</div>
+      }}>{idx + 1}</div>
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
@@ -246,7 +246,7 @@ function PersonRow({ r, onOpen }) {
 }
 
 /** 车峰一行：灰色小字，不展开明细 */
-function CpRow({ r }) {
+function CpRow({ r, idx }) {
   const { total, used } = totalOf(r);
   const left = total - used;
 
@@ -260,7 +260,7 @@ function CpRow({ r }) {
         display: "flex", alignItems: "center", justifyContent: "center",
         background: "var(--p-navy-22-a60)", border: "1px solid var(--border)",
         fontSize: 10, opacity: 0.75, flexShrink: 0,
-      }}>{r.no ?? "-"}</span>
+      }}>{idx + 1}</span>
       <span>{r.name}</span>
       <span style={{ marginLeft: "auto", color: left < 0 ? "#e8723c" : "var(--muted)" }}>
         {fmt(used)}/{fmt(total)}{left < 0 ? `（超${fmt(-left)}）` : ""}
@@ -295,16 +295,8 @@ export default function LeaveOverview({ hdrs }) {
   }, [open, year]);
 
   const allRows = data?.rows || [];
-
-  // 序号：全组按固定顺序连续编号 1..N（老韩 2026-11-27：
-  // 「不管排序怎么变，前面的 1-42 固定不动，我需要看到人员数量」）
-  // 不能用车峰把人拆开后各自编号 —— 那样序号会跳号（漏 12、21、23…），
-  // 也数不出总共多少人。所以先按固定顺序编好号，再做在编/车峰分组。
-  const baseOrder = [...allRows].sort((a, b) => (a.seq ?? 999) - (b.seq ?? 999));
-  const numbered = baseOrder.map((r, i) => ({ ...r, no: i + 1 }));
-
-  const regRows = numbered.filter((r) => !r.is_cp);
-  const cpRows = numbered.filter((r) => r.is_cp);
+  const regRows = allRows.filter((r) => !r.is_cp);
+  const cpRows = allRows.filter((r) => r.is_cp);
 
   // 顶部三列：只算在编（车峰不计）
   const regTotal = regRows.reduce((a, r) => {
@@ -340,7 +332,7 @@ export default function LeaveOverview({ hdrs }) {
         <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text)" }}>全组休假总览</span>
         {!open && data && (
           <span style={{ fontSize: 10.5, color: "var(--muted)" }}>
-            全组 {numbered.length} 人 · 剩 {fmt(regLeft)} / {fmt(regTotal.total)} 天
+            全组 {allRows.length} 人 · 剩 {fmt(regLeft)} / {fmt(regTotal.total)} 天
           </span>
         )}
         <span style={{
@@ -380,7 +372,7 @@ export default function LeaveOverview({ hdrs }) {
                 }}>
                   <span>在编 {regRows.length} 人合计</span>
                   <span style={{ opacity: 0.85 }}>
-                    全组 {numbered.length} 人
+                    全组 {allRows.length} 人
                     {cpRows.length > 0 && `（在编 ${regRows.length} + 车峰 ${cpRows.length}）`}
                   </span>
                 </div>
@@ -409,8 +401,8 @@ export default function LeaveOverview({ hdrs }) {
               </div>
 
               {/* ── 在编人员 ── */}
-              {sortedReg.map((r) => (
-                <PersonRow key={r.staff_id} r={r} onOpen={() => setDetail(r)} />
+              {sortedReg.map((r, idx) => (
+                <PersonRow key={r.staff_id} r={r} idx={idx} onOpen={() => setDetail(r)} />
               ))}
 
               {/* ── 车峰（灰色小字，不展开）── */}
@@ -422,7 +414,7 @@ export default function LeaveOverview({ hdrs }) {
                   }}>
                     以下 {sortedCp.length} 人为车峰（临时调整跑车方式，保留组籍），不计入上方合计
                   </div>
-                  {sortedCp.map((r) => <CpRow key={r.staff_id} r={r} />)}
+                  {sortedCp.map((r, idx) => <CpRow key={r.staff_id} r={r} idx={idx} />)}
                 </div>
               )}
             </>
