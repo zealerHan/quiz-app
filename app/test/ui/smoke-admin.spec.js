@@ -104,10 +104,12 @@ test.describe("管理后台冒烟 — 9 个 tab 都能打开", () => {
     const body = page.locator("body");
     await expect(body).toContainText("全组休假总览");
     // 展开后应该有年份切换和合计
+    // 断言用界面上真实存在的措辞：顶部三列是「假期总额 / 已休 / 剩余」
+    // （2026-11-27：原断言写的是「总天数」，与改版后的界面不符，导致误报失败）
     await body.getByText("全组休假总览").first().click();
     await page.waitForTimeout(2500);
     await expect(body).toContainText("2026 年");
-    await expect(body).toContainText("总天数");
+    await expect(body).toContainText("假期总额");
     await expect(body).toContainText("已休");
     await expect(body).toContainText("剩余");
     expect(errors, "总览不该有 JS 报错").toEqual([]);
@@ -180,5 +182,47 @@ test.describe("管理后台 — 关键数据能显示", () => {
     const known = ["韩颖", "艾凌风", "胡鑫", "韩思成", "蔡一凡"];
     const found = known.some((n) => text.includes(n));
     expect(found, "人员列表应该显示真实姓名").toBe(true);
+  });
+
+  // 回归保护：MemberEvalModal 2026-11-27 从 AdminScreen.jsx 抽到
+  // admin/OverviewModals.jsx（Stage 3 重构）。抽完必须还能正常弹出、显示真实数据。
+  // 这条测的是「点了人名 → 弹窗真有内容」，不是「页面没报错」。
+  test("概览：点未完成人员能弹出培训详情", async ({ page }) => {
+    const errors = collectErrors(page);
+    await adminLogin(page);
+    await page.waitForTimeout(3500);
+
+    const body = page.locator("body");
+    const text = await body.innerText();
+
+    // 找「本月任务未完成人员」区块里的人名按钮。没人未完成就跳过，不算失败。
+    const section = text.indexOf("本月任务未完成人员");
+    if (section < 0) {
+      test.skip(true, "概览没有『本月任务未完成人员』区块");
+      return;
+    }
+
+    // 点第一个带姓名的可点元素
+    const known = ["韩颖", "艾凌风", "胡鑫", "韩思成", "蔡一凡", "胡斌", "彭涵", "姚云"];
+    let clicked = false;
+    for (const name of known) {
+      const loc = body.getByText(name, { exact: true }).first();
+      if (await loc.count() > 0 && await loc.isVisible().catch(() => false)) {
+        await loc.click();
+        clicked = true;
+        break;
+      }
+    }
+    if (!clicked) {
+      test.skip(true, "概览未完成人员里没找到可点的姓名");
+      return;
+    }
+
+    await page.waitForTimeout(1200);
+    // 抽出的弹窗必须真的渲染出「本月培训项点完成情况」或「本月暂无培训项点」
+    const after = await body.innerText();
+    const hasModal = after.includes("本月培训项点完成情况") || after.includes("本月暂无培训项点");
+    expect(hasModal, "点人名应弹出培训详情弹窗").toBe(true);
+    expect(errors, "弹窗不该有 JS 报错").toEqual([]);
   });
 });

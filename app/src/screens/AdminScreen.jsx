@@ -11,6 +11,8 @@ import { BANK_TYPES, BANK_TYPE_MAP, groupBanksByType } from "./admin/bankConstan
 import { MembersTab, TrainingGroupsSection } from "./admin/MembersParts.jsx";
 import { LeaveTab, DevicesTab, LogsTab } from "./admin/SimpleTabParts.jsx";
 import LeaveOverview from "./admin/LeaveOverview.jsx";
+// 概览区弹窗（2026-11-27 Stage 3 从本文件抽出）
+import { MemberEvalModal } from "./admin/OverviewModals.jsx";
 
 // 供下拉选择框使用的分组 select
 function AdminScreen({ onBack }) {
@@ -622,49 +624,8 @@ function AdminScreen({ onBack }) {
             );
           })()}
 
-          {/* ── 成员培训评价详情弹窗 ── */}
-          {memberEvalModal&&(
-            <div onClick={()=>setMemberEvalModal(null)} style={{position:'fixed',inset:0,background:'var(--p-black-00-a70)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-              <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:440,background:'var(--input-bg)',border:'1px solid var(--p-blue-60-a30)',borderRadius:'16px 16px 0 0',padding:'20px 16px 32px',maxHeight:'70vh',overflowY:'auto'}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-                  <div>
-                    <div style={{fontWeight:700,fontSize:15,color:'var(--text)'}}>{memberEvalModal.name}</div>
-                    <div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>本月培训项点完成情况</div>
-                  </div>
-                  <button onClick={()=>setMemberEvalModal(null)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:22,cursor:'pointer',lineHeight:1}}>×</button>
-                </div>
-                {(()=>{
-                  const items=memberEvalModal.itemStatuses||[];
-                  if(items.length===0) return <div style={{color:'var(--muted)',fontSize:13,textAlign:'center',padding:'20px 0'}}>本月暂无培训项点</div>;
-                  const doneCount=items.filter(it=>it.done).length;
-                  return(
-                    <div style={{display:'flex',flexDirection:'column',gap:6}}>
-                      <div style={{fontSize:11,color:'var(--muted)',marginBottom:4}}>{doneCount}/{items.length} 项已完成</div>
-                      {items.map((it,i)=>{
-                        const mm_dd = it.done && it.shift_date ? (()=>{const[,mm,dd]=it.shift_date.split('-');return`${parseInt(mm)}/${parseInt(dd)}`;})() : null;
-                        return(
-                          <div key={i} style={{padding:'10px 12px',background:it.done?'var(--p-green-45-a06)':'var(--p-red-60-a04)',border:`1px solid ${it.done?'var(--p-green-45-a20)':'var(--p-red-60-a15)'}`,borderRadius:8}}>
-                            <div style={{display:'flex',alignItems:'center',gap:8}}>
-                              <span style={{fontSize:13,flexShrink:0}}>{it.done?'✅':'❌'}</span>
-                              <span style={{flex:1,fontSize:12,color:it.done?'var(--text)':'var(--red)',fontWeight:it.done?500:600}}>{it.item}</span>
-                              <span style={{fontSize:11,color:'var(--muted)',flexShrink:0}}>{it.trainType}</span>
-                              {mm_dd&&<span style={{fontSize:11,color:'var(--muted)',flexShrink:0}}>（{mm_dd}）</span>}
-                            </div>
-                            {it.done&&it.comment&&(
-                              <div style={{marginTop:5,fontSize:11,color:'var(--muted)',lineHeight:1.6,borderLeft:'2px solid var(--p-green-45-a35)',paddingLeft:8}}>评价：{it.comment}</div>
-                            )}
-                            {it.done&&!it.comment&&(
-                              <div style={{marginTop:3,fontSize:11,color:'var(--muted)',paddingLeft:10}}>（无评语）</div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
-          )}
+          {/* ── 成员培训评价详情弹窗（已抽到 admin/OverviewModals.jsx）── */}
+          <MemberEvalModal modal={memberEvalModal} onClose={()=>setMemberEvalModal(null)}/>
 
           {/* ── 本月项点详情弹窗 ── */}
           {planDetailModal&&(
