@@ -232,6 +232,51 @@ test.describe("管理后台 — 关键数据能显示", () => {
     expect(hasResetModal, "点已完成人员应弹出重置答题弹窗").toBe(true);
     expect(errors, "重置弹窗不该有 JS 报错").toEqual([]);
   });
+  // 回归保护：导出记录三个面板 2026-11-27 从 AdminScreen.jsx 抽到
+  // admin/ExportPanels.jsx（Stage 3 最后一块）。
+  //
+  // 三个面板是三层状态机，父组件持状态：
+  //   showExportMenu==='open'
+  //     ├─ exportWsModal==null && wsMultiMonthSel==null → ExportMainPanel
+  //     ├─ wsMultiMonthSel!==null                      → WorkshopMultiMonthPanel（跨月合并）
+  //     └─ exportWsModal!==null                        → WorkshopPlansPanel（按场次导出）
+  //
+  // 本用例走完整链路：打开导出 → 主面板有抽问记录 → 点跨月合并 → 进子面板 → 返回。
+  // 只验证「渲染出来 + 能来回切」，不真点导出（导出会开新窗口下文件）。
+  test("概览：导出记录三层面板能打开和返回", async ({ page }) => {
+    const errors = collectErrors(page);
+    await adminLogin(page);
+    await page.waitForTimeout(3500);
+
+    const body = page.locator("body");
+
+    // 1) 打开导出弹窗
+    await body.getByText("📊 导出记录", { exact: false }).first().click();
+    await page.waitForTimeout(2000);
+
+    let text = await body.innerText();
+    expect(text, "导出弹窗应显示抽问记录区").toContain("抽问记录");
+    expect(text, "导出弹窗应显示月度任务区").toContain("月度任务");
+    expect(text, "应有跨月合并按钮").toContain("跨月合并");
+
+    // 2) 进跨月合并子面板
+    await body.getByText("跨月合并", { exact: false }).first().click();
+    await page.waitForTimeout(2000);
+
+    text = await body.innerText();
+    expect(text, "跨月合并面板应有标题").toContain("培训记录跨月合并");
+    expect(text, "跨月合并面板应有返回按钮").toContain("返回");
+
+    // 3) 返回主面板
+    await body.getByText("← 返回", { exact: false }).first().click();
+    await page.waitForTimeout(1500);
+
+    text = await body.innerText();
+    expect(text, "返回后应回到主面板（月度任务可见）").toContain("月度任务");
+
+    expect(errors, "导出面板不该有 JS 报错").toEqual([]);
+  });
+
   // 回归保护：MemberEvalModal 2026-11-27 从 AdminScreen.jsx 抽到
   // admin/OverviewModals.jsx（Stage 3 重构）。抽完必须还能正常弹出、显示真实数据。
   //

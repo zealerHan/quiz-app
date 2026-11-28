@@ -16,6 +16,8 @@ import {
   MemberEvalModal, ResetAnswerModal, MakeupGrantModal, RemediationGrantModal, PlanDetailModal,
   AdminDrillModal,
 } from "./admin/OverviewModals.jsx";
+// 导出记录三个面板（2026-11-27 抽出）
+import { ExportMainPanel, WorkshopMultiMonthPanel, WorkshopPlansPanel } from "./admin/ExportPanels.jsx";
 
 // 供下拉选择框使用的分组 select
 function AdminScreen({ onBack }) {
@@ -679,7 +681,7 @@ function AdminScreen({ onBack }) {
             );
           })()}
 
-          {/* ── 导出记录 ── */}
+          {/* ── 导出记录（面板已抽到 admin/ExportPanels.jsx）── */}
           <button onClick={()=>{
             setShowExportMenu('open');
             if(!exportMonths.length) apiJson('/api/export/months',{headers:hdrs()}).then(setExportMonths).catch(()=>{});
@@ -689,145 +691,59 @@ function AdminScreen({ onBack }) {
           {showExportMenu==='open'&&(
             <div style={{position:'fixed',inset:0,background:'var(--p-black-00-a75)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={()=>{setShowExportMenu(null);setExportWsModal(null);setWsMultiMonthSel(null);}}>
               <div style={{background:'var(--p-navy-10)',borderRadius:'14px 14px 0 0',width:'100%',maxWidth:480,maxHeight:'80vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
-                {/* 顶栏 */}
                 <div style={{padding:'14px 16px 10px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
                   <span style={{fontWeight:700,color:'var(--text)',fontSize:15}}>📊 导出记录</span>
                   <button onClick={()=>{setShowExportMenu(null);setExportWsModal(null);setWsMultiMonthSel(null);}} style={{background:'none',border:'none',color:'var(--muted)',fontSize:22,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
                 </div>
-                {/* ── 主选择面板 ── */}
+
+                {/* 主选择面板 */}
                 {!exportWsModal&&!wsMultiMonthSel&&(
-                  <div style={{padding:'12px 16px',display:'flex',flexDirection:'column',gap:10,overflowY:'auto'}}>
-                    {/* 抽问记录：复选框多月合并 */}
-                    <div>
-                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
-                        <span style={{fontSize:11,color:'var(--muted)',fontWeight:600,letterSpacing:1}}>📋 抽问记录</span>
-                        <div style={{display:'flex',gap:6,alignItems:'center'}}>
-                          <button onClick={()=>{const allM=new Set(exportMonths);setQuizExportSel(quizExportSel.size===exportMonths.length?new Set():allM);}} style={{padding:'3px 8px',borderRadius:4,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>
-                            {quizExportSel.size===exportMonths.length&&exportMonths.length>0?'取消全选':'全选'}
-                          </button>
-                          <button onClick={()=>{if(!quizExportSel.size)return;const ms=[...quizExportSel].sort().join(',');window.open(`/api/export/multi?password=${encodeURIComponent(pwd)}&months=${ms}`,'_blank');}}
-                            disabled={!quizExportSel.size}
-                            style={{padding:'3px 10px',borderRadius:4,border:'none',background:quizExportSel.size?'var(--blue)':'var(--border)',color:quizExportSel.size?'white':'var(--muted)',cursor:quizExportSel.size?'pointer':'default',fontSize:11,fontWeight:600,fontFamily:'inherit'}}>
-                            ↓ 合并导出{quizExportSel.size?` (${quizExportSel.size}月)`:''}
-                          </button>
-                        </div>
-                      </div>
-                      <div style={{background:'var(--input-bg)',border:'1px solid var(--p-blue-60-a25)',borderRadius:8,overflow:'hidden'}}>
-                        {exportMonths.length===0&&<div style={{padding:'12px 14px',fontSize:12,color:'var(--muted)'}}>暂无数据</div>}
-                        {exportMonths.map(m=>{
-                          const sel=quizExportSel.has(m);
-                          return (
-                            <div key={m} onClick={()=>{const next=new Set(quizExportSel);sel?next.delete(m):next.add(m);setQuizExportSel(next);}}
-                              style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderTop:'1px solid var(--p-navy-22-a50)',cursor:'pointer',background:sel?'var(--p-blue-60-a08)':'transparent'}}>
-                              <div style={{width:15,height:15,borderRadius:3,border:`2px solid ${sel?'var(--blue)':'var(--p-blue-27)'}`,background:sel?'var(--blue)':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-                                {sel&&<span style={{color:'var(--text)',fontSize:11,fontWeight:700,lineHeight:1}}>✓</span>}
-                              </div>
-                              <span style={{fontSize:13,color:'var(--text)',flex:1}}>{m}</span>
-                              <a href={`/api/export?password=${encodeURIComponent(pwd)}&month=${m}`} target="_blank" onClick={e=>e.stopPropagation()} style={{fontSize:11,color:'var(--muted)',textDecoration:'none',padding:'2px 6px',borderRadius:3,border:'1px solid var(--border)'}}>单月↓</a>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    {/* 月度任务 */}
-                    <div>
-                      <div style={{fontSize:11,color:'var(--muted)',fontWeight:600,letterSpacing:1,marginBottom:6}}>🏭 月度任务</div>
-                      <div style={{display:'flex',gap:8}}>
-                        <button onClick={async()=>{
-                          setExportWsModal({plans:[],months:[],activeMonth:'',selected:new Set(),showMonthPicker:false,loading:true});
-                          const plans=await apiJson('/api/export/workshop/plans',{headers:hdrs()}).catch(()=>[]);
-                          const allPlans=Array.isArray(plans)?plans:[];
-                          const months=[...new Set(allPlans.map(p=>p.year_month))].sort((a,b)=>b.localeCompare(a));
-                          const curMonth=new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'}).slice(0,7);
-                          const active=months.includes(curMonth)?curMonth:(months[0]||curMonth);
-                          const mp=allPlans.filter(p=>p.year_month===active);
-                          setExportWsModal({plans:allPlans,months,activeMonth:active,selected:new Set(mp.map(p=>p.id)),showMonthPicker:false,loading:false});
-                        }} style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid var(--p-green-45-a30)',background:'var(--p-green-45-a06)',color:'var(--p-green-58)',cursor:'pointer',fontSize:13,fontWeight:600,fontFamily:'inherit'}}>
-                          按场次导出 →
-                        </button>
-                        <button onClick={async()=>{
-                          const wsMths=await apiJson('/api/export/workshop/months',{headers:hdrs()}).catch(()=>[]);
-                          const ms=Array.isArray(wsMths)?wsMths:[];
-                          setWsMultiMonthSel({months:ms,selected:new Set()});
-                        }} style={{flex:1,padding:'11px',borderRadius:8,border:'1px solid var(--p-amber-56-a30)',background:'var(--p-amber-56-a06)',color:'var(--p-amber-56)',cursor:'pointer',fontSize:13,fontWeight:600,fontFamily:'inherit'}}>
-                          跨月合并 →
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                  <ExportMainPanel
+                    pwd={pwd}
+                    exportMonths={exportMonths}
+                    quizExportSel={quizExportSel}
+                    setQuizExportSel={setQuizExportSel}
+                    onOpenPlans={async()=>{
+                      setExportWsModal({plans:[],months:[],activeMonth:'',selected:new Set(),showMonthPicker:false,loading:true});
+                      const plans=await apiJson('/api/export/workshop/plans',{headers:hdrs()}).catch(()=>[]);
+                      const allPlans=Array.isArray(plans)?plans:[];
+                      const months=[...new Set(allPlans.map(p=>p.year_month))].sort((a,b)=>b.localeCompare(a));
+                      const curMonth=new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'}).slice(0,7);
+                      const active=months.includes(curMonth)?curMonth:(months[0]||curMonth);
+                      const mp=allPlans.filter(p=>p.year_month===active);
+                      setExportWsModal({plans:allPlans,months,activeMonth:active,selected:new Set(mp.map(p=>p.id)),showMonthPicker:false,loading:false});
+                    }}
+                    onOpenWsMulti={async()=>{
+                      const wsMths=await apiJson('/api/export/workshop/months',{headers:hdrs()}).catch(()=>[]);
+                      const ms=Array.isArray(wsMths)?wsMths:[];
+                      setWsMultiMonthSel({months:ms,selected:new Set()});
+                    }}
+                  />
                 )}
-                {/* ── 培训跨月合并面板 ── */}
-                {!exportWsModal&&wsMultiMonthSel&&(()=>{
-                  const {months,selected:sel}=wsMultiMonthSel;
-                  const allSel=months.length>0&&months.every(m=>sel.has(m));
-                  const toggleM=m=>{const next=new Set(sel);next.has(m)?next.delete(m):next.add(m);setWsMultiMonthSel(prev=>({...prev,selected:next}));};
-                  const doExport=()=>{if(!sel.size)return;const ms=[...sel].sort().join(',');window.open(`/api/export/workshop?password=${encodeURIComponent(pwd)}&months=${ms}`,'_blank');};
-                  return (<>
-                    <div style={{padding:'8px 14px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
-                      <button onClick={()=>setWsMultiMonthSel(null)} style={{background:'none',border:'none',color:'var(--p-blue-68)',fontSize:13,cursor:'pointer',padding:0,marginRight:4}}>← 返回</button>
-                      <span style={{fontSize:13,color:'var(--text)',flex:1,fontWeight:600}}>培训记录跨月合并</span>
-                      <button onClick={()=>setWsMultiMonthSel(prev=>({...prev,selected:allSel?new Set():new Set(months)}))} style={{padding:'5px 8px',borderRadius:5,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>{allSel?'取消全选':'全选'}</button>
-                      <button onClick={doExport} disabled={!sel.size} style={{padding:'5px 12px',borderRadius:5,border:'none',background:sel.size?'var(--p-amber-56)':'var(--border)',color:sel.size?'var(--p-amber-05)':'var(--muted)',cursor:sel.size?'pointer':'default',fontSize:11,fontWeight:600,fontFamily:'inherit'}}>↓ 导出{sel.size?` (${sel.size}月)`:''}</button>
-                    </div>
-                    <div style={{flex:1,overflowY:'auto'}}>
-                      <div style={{padding:'8px 14px',fontSize:11,color:'var(--muted)'}}>每个月生成一个 Sheet，含培训日程和出勤人数</div>
-                      {months.length===0&&<div style={{textAlign:'center',color:'var(--muted)',padding:'28px 0',fontSize:13}}>暂无数据</div>}
-                      {months.map(m=>(
-                        <div key={m} onClick={()=>toggleM(m)} style={{display:'flex',alignItems:'center',gap:10,padding:'11px 14px',borderBottom:'1px solid var(--p-navy-22-a35)',cursor:'pointer',background:sel.has(m)?'var(--p-amber-56-a06)':'transparent'}}>
-                          <div style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel.has(m)?'var(--p-amber-56)':'var(--p-blue-27)'}`,background:sel.has(m)?'var(--p-amber-56)':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-                            {sel.has(m)&&<span style={{color:'var(--p-amber-05)',fontSize:11,fontWeight:700,lineHeight:1}}>✓</span>}
-                          </div>
-                          <span style={{fontSize:13,color:'var(--text)'}}>{m}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </>);
-                })()}
-                {/* ── 月度任务按场次勾选面板 ── */}
-                {exportWsModal&&(()=>{
-                  const {plans,months,activeMonth,selected:sel,showMonthPicker,loading}=exportWsModal;
-                  const monthPlans=plans.filter(p=>p.year_month===activeMonth);
-                  const allSel=monthPlans.length>0&&monthPlans.every(p=>sel.has(p.id));
-                  const switchMonth=m=>{const mp=plans.filter(p=>p.year_month===m);setExportWsModal(prev=>({...prev,activeMonth:m,selected:new Set(mp.map(p=>p.id)),showMonthPicker:false}));};
-                  const toggleAll=()=>{const next=new Set(sel);if(allSel)monthPlans.forEach(p=>next.delete(p.id));else monthPlans.forEach(p=>next.add(p.id));setExportWsModal(prev=>({...prev,selected:next}));};
-                  const toggleOne=id=>{const next=new Set(sel);next.has(id)?next.delete(id):next.add(id);setExportWsModal(prev=>({...prev,selected:next}));};
-                  const doExport=()=>{if(!sel.size)return;const ids=[...sel].join(',');window.open(`/api/export/workshop?password=${encodeURIComponent(pwd)}&ids=${ids}`,'_blank');};
-                  const typeColor=t=>t==='中旬会'?'var(--amber)':t==='理论'?'var(--p-cyan-60)':'var(--p-green-52)';
-                  return (<>
-                    <div style={{padding:'8px 14px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
-                      <button onClick={()=>setExportWsModal(null)} style={{background:'none',border:'none',color:'var(--p-blue-68)',fontSize:13,cursor:'pointer',padding:0,marginRight:4}}>← 返回</button>
-                      <div style={{position:'relative',flex:1}}>
-                        <button onClick={()=>setExportWsModal(prev=>({...prev,showMonthPicker:!prev.showMonthPicker}))} style={{padding:'5px 10px',borderRadius:5,border:`1px solid ${showMonthPicker?'var(--blue)':'var(--border)'}`,background:'transparent',color:'var(--text)',cursor:'pointer',fontSize:12,fontFamily:'inherit'}}>
-                          {activeMonth||'…'} ▾
-                        </button>
-                        {showMonthPicker&&(
-                          <div style={{position:'absolute',top:'calc(100% + 4px)',left:0,background:'var(--p-navy-10)',border:'1px solid var(--p-blue-60-a40)',borderRadius:7,overflow:'hidden',zIndex:20,boxShadow:'0 4px 20px var(--p-black-00-a60)',minWidth:110}}>
-                            {months.map(m=><div key={m} onClick={()=>switchMonth(m)} style={{padding:'8px 12px',fontSize:12,color:m===activeMonth?'var(--p-blue-68)':'var(--text)',background:m===activeMonth?'var(--p-blue-60-a10)':'transparent',cursor:'pointer',borderTop:'1px solid var(--p-navy-22-a40)'}}>{m}</div>)}
-                          </div>
-                        )}
-                      </div>
-                      <button onClick={toggleAll} style={{padding:'5px 8px',borderRadius:5,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontSize:11,fontFamily:'inherit'}}>{allSel?'取消全选':'全选'}</button>
-                      <button onClick={doExport} disabled={!sel.size} style={{padding:'5px 12px',borderRadius:5,border:'none',background:sel.size?'var(--green)':'var(--border)',color:sel.size?'var(--p-green-09)':'var(--muted)',cursor:sel.size?'pointer':'default',fontSize:11,fontWeight:600,fontFamily:'inherit'}}>↓ 导出{sel.size?` (${sel.size})`:''}</button>
-                    </div>
-                    <div style={{flex:1,overflowY:'auto'}}>
-                      {loading&&<div style={{textAlign:'center',color:'var(--muted)',padding:'28px 0',fontSize:13}}>加载中…</div>}
-                      {!loading&&monthPlans.length===0&&<div style={{textAlign:'center',color:'var(--muted)',padding:'28px 0',fontSize:13}}>该月暂无培训计划</div>}
-                      {monthPlans.map(p=>(
-                        <div key={p.id} onClick={()=>toggleOne(p.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderBottom:'1px solid var(--p-navy-22-a35)',cursor:'pointer',background:sel.has(p.id)?'var(--p-green-45-a05)':'transparent'}}>
-                          <div style={{width:16,height:16,borderRadius:3,border:`2px solid ${sel.has(p.id)?'var(--green)':'var(--p-blue-27)'}`,background:sel.has(p.id)?'var(--green)':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-                            {sel.has(p.id)&&<span style={{color:'var(--p-green-09)',fontSize:11,fontWeight:700,lineHeight:1}}>✓</span>}
-                          </div>
-                          <span style={{fontSize:12,color:'var(--muted)',width:36,flexShrink:0}}>{p.shift_date?.slice(5)}</span>
-                          <span style={{fontSize:11,padding:'1px 5px',borderRadius:3,border:`1px solid ${typeColor(p.plan_type)}55`,color:typeColor(p.plan_type),flexShrink:0}}>{p.plan_type}</span>
-                          <span style={{fontSize:12,color:'var(--muted)',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.group_name||''}{p.instructor_name?` · ${p.instructor_name}`:''}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </>);
-                })()}
+
+                {/* 培训跨月合并面板 */}
+                {!exportWsModal&&wsMultiMonthSel&&(
+                  <WorkshopMultiMonthPanel
+                    pwd={pwd}
+                    state={wsMultiMonthSel}
+                    setState={setWsMultiMonthSel}
+                    onBack={()=>setWsMultiMonthSel(null)}
+                  />
+                )}
+
+                {/* 月度任务按场次勾选面板 */}
+                {exportWsModal&&(
+                  <WorkshopPlansPanel
+                    pwd={pwd}
+                    state={exportWsModal}
+                    setState={setExportWsModal}
+                    onBack={()=>setExportWsModal(null)}
+                  />
+                )}
               </div>
             </div>
           )}
+
           <button onClick={async()=>{
             if(!window.confirm('确认清除今日所有答题记录？\n（记录会保留在数据库中，不影响 Excel 导出）'))return;
             const r=await apiJson('/api/admin/sessions/today',{method:'DELETE',headers:hdrs()}).catch(()=>null);
