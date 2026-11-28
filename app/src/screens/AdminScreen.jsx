@@ -109,9 +109,7 @@ function AdminScreen({ onBack }) {
   const [devices,setDevices]=useState(null);   // 登录/答题设备留痕
   const [lbSessions,setLbSessions]=useState([]);
   const [lbSessionsAlltime,setLbSessionsAlltime]=useState([]);
-  const [lbMode,setLbMode]=useState('cycle'); // 'cycle'|'alltime'
   const [weakQuestions,setWeakQuestions]=useState([]);
-  const [incompleteExpanded,setIncompleteExpanded]=useState(false);
   const [lbCollapsed,setLbCollapsed]=useState(true);
   const [staffListCollapsed,setStaffListCollapsed]=useState(true);
   const [resetModal,setResetModal]=useState(null); // null or {staff_id, name}
@@ -135,22 +133,13 @@ function AdminScreen({ onBack }) {
   const [wsMultiMonthSel,setWsMultiMonthSel]=useState(null); // null | {months:[], selected:Set}
   // 手动添加题目
   const [addQ,setAddQ]=useState({text:'',reference:'',keywords:'',category:'业务知识',difficulty:'中等',bank_id:''});
-  const [addQLoading,setAddQLoading]=useState(false);
   // AI生成题目
-  const [aiContent,setAiContent]=useState('');
-  const [aiCount,setAiCount]=useState(3);
   const [aiBankId,setAiBankId]=useState('');
-  const [aiResult,setAiResult]=useState(null);
-  const [aiLoading,setAiLoading]=useState(false);
   // 手动选题 / 抽问设置
-  const [qSearch,setQSearch]=useState('');
-  const [qAll,setQAll]=useState([]);
   const [qPinned,setQPinned]=useState({ids:[],scope:'none',mode:'emergency',count:3,bank_id:null});
   const [qSelected,setQSelected]=useState([]);
   const [pinScope,setPinScope]=useState('shift');
   const [pinFallback,setPinFallback]=useState('');
-  const [qSelectOpen,setQSelectOpen]=useState(false);
-  const [qSelectBank,setQSelectBank]=useState('incident'); // 'incident' | 'emergency'
   const [pinCount,setPinCount]=useState(3);         // 抽问题目数 1-5
   const [pinMode,setPinMode]=useState('emergency'); // 'manual'|'random'|'emergency'
   const [pinRandomBankId,setPinRandomBankId]=useState(null); // 多题随机时的题库id
@@ -331,7 +320,9 @@ function AdminScreen({ onBack }) {
             onClose={()=>setResetModal(null)}
             onDone={()=>{
               apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});
-              const ep=lbMode==='alltime'?'/api/admin/leaderboard/alltime':'/api/admin/leaderboard/cycle';
+              // lbMode 的 setter 从未被调用过（恒为 'cycle'），2026-11-28 把它简化成常量。
+              // 积分榜整块由 SHOW_LEADERBOARD 控制，恢复时再把这个前缀按需改回。
+              const ep='/api/admin/leaderboard/cycle';
               apiJson(ep,{headers:hdrs()}).then(d=>setLbSessions(d.rows||d||[])).catch(()=>{});
             }}
           />
@@ -755,7 +746,9 @@ function AdminScreen({ onBack }) {
           <button onClick={async()=>{
             if(!window.confirm('确认清除今日所有答题记录？\n（记录会保留在数据库中，不影响 Excel 导出）'))return;
             const r=await apiJson('/api/admin/sessions/today',{method:'DELETE',headers:hdrs()}).catch(()=>null);
-            if(r?.ok){alert(`已清除今日 ${r.deleted} 条记录`);apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/weak-questions',{headers:hdrs()}).then(setWeakQuestions).catch(()=>{});const ep=lbMode==='alltime'?'/api/admin/leaderboard/alltime':'/api/admin/leaderboard/cycle';apiJson(ep,{headers:hdrs()}).then(d=>setLbSessions(d.rows||d||[])).catch(()=>{});}
+            if(r?.ok){alert(`已清除今日 ${r.deleted} 条记录`);apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/weak-questions',{headers:hdrs()}).then(setWeakQuestions).catch(()=>{});
+              // 积分榜整块由 SHOW_LEADERBOARD 控制，恢复时再把这个前缀按需改回。
+              const ep='/api/admin/leaderboard/cycle';apiJson(ep,{headers:hdrs()}).then(d=>setLbSessions(d.rows||d||[])).catch(()=>{});}
             else alert('清除失败');
           }} style={{width:'100%',marginTop:8,padding:'13px',background:'var(--p-red-60-a10)',border:'1px solid var(--p-red-60-a30)',borderRadius:8,color:'var(--red)',fontSize:13,fontWeight:600,cursor:'pointer'}}>🗑 清除今日答题数据</button>
         </>}
