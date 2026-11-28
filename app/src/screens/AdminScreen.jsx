@@ -7,6 +7,7 @@ import {
 } from "./admin/QuestionBankParts.jsx";
 import { BANK_TYPES, BANK_TYPE_MAP, groupBanksByType } from "./admin/bankConstants.js";
 import { useOverviewUI } from "./admin/useOverviewUI.js";
+import { useOverviewData } from "./admin/useOverviewData.js";
 
 // 人员 tab 子组件（2026-11-27 从本文件抽出）
 import { MembersTab, TrainingGroupsSection } from "./admin/MembersParts.jsx";
@@ -49,6 +50,20 @@ function AdminScreen({ onBack }) {
     quizExportSel, setQuizExportSel,
     wsMultiMonthSel, setWsMultiMonthSel,
   } = useOverviewUI();
+
+  // 概览 tab 的数据状态与加载（2026-11-28 抽到 admin/useOverviewData.js）
+  // 原来挤在 178-192 行巨型 useEffect 里的 8 个 overview 请求都在这里，
+  // 顺带修掉 remRecords 的双写（重复请求）
+  const {
+    overview, setOverview,
+    lbSessions, setLbSessions,
+    lbSessionsAlltime, setLbSessionsAlltime,
+    weakQuestions, setWeakQuestions,
+    monthMemberCompletion, setMonthMemberCompletion,
+    exportMonths, setExportMonths,
+    remRecords, setRemRecords,
+    remMonth, setRemMonth,
+  } = useOverviewData({ authed, tab, hdrs });
   const [authed,setAuthed]=useState(()=>!!localStorage.getItem('admin_pwd'));
   const [pwd,setPwd]=useState(()=>localStorage.getItem('admin_pwd')||'');
   const [pwdErr,setPwdErr]=useState('');
@@ -118,7 +133,6 @@ function AdminScreen({ onBack }) {
   const [rejectModal,setRejectModal]=useState(null);
   const [rejectReason,setRejectReason]=useState('');
   const [wallLoaded,setWallLoaded]=useState(false);
-  const [overview,setOverview]=useState(null);
   const [members,setMembers]=useState([]);
   const [selectedMember,setSelectedMember]=useState(null);
   const [memberDetail,setMemberDetail]=useState(null);
@@ -127,15 +141,7 @@ function AdminScreen({ onBack }) {
   const [qr,setQr]=useState(null);
   const [logs,setLogs]=useState([]);
   const [devices,setDevices]=useState(null);   // 登录/答题设备留痕
-  const [lbSessions,setLbSessions]=useState([]);
-  const [lbSessionsAlltime,setLbSessionsAlltime]=useState([]);
-  const [weakQuestions,setWeakQuestions]=useState([]);
-  const [remRecords,setRemRecords]=useState([]); // 复查台账
-  const [remMonth,setRemMonth]=useState(()=>new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'}).slice(0,7));
   const [dingtalkLoading,setDingtalkLoading]=useState(false);
-  const [monthPlanCompletion,setMonthPlanCompletion]=useState([]);
-  const [monthMemberCompletion,setMonthMemberCompletion]=useState(null);
-  const [exportMonths,setExportMonths]=useState([]);
   // 手动添加题目
   const [addQ,setAddQ]=useState({text:'',reference:'',keywords:'',category:'业务知识',difficulty:'中等',bank_id:''});
   // AI生成题目
@@ -177,7 +183,7 @@ function AdminScreen({ onBack }) {
 
   useEffect(()=>{
     if(!authed)return;
-    if(tab==='overview'){apiJson('/api/admin/overview',{headers:hdrs()}).then(setOverview).catch(()=>{});apiJson('/api/admin/leaderboard/cycle',{headers:hdrs()}).then(d=>setLbSessions(d.rows||[])).catch(()=>{});apiJson('/api/admin/leaderboard/alltime',{headers:hdrs()}).then(d=>setLbSessionsAlltime(Array.isArray(d)?d:(d.rows||[]))).catch(()=>{});apiJson('/api/admin/weak-questions',{headers:hdrs()}).then(setWeakQuestions).catch(()=>{});apiJson('/api/export/months',{headers:hdrs()}).then(setExportMonths).catch(()=>{});apiJson('/api/admin/month-plan-completion',{headers:hdrs()}).then(setMonthPlanCompletion).catch(()=>{});apiJson('/api/admin/month-member-completion',{headers:hdrs()}).then(setMonthMemberCompletion).catch(()=>{});apiJson('/api/admin/remediation/records',{headers:hdrs()}).then(setRemRecords).catch(()=>{});}
+    // overview 的 8 个请求已搬进 useOverviewData（2026-11-28）
     if(tab==='members')apiJson('/api/admin/members',{headers:hdrs()}).then(setMembers).catch(()=>{});
     if(tab==='banks'){apiJson('/api/banks',{headers:hdrs()}).then(d=>{setBanks(d);if(d.length>0){setAiBankId(String(d[0].id));setPinFallback(String(d[0].id));}const manualBank=d.find(b=>b.name==='人工提问');if(manualBank)setAddQ(q=>({...q,bank_id:String(manualBank.id)}));}).catch(()=>{});apiJson('/api/settings',{headers:hdrs()}).then(setSettings).catch(()=>{});apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(d=>{setQPinned(d);setQSelected(d.ids||[]);setPinScope(d.scope==='none'?'shift':d.scope);setPinFallback(d.bank_fallback_id?String(d.bank_fallback_id):'');setPinCount(d.count||3);setPinMode(d.bank_ids?.length>0?'manual':d.mode||'emergency');setPinRandomBankId(d.bank_id||null);setCheckedBankIds(d.bank_ids||[]);setMultiBankIds(d.bank_ids||[]);}).catch(()=>{});}
     if(tab==='leave'){ loadLeavePending(); loadWeekBatch(weekAnchor||undefined); }
@@ -186,10 +192,7 @@ function AdminScreen({ onBack }) {
     if(tab==='logs')apiJson('/api/admin/logs',{headers:hdrs()}).then(setLogs).catch(()=>{});
     if(tab==='devices')apiJson('/api/admin/login-devices?days=7',{headers:hdrs()}).then(setDevices).catch(()=>{});
   },[tab,authed]);
-  useEffect(()=>{
-    if(!authed||tab!=='overview')return;
-    apiJson(`/api/admin/remediation/records?month=${remMonth}`,{headers:hdrs()}).then(setRemRecords).catch(()=>{});
-  },[remMonth,authed,tab]);
+  // remRecords 的 month 请求已并入 useOverviewData（原来这里和 180 行各发一次，重复）
 
   const pushDingtalk=async()=>{
     setDingtalkLoading(true);
