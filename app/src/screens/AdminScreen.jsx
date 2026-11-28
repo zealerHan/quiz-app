@@ -50,20 +50,6 @@ function AdminScreen({ onBack }) {
     quizExportSel, setQuizExportSel,
     wsMultiMonthSel, setWsMultiMonthSel,
   } = useOverviewUI();
-
-  // 概览 tab 的数据状态与加载（2026-11-28 抽到 admin/useOverviewData.js）
-  // 原来挤在 178-192 行巨型 useEffect 里的 8 个 overview 请求都在这里，
-  // 顺带修掉 remRecords 的双写（重复请求）
-  const {
-    overview, setOverview,
-    lbSessions, setLbSessions,
-    lbSessionsAlltime, setLbSessionsAlltime,
-    weakQuestions, setWeakQuestions,
-    monthMemberCompletion, setMonthMemberCompletion,
-    exportMonths, setExportMonths,
-    remRecords, setRemRecords,
-    remMonth, setRemMonth,
-  } = useOverviewData({ authed, tab, hdrs });
   const [authed,setAuthed]=useState(()=>!!localStorage.getItem('admin_pwd'));
   const [pwd,setPwd]=useState(()=>localStorage.getItem('admin_pwd')||'');
   const [pwdErr,setPwdErr]=useState('');
@@ -173,6 +159,20 @@ function AdminScreen({ onBack }) {
   const [multiBankIds,setMultiBankIds]=useState([]); // 多选题库（跨分类均衡随机）
   const ah=useMemo?undefined:adminHeaders(pwd); // will pass inline
   const hdrs=(extra={})=>({...adminHeaders(pwd),'Content-Type':'application/json',...extra});
+
+  // 概览 tab 的数据状态与加载（2026-11-28 抽到 admin/useOverviewData.js）
+  // 原来挤在 178-192 行巨型 useEffect 里的 8 个 overview 请求都在这里，
+  // 顺带修掉 remRecords 的双写（重复请求）
+  const {
+    overview, setOverview,
+    lbSessions, setLbSessions,
+    lbSessionsAlltime, setLbSessionsAlltime,
+    weakQuestions, setWeakQuestions,
+    monthMemberCompletion, setMonthMemberCompletion,
+    exportMonths, setExportMonths,
+    remRecords, setRemRecords,
+    remMonth, setRemMonth,
+  } = useOverviewData({ authed, tab, hdrs });
 
   const login=async()=>{
     try{const r=await api('/api/admin/login',{method:'POST',body:JSON.stringify({password:pwd})});
