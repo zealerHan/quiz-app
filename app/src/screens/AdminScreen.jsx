@@ -6,6 +6,7 @@ import {
   ManualEntryForm, ExcelImportForm, ImportPlanCard,
 } from "./admin/QuestionBankParts.jsx";
 import { BANK_TYPES, BANK_TYPE_MAP, groupBanksByType } from "./admin/bankConstants.js";
+import { useOverviewUI } from "./admin/useOverviewUI.js";
 
 // 人员 tab 子组件（2026-11-27 从本文件抽出）
 import { MembersTab, TrainingGroupsSection } from "./admin/MembersParts.jsx";
@@ -29,6 +30,25 @@ const TABS = [
 ];
 
 function AdminScreen({ onBack }) {
+  // 概览 tab 的 15 个纯 UI 状态（折叠 / 弹窗 / 导出面板导航）
+  // 2026-11-28 抽到 admin/useOverviewUI.js，只碰渲染、不碰数据流
+  const {
+    lbCollapsed, setLbCollapsed,
+    staffListCollapsed, setStaffListCollapsed,
+    allCorrectExpanded, setAllCorrectExpanded,
+    lowErrorExpanded, setLowErrorExpanded,
+    highErrorCollapsed, setHighErrorCollapsed,
+    resetModal, setResetModal,
+    makeupModal, setMakeupModal,
+    remediationModal, setRemediationModal,
+    adminDrillModal, setAdminDrillModal,
+    memberEvalModal, setMemberEvalModal,
+    planDetailModal, setPlanDetailModal,
+    showExportMenu, setShowExportMenu,
+    exportWsModal, setExportWsModal,
+    quizExportSel, setQuizExportSel,
+    wsMultiMonthSel, setWsMultiMonthSel,
+  } = useOverviewUI();
   const [authed,setAuthed]=useState(()=>!!localStorage.getItem('admin_pwd'));
   const [pwd,setPwd]=useState(()=>localStorage.getItem('admin_pwd')||'');
   const [pwdErr,setPwdErr]=useState('');
@@ -110,27 +130,12 @@ function AdminScreen({ onBack }) {
   const [lbSessions,setLbSessions]=useState([]);
   const [lbSessionsAlltime,setLbSessionsAlltime]=useState([]);
   const [weakQuestions,setWeakQuestions]=useState([]);
-  const [lbCollapsed,setLbCollapsed]=useState(true);
-  const [staffListCollapsed,setStaffListCollapsed]=useState(true);
-  const [resetModal,setResetModal]=useState(null); // null or {staff_id, name}
-  const [makeupModal,setMakeupModal]=useState(null); // null or {staff_id, name}
-  const [remediationModal,setRemediationModal]=useState(null); // null or {staff_id, name, score, original_score, remediation_result}
   const [remRecords,setRemRecords]=useState([]); // 复查台账
   const [remMonth,setRemMonth]=useState(()=>new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'}).slice(0,7));
-  const [adminDrillModal,setAdminDrillModal]=useState(null); // {staffId,staffName,mode,loading,sessions,cycles,expandedCycleId}
   const [dingtalkLoading,setDingtalkLoading]=useState(false);
-  const [allCorrectExpanded,setAllCorrectExpanded]=useState(false);
-  const [lowErrorExpanded,setLowErrorExpanded]=useState(false);
-  const [highErrorCollapsed,setHighErrorCollapsed]=useState(true);
   const [monthPlanCompletion,setMonthPlanCompletion]=useState([]);
   const [monthMemberCompletion,setMonthMemberCompletion]=useState(null);
-  const [memberEvalModal,setMemberEvalModal]=useState(null); // {id, name, plans:[]}
-  const [planDetailModal,setPlanDetailModal]=useState(null); // plan object
   const [exportMonths,setExportMonths]=useState([]);
-  const [showExportMenu,setShowExportMenu]=useState(null); // null|'quiz'|'workshop'
-  const [exportWsModal,setExportWsModal]=useState(null);
-  const [quizExportSel,setQuizExportSel]=useState(new Set()); // 抽问记录多月勾选
-  const [wsMultiMonthSel,setWsMultiMonthSel]=useState(null); // null | {months:[], selected:Set}
   // 手动添加题目
   const [addQ,setAddQ]=useState({text:'',reference:'',keywords:'',category:'业务知识',difficulty:'中等',bank_id:''});
   // AI生成题目
