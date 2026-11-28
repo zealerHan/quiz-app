@@ -53,16 +53,20 @@ test.describe("组员端冒烟", () => {
     expect(errors, "登录页不该有 JS 报错").toEqual([]);
   });
 
-  test("能登录并看到首页四张卡片", async ({ page }) => {
+  test("能登录并看到首页卡片（留言墙已换待开发占位）", async ({ page }) => {
     const errors = collectErrors(page);
     await staffLogin(page);
 
     const body = page.locator("body");
-    // 四张主卡：日常答题 / 月度任务 / 我的假期 / 留言墙
+    // 四张主卡：日常答题 / 月度任务 / 我的假期 / 待开发占位
+    // 2026-11-28：留言墙隐藏（SHOW_WALL=false），第二排右边换成不可点的「待开发」卡
     await expect(body).toContainText("日常答题");
     await expect(body).toContainText("月度任务");
     await expect(body).toContainText("我的假期");
-    await expect(body).toContainText("留言墙");
+    await expect(body).toContainText("待开发");
+
+    // 留言墙不该再出现在首页
+    await expect(body).not.toContainText("留言墙");
 
     expect(errors, "首页不该有 JS 报错").toEqual([]);
   });

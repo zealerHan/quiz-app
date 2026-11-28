@@ -134,7 +134,7 @@ async function waitText(page, ...texts) {
 }
 
 
-test.describe("管理后台冒烟 — 9 个 tab 都能打开", () => {
+test.describe("管理后台冒烟 — 8 个 tab 都能打开", () => {
   test.beforeEach(async ({ page }) => {
     await adminLogin(page);
   });
@@ -192,12 +192,22 @@ test.describe("管理后台冒烟 — 9 个 tab 都能打开", () => {
     expect(errors, "题库 tab 不该有 JS 报错").toEqual([]);
   });
 
-  test("留言 tab", async ({ page }) => {
+  // 留言墙 2026-11-28 隐藏（SHOW_WALL = false）：
+  // 理由 = 上线后只有 5 条测试数据，组员没用起来。
+  // 这条从「能打开留言 tab」改成「留言 tab 不该出现」——
+  // 反向断言更有价值：谁要是误把开关改回 true，这条会立刻失败提醒。
+  test("留言 tab 应该被隐藏", async ({ page }) => {
     const errors = collectErrors(page);
-    await openTab(page, "留言");
     const body = page.locator("body");
-    await expect(body).toContainText(/留言/);
-    expect(errors, "留言 tab 不该有 JS 报错").toEqual([]);
+
+    // tab 栏里不该有「留言」
+    const tabTexts = await page.locator("button").allInnerTexts();
+    expect(
+      tabTexts.filter((t) => t.trim() === "留言"),
+      "SHOW_WALL=false 时管理后台不该有「留言」tab"
+    ).toEqual([]);
+
+    expect(errors, "管理后台不该有 JS 报错").toEqual([]);
   });
 
   test("设置 tab", async ({ page }) => {
