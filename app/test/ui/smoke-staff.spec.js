@@ -74,8 +74,8 @@ test.describe("组员端冒烟", () => {
     // 注意：登录后不能再 goto("/")，那会刷掉状态回到登录页。
     // 直接在当前页面点「我的假期」卡片。
     await page.getByText("我的假期", { exact: false }).first().click();
-    await page.waitForTimeout(2500);
 
+    // 不用固定等待：下一行的 toContainText 自己会等（默认 5s，够用）
     const body = page.locator("body");
     await expect(body).toContainText("假期余额");
     await expect(body).toContainText("申报假期");
@@ -91,7 +91,7 @@ test.describe("组员端冒烟", () => {
     // ?ebtest=1 会在渲染时抛异常，验证错误边界生效
     await page.goto("/?ebtest=1");
     await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(1500);
+    // 不用固定等待：下面的 toContainText 自己会等
 
     const body = page.locator("body");
     await expect(body).toContainText("页面出了点问题");

@@ -44,11 +44,22 @@ async function adminLogin(page) {
 
   // 点「管理员入口」
   await page.getByText("管理员入口", { exact: false }).first().click();
-  await page.waitForTimeout(1500);
 
-  // 输密码（找一个 password 类型的输入框，找不到就用可见的第一个 input）
-  const pwd = page.locator('input[type="password"]').first();
-  const target = (await pwd.count()) ? pwd : page.locator("input").first();
+  // 等密码框真的渲染出来，不要用固定 waitForTimeout。
+  // 原写法 waitForTimeout(1500) 在网络抖动时会点空或 fill 失败，
+  // 导致「点本月培训成员」等用例间歇性 flaky（2026-11-28 实测 1 flaky）。
+  // 密码框既可能是 input[type=password]，也可能是登录弹窗里的第一个 input。
+  const pwdInput = page.locator('input[type="password"], input[placeholder*="密码"]').first();
+  const fallbackInput = page.locator("input").first();
+  await expect
+    .poll(
+      async () => (await pwdInput.count()) + (await fallbackInput.count()),
+      { timeout: 15000, message: "管理员登录框未出现" }
+    )
+    .toBeGreaterThan(0);
+
+  const target = (await pwdInput.count()) ? pwdInput : fallbackInput;
+  await target.waitFor({ state: "visible", timeout: 15000 });
   await target.fill(ADMIN_PASSWORD);
 
   // 登录按钮文字可能是「进入后台」「登录」「确定」之类，逐个试
@@ -59,11 +70,69 @@ async function adminLogin(page) {
   await expect(page.locator("body")).toContainText("概览", { timeout: 25000 });
 }
 
-/** 点某个 tab 并等一小会儿让它加载数据 */
+/** 点某个 tab，并等到该 tab 真的渲染出内容（不再用固定 waitForTimeout）
+ *
+ *  原写法 waitForTimeout(2500) 有两个问题：
+ *    ① 数据快时白等 2.5 秒 —— 19 个用例累计多花 40+ 秒
+ *    ② 数据慢时（网络抖动/接口变慢）还没渲染就开始断言，
+ *      报出来的是「找不到某某文本」，把「加载慢」误报成「功能坏了」
+ *
+ *  ⚠ 关键坑（2026-11-28 实测过一次假通过再假失败）：
+ *    不能用 tab 名字本身当标志词 —— 「人员」两个字一直挂在导航栏上，
+ *    body 文本永远含它，poll 立即通过，等于没等。
+ *    必须等该 tab 的**独有内容**出现。
+ *
+ *  下面每个 tab 取的都是「只有这个 tab 才有的字样」：
+ *    概览 → 本月培训完成情况
+ *    人员 → 全组休假总览（人员 tab 上半部就是总览）
+ *    题库 → 题库分类之类（退化为不含 tab 名也算通过）
+ *    ...
+ */
+const TAB_MARKERS = {
+  概览: ["本月培训完成情况", "班组各类题均分", "本套班完成情况"],
+  人员: ["全组休假总览", "车峰", "小组"],
+  休假: ["周报批", "顶班对接", "休假审批"],
+  题库: ["新增题目", "AI 出题", "题库"],
+  留言: ["留言", "隐藏"],
+  扫码: ["二维码", "扫码"],
+  设置: ["设置", "推送"],
+  日志: ["操作日志", "日志"],
+  设备: ["设备", "登录"],
+};
+
 async function openTab(page, name) {
   await page.getByRole("button", { name, exact: true }).first().click();
-  await page.waitForTimeout(2500);
+  const markers = TAB_MARKERS[name] || [name];
+  // 等到该 tab 的独有内容出现，且不再有 loading 占位
+  await expect
+    .poll(
+      async () => {
+        const txt = await page.locator("body").innerText();
+        if (/加载中/.test(txt)) return false;
+        return markers.some((m) => txt.includes(m));
+      },
+      { timeout: 20000, message: `tab「${name}」内容未加载出来（等的是：${markers.join(" / ")}）` }
+    )
+    .toBe(true);
 }
+
+/** 等 body 出现指定文本（替代固定 waitForTimeout）
+ *
+ *  用法：await waitText(page, "跨月合并")
+ *  比 waitForTimeout 好在：内容到得早就立刻继续，到得晚也不会误判失败。
+ */
+async function waitText(page, ...texts) {
+  await expect
+    .poll(
+      async () => {
+        const t = await page.locator("body").innerText();
+        return texts.some((x) => t.includes(x));
+      },
+      { timeout: 20000, message: `等不到文本：${texts.join(" / ")}` }
+    )
+    .toBe(true);
+}
+
 
 test.describe("管理后台冒烟 — 9 个 tab 都能打开", () => {
   test.beforeEach(async ({ page }) => {
@@ -72,8 +141,8 @@ test.describe("管理后台冒烟 — 9 个 tab 都能打开", () => {
 
   test("概览 tab", async ({ page }) => {
     const errors = collectErrors(page);
-    // adminLogin 已停在概览，等数据
-    await page.waitForTimeout(2500);
+    // adminLogin 已停在概览，等概览内容真的渲染出来
+    await waitText(page, "本月培训完成情况", "班组各类题均分");
     const body = page.locator("body");
     await expect(body).toContainText("概览");
     expect(errors, "概览不该有 JS 报错").toEqual([]);
@@ -107,7 +176,7 @@ test.describe("管理后台冒烟 — 9 个 tab 都能打开", () => {
     // 断言用界面上真实存在的措辞：顶部三列是「假期总额 / 已休 / 剩余」
     // （2026-11-27：原断言写的是「总天数」，与改版后的界面不符，导致误报失败）
     await body.getByText("全组休假总览").first().click();
-    await page.waitForTimeout(2500);
+    await waitText(page, "2026 年");
     await expect(body).toContainText("2026 年");
     await expect(body).toContainText("假期总额");
     await expect(body).toContainText("已休");
@@ -167,7 +236,7 @@ test.describe("管理后台冒烟 — 9 个 tab 都能打开", () => {
 test.describe("管理后台 — 关键数据能显示", () => {
   test("概览页能看到统计数字", async ({ page }) => {
     await adminLogin(page);
-    await page.waitForTimeout(3000);
+    await waitText(page, "本月培训完成情况", "本套班完成情况");
     const text = await page.locator("body").innerText();
     // 概览应该有数字（人数、题数、答题数之类）
     const hasNumber = /\d+/.test(text);
@@ -177,11 +246,24 @@ test.describe("管理后台 — 关键数据能显示", () => {
   test("人员 tab 能列出真实人员", async ({ page }) => {
     await adminLogin(page);
     await openTab(page, "人员");
-    const text = await page.locator("body").innerText();
-    // 至少能看到一个已知的真实姓名
+
+    // ⚠ 不要拿到 body 文本就断言「有没有姓名」。
+    //   人员 tab 的骨架（「批量编辑 / 添加人员 / 培训小组管理」）先渲染，
+    //   /api/admin/members 的 41 条数据晚一步到，中间有个「暂无人员，请添加」的瞬间。
+    //   2026-11-28 就是在这个瞬间断言的，报「人员列表应该显示真实姓名」假失败。
+    //   正确做法：等到已知真实姓名真的出现，等不到才算失败。
     const known = ["韩颖", "艾凌风", "胡鑫", "韩思成", "蔡一凡"];
-    const found = known.some((n) => text.includes(n));
-    expect(found, "人员列表应该显示真实姓名").toBe(true);
+
+    await expect
+      .poll(
+        async () => {
+          const text = await page.locator("body").innerText();
+          if (text.includes("暂无人员")) return false;  // 数据还没到
+          return known.some((n) => text.includes(n));
+        },
+        { timeout: 20000, message: `人员列表未加载出真实姓名（等：${known.join("/")}）` }
+      )
+      .toBe(true);
   });
 
   // 回归保护：ResetAnswerModal / MakeupGrantModal / RemediationGrantModal
@@ -204,7 +286,7 @@ test.describe("管理后台 — 关键数据能显示", () => {
   test("概览：点已完成人员弹出重置弹窗", async ({ page }) => {
     const errors = collectErrors(page);
     await adminLogin(page);
-    await page.waitForTimeout(3500);
+    await waitText(page, "本套班完成情况", "本月培训完成情况");
 
     const body = page.locator("body");
 
@@ -226,7 +308,16 @@ test.describe("管理后台 — 关键数据能显示", () => {
     }
     await cardHandle.asElement().click();
 
-    await page.waitForTimeout(1200);
+    // 等弹窗真的出现，不要固定等 1.2 秒（慢的时候弹窗还没渲染就开始断言）
+    await expect
+      .poll(
+        async () => {
+          const t = await body.innerText();
+          return /重置[：:]/.test(t) && t.includes("本套班答题记录");
+        },
+        { timeout: 15000, message: "点人员卡片后未弹出「重置答题」弹窗" }
+      )
+      .toBe(true);
     const after = await body.innerText();
     const hasResetModal = /重置[：:]/.test(after) && after.includes("本套班答题记录");
     expect(hasResetModal, "点已完成人员应弹出重置答题弹窗").toBe(true);
@@ -246,13 +337,13 @@ test.describe("管理后台 — 关键数据能显示", () => {
   test("概览：导出记录三层面板能打开和返回", async ({ page }) => {
     const errors = collectErrors(page);
     await adminLogin(page);
-    await page.waitForTimeout(3500);
+    await waitText(page, "本月培训完成情况");
 
     const body = page.locator("body");
 
     // 1) 打开导出弹窗
     await body.getByText("📊 导出记录", { exact: false }).first().click();
-    await page.waitForTimeout(2000);
+    await waitText(page, "抽问记录", "跨月合并");
 
     let text = await body.innerText();
     expect(text, "导出弹窗应显示抽问记录区").toContain("抽问记录");
@@ -261,7 +352,7 @@ test.describe("管理后台 — 关键数据能显示", () => {
 
     // 2) 进跨月合并子面板
     await body.getByText("跨月合并", { exact: false }).first().click();
-    await page.waitForTimeout(2000);
+    await waitText(page, "培训记录跨月合并");
 
     text = await body.innerText();
     expect(text, "跨月合并面板应有标题").toContain("培训记录跨月合并");
@@ -269,7 +360,7 @@ test.describe("管理后台 — 关键数据能显示", () => {
 
     // 3) 返回主面板
     await body.getByText("← 返回", { exact: false }).first().click();
-    await page.waitForTimeout(1500);
+    await waitText(page, "抽问记录", "导出记录");
 
     text = await body.innerText();
     expect(text, "返回后应回到主面板（月度任务可见）").toContain("月度任务");
@@ -290,7 +381,7 @@ test.describe("管理后台 — 关键数据能显示", () => {
   test("概览：点本月培训成员能弹出详情", async ({ page }) => {
     const errors = collectErrors(page);
     await adminLogin(page);
-    await page.waitForTimeout(4000);
+    await waitText(page, "本月培训完成情况");
 
     const body = page.locator("body");
     const text = await body.innerText();
@@ -321,7 +412,16 @@ test.describe("管理后台 — 关键数据能显示", () => {
     expect(cnt, `应能定位到成员行「${nameInSeg}」`).toBeGreaterThan(0);
     await rows.nth(cnt - 1).click({ force: true });
 
-    await page.waitForTimeout(1500);
+    // 等详情弹窗出现（两个可能的标题之一）
+    await expect
+      .poll(
+        async () => {
+          const t = await body.innerText();
+          return t.includes("本月培训项点完成情况") || t.includes("本月暂无培训项点");
+        },
+        { timeout: 15000, message: "点成员行后未弹出培训项点详情" }
+      )
+      .toBe(true);
     const after = await body.innerText();
     const hasModal = after.includes("本月培训项点完成情况") || after.includes("本月暂无培训项点");
     expect(hasModal, `点培训成员「${nameInSeg}」应弹出培训详情弹窗`).toBe(true);
