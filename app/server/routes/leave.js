@@ -10,25 +10,13 @@ const router = express.Router();
 const { db } = require('../db');
 const { adminAuth } = require('../middleware');
 const { sendGroupPush, sendToChannel } = require('../push');
-const multer = require('multer');
-const sharp = require('sharp');
 const fs = require('fs');
 const path = require('path');
 
-// ── 留言图片上传：内存收，sharp 压，落盘 data/wall-images ──
-const WALL_IMG_DIR = path.join(__dirname, '..', '..', 'data', 'wall-images');
 // 下周休假申报图（钉钉 markdown 嵌图用，需公网可访问）
 const CHART_DIR = path.join(__dirname, '..', '..', 'data', 'leave-charts');
 // 公网地址：钉钉嵌图必须是公网匿名可访问的 URL
 const PUBLIC_BASE = process.env.PUBLIC_URL || 'https://peixun.zealerhan.cn';
-const wallUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 12 * 1024 * 1024 },   // 12MB 原图上限
-  fileFilter: (req, file, cb) => {
-    if (!/^image\//.test(file.mimetype)) return cb(new Error('只能传图片'));
-    cb(null, true);
-  },
-});
 
 const YEAR = new Date().getFullYear();
 
@@ -798,99 +786,7 @@ router.get('/api/shift/two-weeks', (req, res) => {
   }
 });
 
-// ═══════════════ 留言墙 ═══════════════
-// 老韩定：不审核、直接显示、后台能查。可以欢乐一点（"张飞：今天想吃牛肉面"）
-
-// 取留言（前台，只返回公开字段，不含真实身份）
-router.get('/api/wall/posts', (req, res) => {
-  try {
-    const limit = Math.min(Number(req.query.limit) || 50, 100);
-    const rows = db.prepare(`
-      SELECT id, nick, content, image, created_at FROM wall_posts
-      WHERE is_hidden = 0 ORDER BY id DESC LIMIT ?
-    `).all(limit);
-    res.json({ posts: rows });
-  } catch (e) {
-    res.status(500).json({ error: String(e.message) });
-  }
-});
-
-// 发留言（前台）— 需登录身份，但不对外显示
-// 支持纯文字 / 文字+图片（multipart，字段名 image）
-router.post('/api/wall/posts', wallUpload.single('image'), async (req, res) => {
-  try {
-    const sid = reqStaffId(req);
-    if (!sid) return res.status(401).json({ error: '请先登录' });
-    const { nick, content } = req.body || {};
-    const n = String(nick || '').trim();
-    const c = String(content || '').trim();
-    const hasImg = !!req.file;
-    if (!n) return res.status(400).json({ error: '请填名字' });
-    if (!c && !hasImg) return res.status(400).json({ error: '写点内容或传张图' });
-    if (n.length > 12) return res.status(400).json({ error: '名字最多 12 字' });
-    if (c.length > 200) return res.status(400).json({ error: '留言最多 200 字' });
-
-    // 留真身（后台可查）
-    const me = db.prepare('SELECT real_name, name FROM staff WHERE id = ? LIMIT 1').get(String(sid));
-
-    // 防刷：同一人 1 分钟只能发 1 条
-    const recent = db.prepare(`
-      SELECT id FROM wall_posts WHERE staff_id = ?
-        AND created_at >= datetime('now','localtime','-1 minute')
-    `).get(sid);
-    if (recent) return res.status(429).json({ error: '慢一点，1 分钟后再发' });
-
-    // ── 有图就压缩落盘 ──
-    let imagePath = null;
-    if (hasImg) {
-      fs.mkdirSync(WALL_IMG_DIR, { recursive: true });
-      const fname = `w${Date.now()}_${Math.random().toString(36).slice(2, 8)}.jpg`;
-      try {
-        await sharp(req.file.buffer)
-          .rotate()                                  // 按 EXIF 摆正（手机竖拍）
-          .resize(1400, 1400, { fit: 'inside', withoutEnlargement: true })
-          .jpeg({ quality: 82, mozjpeg: true })
-          .toFile(path.join(WALL_IMG_DIR, fname));
-        imagePath = '/wall-images/' + fname;
-      } catch (e) {
-        return res.status(400).json({ error: '图片处理失败，换一张试试' });
-      }
-    }
-
-    const info = db.prepare(`
-      INSERT INTO wall_posts (nick, content, staff_id, real_name, image)
-      VALUES (?,?,?,?,?)
-    `).run(n, c, String(sid), me ? (me.real_name || me.name) : null, imagePath);
-
-    res.json({ ok: true, id: info.lastInsertRowid, image: imagePath });
-  } catch (e) {
-    res.status(500).json({ error: String(e.message) });
-  }
-});
-
-// 管理后台：查留言（含真实身份）
-router.get('/api/wall/admin/posts', adminAuth, (req, res) => {
-  try {
-    const rows = db.prepare(`
-      SELECT id, nick, content, image, real_name, staff_id, is_hidden, created_at
-      FROM wall_posts ORDER BY id DESC LIMIT 200
-    `).all();
-    res.json({ posts: rows });
-  } catch (e) {
-    res.status(500).json({ error: String(e.message) });
-  }
-});
-
-// 管理后台：隐藏/恢复留言
-router.post('/api/wall/admin/:id/hide', adminAuth, (req, res) => {
-  try {
-    const hide = req.body?.hidden ? 1 : 0;
-    db.prepare('UPDATE wall_posts SET is_hidden = ? WHERE id = ?').run(hide, req.params.id);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: String(e.message) });
-  }
-});
+// 留言墙已于 2026-11-28 拆到 routes/wall.js（跟休假无关，原先是塞在这里的）
 
 // ═══════════════ 休假申请（组员填报）═══════════════
 // 老韩 2026-11-23 定：

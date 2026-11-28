@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { api, apiJson, AppModal, Badge, ScoreRing, MiniBar, SHOW_LEADERBOARD } from "./shared.jsx";
+import { api, apiJson, AppModal, Badge, ScoreRing, MiniBar, SHOW_LEADERBOARD, SHOW_WALL } from "./shared.jsx";
 import { SquareModuleCard } from "./ModuleCard.jsx";
 // 代码分割（2026-11-27）：管理后台 266KB + 车间培训 168KB 拆成独立包。
 // 组员只答个题，不该被迫下载管理后台那 3500 行代码。实测原来首字节 1.3~3.3 秒。
@@ -9,7 +9,7 @@ const WorkshopScreen = lazy(() => import("./screens/WorkshopScreen.jsx"));
 const AdminScreen = lazy(() => import("./screens/AdminScreen.jsx"));
 import LeaveScreen from "./screens/LeaveScreen.jsx";
 import ShiftCalendar from "./ShiftCalendar.jsx";
-import WallScreen, { WallCardBody } from "./screens/WallScreen.jsx";
+import WallScreen from "./screens/WallScreen.jsx";   // WallCardBody 已不用（首页改占位卡）
 
 
 // 设备指纹（2026-11-26）：给「登录/答题留痕」用。
@@ -1525,9 +1525,13 @@ function HomeScreen({ user, nav }) {
             </div>
             <div style={{ flex:1, minWidth:0, display:'flex' }}>
               <SquareModuleCard
-                theme="wall"
-                customBody={<WallCardBody refreshKey={wallRefresh} />}
-                onClick={()=>nav('wall')}
+                theme="placeholder"
+                customBody={
+                  <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',gap:6}}>
+                    <div style={{fontSize:22,opacity:.38}}>＋</div>
+                    <div style={{fontSize:11.5,color:'var(--muted)',letterSpacing:.5}}>待开发</div>
+                  </div>
+                }
               />
             </div>
           </div>
@@ -2645,7 +2649,7 @@ export default function App() {
           </Suspense>
         )}
         {screen==="leave"&&<LeaveScreen user={user} onBack={()=>nav("home")}/>}
-        {screen==="wall"&&<WallScreen user={user} onBack={()=>nav("home")}/>}
+        {SHOW_WALL&&screen==="wall"&&<WallScreen user={user} onBack={()=>nav("home")}/>}
       </div>
     </>
   );

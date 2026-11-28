@@ -16,6 +16,7 @@ require('./db_leave'); // 休假模块建表（幂等，已存在则跳过）
 const workshopRouter = require('./routes/workshop');
 const quizRouter = require('./routes/quiz');
 const adminRouter = require('./routes/admin');
+const wallRouter = require('./routes/wall');   // 2026-11-28 从 leave.js 拆出
 require('./jobs'); // 启动定时推送任务
 
 // 启动时初始化
@@ -109,6 +110,7 @@ app.use(workshopRouter);
 app.use(quizRouter);
 app.use(adminRouter);
 app.use(require('./routes/leave'));
+app.use(wallRouter);
 
 // ─── 全局错误兜底（2026-11-26）────────────────────────────────────────────
 // 为什么需要：quiz.js 有 40 个路由但只有 4 个 try-catch，/answer /finish /score

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { api, apiJson, adminHeaders, AppModal, Badge, ScoreRing, MiniBar, SHOW_LEADERBOARD } from "../shared.jsx";
+import { api, apiJson, adminHeaders, AppModal, Badge, ScoreRing, MiniBar, SHOW_LEADERBOARD, SHOW_WALL } from "../shared.jsx";
 // 题库子组件与常量（2026-11-27 从本文件抽出）
 import {
   BankTypeSelect, AddQuestionPanel, BankImportCard, DocParseCard,
@@ -20,6 +20,14 @@ import {
 import { ExportMainPanel, WorkshopMultiMonthPanel, WorkshopPlansPanel } from "./admin/ExportPanels.jsx";
 
 // 供下拉选择框使用的分组 select
+// 管理后台 tab 列表。留言墙由 SHOW_WALL 控制（2026-11-28 老韩决定隐藏：
+// 上线后只有 5 条测试数据，组员没用起来）。代码保留，改回 true 即恢复。
+const TABS = [
+  ['overview','概览'],['members','人员'],['leave','休假'],['banks','题库'],
+  ...(SHOW_WALL ? [['wall','留言']] : []),
+  ['settings','设置'],['logs','日志'],['devices','设备'],['qr','扫码'],
+];
+
 function AdminScreen({ onBack }) {
   const [authed,setAuthed]=useState(()=>!!localStorage.getItem('admin_pwd'));
   const [pwd,setPwd]=useState(()=>localStorage.getItem('admin_pwd')||'');
@@ -179,7 +187,7 @@ function AdminScreen({ onBack }) {
     if(tab==='members')apiJson('/api/admin/members',{headers:hdrs()}).then(setMembers).catch(()=>{});
     if(tab==='banks'){apiJson('/api/banks',{headers:hdrs()}).then(d=>{setBanks(d);if(d.length>0){setAiBankId(String(d[0].id));setPinFallback(String(d[0].id));}const manualBank=d.find(b=>b.name==='人工提问');if(manualBank)setAddQ(q=>({...q,bank_id:String(manualBank.id)}));}).catch(()=>{});apiJson('/api/settings',{headers:hdrs()}).then(setSettings).catch(()=>{});apiJson('/api/admin/pinned-questions',{headers:hdrs()}).then(d=>{setQPinned(d);setQSelected(d.ids||[]);setPinScope(d.scope==='none'?'shift':d.scope);setPinFallback(d.bank_fallback_id?String(d.bank_fallback_id):'');setPinCount(d.count||3);setPinMode(d.bank_ids?.length>0?'manual':d.mode||'emergency');setPinRandomBankId(d.bank_id||null);setCheckedBankIds(d.bank_ids||[]);setMultiBankIds(d.bank_ids||[]);}).catch(()=>{});}
     if(tab==='leave'){ loadLeavePending(); loadWeekBatch(weekAnchor||undefined); }
-    if(tab==='wall'){ apiJson('/api/wall/admin/posts',{headers:hdrs()}).then(d=>{setWallPosts(d?.posts||[]);setWallLoaded(true);}).catch(()=>{setWallPosts([]);setWallLoaded(true);}); }
+    if(SHOW_WALL && tab==='wall'){ apiJson('/api/wall/admin/posts',{headers:hdrs()}).then(d=>{setWallPosts(d?.posts||[]);setWallLoaded(true);}).catch(()=>{setWallPosts([]);setWallLoaded(true);}); }
     if(tab==='qr')apiJson('/api/qrcode').then(setQr).catch(()=>{});
     if(tab==='logs')apiJson('/api/admin/logs',{headers:hdrs()}).then(setLogs).catch(()=>{});
     if(tab==='devices')apiJson('/api/admin/login-devices?days=7',{headers:hdrs()}).then(setDevices).catch(()=>{});
@@ -223,7 +231,7 @@ function AdminScreen({ onBack }) {
     <div className="screen admin-screen">
       <div className="page-header"><button className="back-btn" onClick={onBack}>←</button><h2>管理员后台</h2><button onClick={logout} style={{fontSize:11,color:'var(--muted)',background:'none',border:'1px solid var(--border)',borderRadius:5,padding:'3px 9px',cursor:'pointer'}}>退出登录</button></div>
       <div className="tab-row" style={{flexWrap:'wrap',gap:5}}>
-        {[['overview','概览'],['members','人员'],['leave','休假'],['banks','题库'],['wall','留言'],['settings','设置'],['logs','日志'],['devices','设备'],['qr','扫码']].map(([k,v])=>(
+        {TABS.map(([k,v])=>(
           <button key={k} className={`tab${tab===k?' active':''}`} style={{flex:'none',padding:'7px 12px'}} onClick={()=>setTab(k)}>{v}</button>
         ))}
       </div>
@@ -754,7 +762,7 @@ function AdminScreen({ onBack }) {
 
         {tab==='members'&&<MembersTab members={members} pwd={pwd} onRefresh={()=>apiJson('/api/admin/members',{headers:hdrs()}).then(setMembers).catch(()=>{})} selectedMember={selectedMember} setSelectedMember={setSelectedMember} memberDetail={memberDetail} loadMemberDetail={loadMemberDetail}/>}
 
-        {tab==='wall'&&(
+        {SHOW_WALL&&tab==='wall'&&(
           <div style={{padding:'0 2px'}}>
             <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
               <span style={{fontSize:12.5,fontWeight:700,color:'var(--text)'}}>留言管理</span>

@@ -4,6 +4,12 @@
 // 功能代码全部保留，改回 true 即恢复显示。
 export const SHOW_LEADERBOARD = false;
 
+// 留言墙开关（老韩 2026-11-28 定）
+// 理由：上线后只有 5 条测试数据（张飞/关羽/赵云/黄忠/一拳超人），组员没用起来。
+// 主页第二排右边改成「待开发」占位，管理后台「留言」tab 一并隐藏。
+// 后端接口（/api/wall/*）和 WallScreen.jsx 全部保留，改回 true 即恢复。
+export const SHOW_WALL = false;
+
 export const api = (path, opts={}) => fetch(path, { ...opts, headers:{"Content-Type":"application/json", ...opts.headers} });
 export const apiJson = async (path, opts={}) => { const r = await api(path, opts); return r.json(); };
 export const adminHeaders = pwd => ({ "x-admin-password": pwd });
